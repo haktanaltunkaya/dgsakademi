@@ -1,15 +1,8 @@
 {
-<<<<<<< HEAD
     "app_id": "com.akademiprogramlari.dgsakademi",
     "appname": "DGS Akademi",
-    "versioncode": 103,
-    "versionname": "1.0.3",
-=======
-    "app_id": "com.moodle.moodlemobile",
-    "appname": "Moodle Mobile",
-    "versioncode": 50001,
-    "versionname": "5.0.0",
->>>>>>> upstream/main
+    "versioncode": 110,
+    "versionname": "1.1.0",
     "cache_update_frequency_usually": 420000,
     "cache_update_frequency_often": 1200000,
     "cache_update_frequency_sometimes": 3600000,
