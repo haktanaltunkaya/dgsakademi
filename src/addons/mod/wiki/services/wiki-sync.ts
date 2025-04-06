@@ -20,21 +20,25 @@ import { CoreNetwork } from '@services/network';
 import { CoreGroups } from '@services/groups';
 import { CoreSites } from '@services/sites';
 import { CoreSync, CoreSyncResult } from '@services/sync';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreWSError } from '@classes/errors/wserror';
 import { makeSingleton, Translate } from '@singletons';
 import { CoreEvents } from '@singletons/events';
 import { AddonModWikiPageDBRecord } from './database/wiki';
-import { AddonModWiki, AddonModWikiProvider } from './wiki';
+import { AddonModWiki } from './wiki';
 import { AddonModWikiOffline } from './wiki-offline';
+import {
+    ADDON_MOD_WIKI_AUTO_SYNCED,
+    ADDON_MOD_WIKI_COMPONENT,
+    ADDON_MOD_WIKI_COMPONENT_LEGACY,
+    ADDON_MOD_WIKI_MANUAL_SYNCED,
+} from '../constants';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 
 /**
  * Service to sync wikis.
  */
 @Injectable({ providedIn: 'root' })
 export class AddonModWikiSyncProvider extends CoreSyncBaseProvider<AddonModWikiSyncSubwikiResult> {
-
-    static readonly AUTO_SYNCED = 'addon_mod_wiki_autom_synced';
-    static readonly MANUAL_SYNCED = 'addon_mod_wiki_manual_synced';
 
     protected componentTranslatableString = 'wiki';
 
@@ -106,7 +110,7 @@ export class AddonModWikiSyncProvider extends CoreSyncBaseProvider<AddonModWikiS
 
             if (result?.updated) {
                 // Sync successful, send event.
-                CoreEvents.trigger(AddonModWikiSyncProvider.AUTO_SYNCED, {
+                CoreEvents.trigger(ADDON_MOD_WIKI_AUTO_SYNCED, {
                     siteId: siteId,
                     subwikiId: page.subwikiid,
                     wikiId: page.wikiid,
@@ -175,7 +179,7 @@ export class AddonModWikiSyncProvider extends CoreSyncBaseProvider<AddonModWikiS
         }
 
         // Verify that subwiki isn't blocked.
-        if (CoreSync.isBlocked(AddonModWikiProvider.COMPONENT, subwikiBlockId, siteId)) {
+        if (CoreSync.isBlocked(ADDON_MOD_WIKI_COMPONENT, subwikiBlockId, siteId)) {
             this.logger.debug(`Cannot sync subwiki ${subwikiBlockId} because it is blocked.`);
 
             throw new CoreSyncBlockedError(Translate.instant('core.errorsyncblocked', { $a: this.componentTranslate }));
@@ -212,14 +216,14 @@ export class AddonModWikiSyncProvider extends CoreSyncBaseProvider<AddonModWikiS
         const subwikiBlockId = this.getSubwikiBlockId(subwikiId, wikiId, userId, groupId);
 
         // Get offline pages to be sent.
-        const pages = await CoreUtils.ignoreErrors(
+        const pages = await CorePromiseUtils.ignoreErrors(
             AddonModWikiOffline.getSubwikiNewPages(subwikiId, wikiId, userId, groupId, siteId),
             <AddonModWikiPageDBRecord[]> [],
         );
 
         if (!pages || !pages.length) {
             // Nothing to sync.
-            await CoreUtils.ignoreErrors(this.setSyncTime(subwikiBlockId, siteId));
+            await CorePromiseUtils.ignoreErrors(this.setSyncTime(subwikiBlockId, siteId));
 
             return result;
         }
@@ -249,7 +253,7 @@ export class AddonModWikiSyncProvider extends CoreSyncBaseProvider<AddonModWikiS
                 // Delete the local page.
                 await AddonModWikiOffline.deleteNewPage(page.title, subwikiId, wikiId, userId, groupId, siteId);
             } catch (error) {
-                if (!CoreUtils.isWebServiceError(error)) {
+                if (!CoreWSError.isWebServiceError(error)) {
                     // Couldn't connect to server, reject.
                     throw error;
                 }
@@ -272,7 +276,7 @@ export class AddonModWikiSyncProvider extends CoreSyncBaseProvider<AddonModWikiS
         }));
 
         // Sync finished, set sync time.
-        await CoreUtils.ignoreErrors(this.setSyncTime(subwikiBlockId, siteId));
+        await CorePromiseUtils.ignoreErrors(this.setSyncTime(subwikiBlockId, siteId));
 
         return result;
     }
@@ -290,7 +294,7 @@ export class AddonModWikiSyncProvider extends CoreSyncBaseProvider<AddonModWikiS
         siteId = siteId || CoreSites.getCurrentSiteId();
 
         // Sync offline logs.
-        await CoreUtils.ignoreErrors(CoreCourseLogHelper.syncActivity(AddonModWikiProvider.COMPONENT, wikiId, siteId));
+        await CorePromiseUtils.ignoreErrors(CoreCourseLogHelper.syncActivity(ADDON_MOD_WIKI_COMPONENT_LEGACY, wikiId, siteId));
 
         // Sync is done at subwiki level, get all the subwikis.
         const subwikis = await AddonModWiki.getSubwikis(wikiId, { cmId, siteId });
@@ -332,7 +336,7 @@ export class AddonModWikiSyncProvider extends CoreSyncBaseProvider<AddonModWikiS
                 promises.push(CoreGroups.invalidateActivityGroupMode(cmId));
             }
 
-            await CoreUtils.ignoreErrors(Promise.all(promises));
+            await CorePromiseUtils.ignoreErrors(Promise.all(promises));
         }
 
         return result;
@@ -388,7 +392,7 @@ export type AddonModWikiDiscardedPage = {
 };
 
 /**
- * Data passed to AUTO_SYNCED event.
+ * Data passed to ADDON_MOD_WIKI_AUTO_SYNCED event.
  */
 export type AddonModWikiAutoSyncData = {
     siteId: string;
@@ -402,8 +406,22 @@ export type AddonModWikiAutoSyncData = {
 };
 
 /**
- * Data passed to MANUAL_SYNCED event.
+ * Data passed to ADDON_MOD_WIKI_MANUAL_SYNCED event.
  */
 export type AddonModWikiManualSyncData = AddonModWikiSyncWikiResult & {
     wikiId: number;
 };
+
+declare module '@singletons/events' {
+
+    /**
+     * Augment CoreEventsData interface with events specific to this service.
+     *
+     * @see https://www.typescriptlang.org/docs/handbook/declaration-merging.html#module-augmentation
+     */
+    export interface CoreEventsData {
+        [ADDON_MOD_WIKI_AUTO_SYNCED]: AddonModWikiAutoSyncData;
+        [ADDON_MOD_WIKI_MANUAL_SYNCED]: AddonModWikiManualSyncData;
+    }
+
+}

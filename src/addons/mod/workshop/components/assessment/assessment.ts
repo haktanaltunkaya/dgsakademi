@@ -18,7 +18,6 @@ import { CoreCourseModuleData } from '@features/course/services/course-helper';
 import { CoreUser, CoreUserProfile } from '@features/user/services/user';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
 import { AddonModWorkshopData, AddonModWorkshopGetWorkshopAccessInformationWSResponse } from '../../services/workshop';
 import {
     AddonModWorkshopHelper,
@@ -26,6 +25,9 @@ import {
     AddonModWorkshopSubmissionDataWithOfflineData,
 } from '../../services/workshop-helper';
 import { AddonModWorkshopOffline } from '../../services/workshop-offline';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component that displays workshop assessment.
@@ -33,15 +35,19 @@ import { AddonModWorkshopOffline } from '../../services/workshop-offline';
 @Component({
     selector: 'addon-mod-workshop-assessment',
     templateUrl: 'addon-mod-workshop-assessment.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class AddonModWorkshopAssessmentComponent implements OnInit {
 
-    @Input() assessment!: AddonModWorkshopSubmissionAssessmentWithFormData;
-    @Input() courseId!: number;
-    @Input() workshop!: AddonModWorkshopData;
-    @Input() access!: AddonModWorkshopGetWorkshopAccessInformationWSResponse;
-    @Input() submission!: AddonModWorkshopSubmissionDataWithOfflineData;
-    @Input() module!: CoreCourseModuleData;
+    @Input({ required: true }) assessment!: AddonModWorkshopSubmissionAssessmentWithFormData;
+    @Input({ required: true }) courseId!: number;
+    @Input({ required: true }) workshop!: AddonModWorkshopData;
+    @Input({ required: true }) access!: AddonModWorkshopGetWorkshopAccessInformationWSResponse;
+    @Input({ required: true }) submission!: AddonModWorkshopSubmissionDataWithOfflineData;
+    @Input({ required: true }) module!: CoreCourseModuleData;
 
     canViewAssessment = false;
     canSelfAssess = false;
@@ -123,18 +129,21 @@ export class AddonModWorkshopAssessmentComponent implements OnInit {
             };
 
             if (!this.submission) {
-                const modal = await CoreDomUtils.showModalLoading();
+                const modal = await CoreLoadings.show();
 
                 try {
                     params.submission = await AddonModWorkshopHelper.getSubmissionById(
                         this.workshop.id,
                         this.assessment.submissionid,
-                        { cmId: this.workshop.coursemodule },
+                        {
+                            cmId: this.workshop.coursemodule,
+                            canEdit: this.assessment.reviewerid === this.currentUserId && this.access.modifyingsubmissionallowed,
+                        },
                     );
 
                     CoreNavigator.navigate(String(this.assessmentId), { params });
                 } catch (error) {
-                    CoreDomUtils.showErrorModalDefault(error, 'Cannot load submission');
+                    CoreAlerts.showError(error, { default: 'Cannot load submission' });
                 } finally {
                     modal.dismiss();
                 }

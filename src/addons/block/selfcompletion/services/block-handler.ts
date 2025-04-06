@@ -14,10 +14,11 @@
 
 import { Injectable } from '@angular/core';
 import { CoreBlockHandlerData } from '@features/block/services/block-delegate';
-import { CoreBlockOnlyTitleComponent } from '@features/block/components/only-title-block/only-title-block';
 import { CoreBlockBaseHandler } from '@features/block/classes/base-block-handler';
 import { CoreCourseBlock } from '@features/course/services/course';
 import { makeSingleton } from '@singletons';
+import { AddonCourseCompletion } from '@addons/coursecompletion/services/coursecompletion';
+import { ContextLevel } from '@/core/constants';
 
 /**
  * Block handler.
@@ -31,7 +32,29 @@ export class AddonBlockSelfCompletionHandlerService extends CoreBlockBaseHandler
     /**
      * @inheritdoc
      */
-    getDisplayData(block: CoreCourseBlock, contextLevel: string, instanceId: number): CoreBlockHandlerData {
+    async isEnabled(): Promise<boolean> {
+        return AddonCourseCompletion.isCompletionEnabledInSite();
+    }
+
+    /**
+     * @inheritdoc
+     */
+    async getDisplayData(
+        block: CoreCourseBlock,
+        contextLevel: ContextLevel,
+        instanceId: number,
+    ): Promise<undefined | CoreBlockHandlerData> {
+        if (contextLevel !== ContextLevel.COURSE) {
+            return;
+        }
+
+        const courseEnabled = await AddonCourseCompletion.isPluginViewEnabledForCourse(instanceId);
+        if (!courseEnabled) {
+            return;
+        }
+
+        const { CoreBlockOnlyTitleComponent } = await import('@features/block/components/only-title-block/only-title-block');
+
         return {
             title: 'addon.block_selfcompletion.pluginname',
             class: 'addon-block-self-completion',

@@ -13,13 +13,12 @@
 // limitations under the License.
 
 import { Component, OnInit, OnDestroy, AfterViewInit, ViewChild } from '@angular/core';
-import { CoreDomUtils } from '@services/utils/dom';
 import { CoreSearchGlobalSearchResultsSource } from '@features/search/classes/global-search-results-source';
 import { CoreSites } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreUtils } from '@singletons/utils';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
 import { Translate } from '@singletons';
-import { CoreUrlUtils } from '@services/utils/url';
+import { CoreUrl } from '@singletons/url';
 import { CoreEvents, CoreEventObserver } from '@singletons/events';
 import {
     CoreSearchGlobalSearchResult,
@@ -29,15 +28,29 @@ import {
 } from '@features/search/services/global-search';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSearchBoxComponent } from '@features/search/components/search-box/search-box';
+import { CoreModals } from '@services/overlays/modals';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreMainMenuUserButtonComponent } from '../../../mainmenu/components/user-menu-button/user-menu-button';
+import { CoreSearchGlobalSearchResultComponent } from '../../components/global-search-result/global-search-result';
+import { CoreContentLinksHelper } from '@features/contentlinks/services/contentlinks-helper';
 
 @Component({
     selector: 'page-core-search-global-search',
     templateUrl: 'global-search.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreMainMenuUserButtonComponent,
+        CoreSearchBoxComponent,
+        CoreSearchGlobalSearchResultComponent,
+    ],
 })
-export class CoreSearchGlobalSearchPage implements OnInit, OnDestroy, AfterViewInit {
+export default class CoreSearchGlobalSearchPage implements OnInit, OnDestroy, AfterViewInit {
 
     courseId: number | null = null;
-    loadMoreError: string | null = null;
+    loadMoreError = false;
     searchBanner: string | null = null;
     resultsSource = new CoreSearchGlobalSearchResultsSource('', {});
     private filtersObserver?: CoreEventObserver;
@@ -101,9 +114,9 @@ export class CoreSearchGlobalSearchPage implements OnInit, OnDestroy, AfterViewI
             return;
         }
 
-        await CoreDomUtils.showOperationModals('core.searching', true, async () => {
+        await CoreLoadings.showOperationModals('core.searching', true, async () => {
             await this.resultsSource.reload();
-            await CoreUtils.ignoreErrors(
+            await CorePromiseUtils.ignoreErrors(
                 CoreSearchGlobalSearch.logViewResults(this.resultsSource.getQuery(), this.resultsSource.getFilters()),
             );
 
@@ -115,7 +128,7 @@ export class CoreSearchGlobalSearchPage implements OnInit, OnDestroy, AfterViewI
                     query,
                     filters: JSON.stringify(this.resultsSource.getFilters()),
                 },
-                url: CoreUrlUtils.addParamsToUrl('/search/index.php', {
+                url: CoreUrl.addParamsToUrl('/search/index.php', {
                     q: query,
                 }),
             });
@@ -126,7 +139,7 @@ export class CoreSearchGlobalSearchPage implements OnInit, OnDestroy, AfterViewI
      * Clear search results.
      */
     clearSearch(): void {
-        this.loadMoreError = null;
+        this.loadMoreError = false;
 
         this.resultsSource.setQuery('');
         this.resultsSource.reset();
@@ -137,9 +150,9 @@ export class CoreSearchGlobalSearchPage implements OnInit, OnDestroy, AfterViewI
      */
     async openFilters(): Promise<void> {
         const { CoreSearchGlobalSearchFiltersComponent } =
-            await import('@features/search/components/global-search-filters/global-search-filters.module');
+            await import('@features/search/components/global-search-filters/global-search-filters.component');
 
-        await CoreDomUtils.openSideModal<CoreSearchGlobalSearchFilters>({
+        await CoreModals.openSideModal<CoreSearchGlobalSearchFilters>({
             component: CoreSearchGlobalSearchFiltersComponent,
             componentProps: {
                 hideCourses: !!this.courseId,
@@ -148,7 +161,7 @@ export class CoreSearchGlobalSearchPage implements OnInit, OnDestroy, AfterViewI
         });
 
         if (!this.resultsSource.hasEmptyQuery() && this.resultsSource.isDirty()) {
-            await CoreDomUtils.showOperationModals('core.searching', true, () => this.resultsSource.reload());
+            await CoreLoadings.showOperationModals('core.searching', true, () => this.resultsSource.reload());
         }
     }
 
@@ -158,7 +171,7 @@ export class CoreSearchGlobalSearchPage implements OnInit, OnDestroy, AfterViewI
      * @param result Result to visit.
      */
     async visitResult(result: CoreSearchGlobalSearchResult): Promise<void> {
-        await CoreSites.visitLink(result.url);
+        await CoreContentLinksHelper.visitLink(result.url);
     }
 
     /**
@@ -170,7 +183,7 @@ export class CoreSearchGlobalSearchPage implements OnInit, OnDestroy, AfterViewI
         try {
             await this.resultsSource?.load();
         } catch (error) {
-            this.loadMoreError = CoreDomUtils.getErrorMessage(error);
+            this.loadMoreError = true;
         } finally {
             complete();
         }

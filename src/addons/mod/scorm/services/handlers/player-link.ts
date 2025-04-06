@@ -18,6 +18,7 @@ import { CoreContentLinksAction } from '@features/contentlinks/services/contentl
 import { CoreCourseHelper } from '@features/course/services/course-helper';
 import { CoreNavigationOptions } from '@services/navigator';
 import { makeSingleton } from '@singletons';
+import { ADDON_MOD_SCORM_FEATURE_NAME } from '../../constants';
 
 /**
  * Handler to treat links to SCORM player.
@@ -26,7 +27,7 @@ import { makeSingleton } from '@singletons';
 export class AddonModScormPlayerLinkHandlerService extends CoreContentLinksHandlerBase {
 
     name = 'AddonModScormPlayerLinkHandler';
-    featureName = 'CoreCourseModuleDelegate_AddonModScorm';
+    featureName = ADDON_MOD_SCORM_FEATURE_NAME;
     pattern = /\/mod\/scorm\/player\.php.*([?&](id|a)=\d+)/;
 
     /**
@@ -56,7 +57,7 @@ export class AddonModScormPlayerLinkHandlerService extends CoreContentLinksHandl
                 };
 
                 if (cmId) {
-                    CoreCourseHelper.navigateToModule(
+                    await CoreCourseHelper.navigateToModule(
                         cmId,
                         {
                             courseId,
@@ -65,7 +66,7 @@ export class AddonModScormPlayerLinkHandlerService extends CoreContentLinksHandl
                         },
                     );
                 } else {
-                    CoreCourseHelper.navigateToModuleByInstance(
+                    await CoreCourseHelper.navigateToModuleByInstance(
                         instanceId,
                         'scorm',
                         {

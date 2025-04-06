@@ -15,14 +15,19 @@
 import { Component, Input, OnInit, OnChanges, OnDestroy, SimpleChange } from '@angular/core';
 
 import { CoreSiteBasicInfo, CoreSites } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreUtils } from '@singletons/utils';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
-import { USER_PROFILE_PICTURE_UPDATED, CoreUserBasicData } from '@features/user/services/user';
+import { CoreUserBasicData } from '@features/user/services/user';
 import { CoreNavigator } from '@services/navigator';
 import { CoreNetwork } from '@services/network';
 import { CoreUserHelper } from '@features/user/services/user-helper';
-import { CoreUrlUtils } from '@services/utils/url';
+import { CoreUrl } from '@singletons/url';
 import { CoreSiteInfo } from '@classes/sites/unauthenticated-site';
+import { toBoolean } from '@/core/transforms/boolean';
+import { CoreBaseModule } from '@/core/base.module';
+import { CoreExternalContentDirective } from '@directives/external-content';
+import { CoreAriaButtonClickDirective } from '@directives/aria-button';
+import { CORE_USER_PROFILE_PICTURE_UPDATED } from '@features/user/constants';
 
 /**
  * Component to display a "user avatar".
@@ -32,7 +37,13 @@ import { CoreSiteInfo } from '@classes/sites/unauthenticated-site';
 @Component({
     selector: 'core-user-avatar',
     templateUrl: 'core-user-avatar.html',
-    styleUrls: ['user-avatar.scss'],
+    styleUrl: 'user-avatar.scss',
+    standalone: true,
+    imports: [
+        CoreBaseModule,
+        CoreExternalContentDirective,
+        CoreAriaButtonClickDirective,
+    ],
 })
 export class CoreUserAvatarComponent implements OnInit, OnChanges, OnDestroy {
 
@@ -40,15 +51,16 @@ export class CoreUserAvatarComponent implements OnInit, OnChanges, OnDestroy {
     @Input() site?: CoreSiteBasicInfo | CoreSiteInfo; // Site info contains user info.
     // The following params will override the ones in user object.
     @Input() profileUrl?: string;
-    @Input() linkProfile = true; // Avoid linking to the profile if wanted.
+    @Input({ transform: toBoolean }) linkProfile = true; // Avoid linking to the profile if wanted.
     @Input() fullname?: string;
     @Input() userId?: number; // If provided or found it will be used to link the image to the profile.
     @Input() courseId?: number;
-    @Input() checkOnline = false; // If want to check and show online status.
+    @Input({ transform: toBoolean }) checkOnline = false; // If want to check and show online status.
     @Input() siteId?: string;
 
     avatarUrl?: string;
     initials = '';
+    imageError = false;
 
     // Variable to check if we consider this user online or not.
     // @todo Use setting when available (see MDL-63972) so we can use site setting.
@@ -60,7 +72,7 @@ export class CoreUserAvatarComponent implements OnInit, OnChanges, OnDestroy {
         this.currentUserId = CoreSites.getCurrentSiteUserId();
 
         this.pictureObserver = CoreEvents.on(
-            USER_PROFILE_PICTURE_UPDATED,
+            CORE_USER_PROFILE_PICTURE_UPDATED,
             (data) => {
                 if (data.userId === this.userId) {
                     this.avatarUrl = data.picture;
@@ -87,7 +99,7 @@ export class CoreUserAvatarComponent implements OnInit, OnChanges, OnDestroy {
                 fullname: this.site.fullname ?? '',
                 firstname: this.site.firstname ?? '',
                 lastname: this.site.lastname ?? '',
-                userpictureurl: this.site.userpictureurl,
+                profileimageurl: this.site.userpictureurl ?? '',
             };
         }
 
@@ -105,35 +117,39 @@ export class CoreUserAvatarComponent implements OnInit, OnChanges, OnDestroy {
     }
 
     /**
-     * Avatar image loading error handler.
+     * Avatar image loading handler.
      */
-    loadImageError(): void {
-        this.avatarUrl = undefined;
+    imageLoaded(success: boolean): void {
+        this.imageError = !success;
     }
 
     /**
      * Set fields from user.
      */
-    protected setFields(): void {
-        const profileUrl = this.profileUrl || (this.user && (this.user.profileimageurl || this.user.userprofileimageurl ||
-            this.user.userpictureurl || this.user.profileimageurlsmall || (this.user.urls && this.user.urls.profileimage)));
+    protected async setFields(): Promise<void> {
+        const profileUrl = this.profileUrl || this.user?.profileimageurl || this.user?.userprofileimageurl ||
+            this.user?.userpictureurl || this.user?.profileimageurlsmall || this.user?.urls?.profileimage;
 
         if (typeof profileUrl === 'string') {
             this.avatarUrl = profileUrl;
         }
 
-        this.fullname = this.fullname || (this.user && (this.user.fullname || this.user.userfullname));
+        this.fullname = this.fullname || this.user?.fullname || this.user?.userfullname;
 
-        if (this.user) {
-            this.initials = CoreUserHelper.getUserInitials(this.user);
-        }
-
-        if (this.initials && this.avatarUrl && CoreUrlUtils.isThemeImageUrl(this.avatarUrl)) {
+        if (this.avatarUrl && CoreUrl.isThemeImageUrl(this.avatarUrl)) {
             this.avatarUrl = undefined;
         }
 
-        this.userId = this.userId || (this.user && (this.user.userid || this.user.id));
-        this.courseId = this.courseId || (this.user && this.user.courseid);
+        this.userId = this.userId || this.user?.userid || this.user?.id;
+        this.courseId = this.courseId || this.user?.courseid;
+
+        this.initials =
+            await CoreUserHelper.getUserInitialsFromParts({
+                firstname: this.user?.firstname,
+                lastname: this.user?.lastname,
+                fullname: this.fullname,
+                userId: this.userId,
+        });
     }
 
     /**

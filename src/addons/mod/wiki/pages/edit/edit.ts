@@ -20,17 +20,28 @@ import { CanLeave } from '@guards/can-leave';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSites, CoreSitesReadingStrategy } from '@services/sites';
 import { CoreSync } from '@services/sync';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreText } from '@singletons/text';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { CoreWSFile } from '@services/ws';
 import { Translate } from '@singletons';
 import { CoreEvents } from '@singletons/events';
 import { CoreForms } from '@singletons/form';
-import { AddonModWiki, AddonModWikiProvider } from '../../services/wiki';
+import { AddonModWiki } from '../../services/wiki';
 import { AddonModWikiOffline } from '../../services/wiki-offline';
 import { AddonModWikiSync } from '../../services/wiki-sync';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
+import {
+    ADDON_MOD_WIKI_COMPONENT,
+    ADDON_MOD_WIKI_COMPONENT_LEGACY,
+    ADDON_MOD_WIKI_MODNAME,
+    ADDON_MOD_WIKI_PAGE_CREATED_EVENT,
+    ADDON_MOD_WIKI_RENEW_LOCK_TIME,
+} from '../../constants';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreFileHelper } from '@services/file-helper';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreEditorRichTextEditorComponent } from '@features/editor/components/rich-text-editor/rich-text-editor';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that allows adding or editing a wiki page.
@@ -38,8 +49,13 @@ import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
 @Component({
     selector: 'page-addon-mod-wiki-edit',
     templateUrl: 'edit.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreEditorRichTextEditorComponent,
+    ],
 })
-export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
+export default class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
 
     @ViewChild('editPageForm') formElement?: ElementRef;
 
@@ -50,7 +66,7 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
     contentControl: FormControl<string>; // The FormControl for the page content.
     canEditTitle = false; // Whether title can be edited.
     loaded = false; // Whether the data has been loaded.
-    component = AddonModWikiProvider.COMPONENT; // Component to link the files to.
+    component = ADDON_MOD_WIKI_COMPONENT_LEGACY; // Component to link the files to.
     wrongVersionLock = false; // Whether the page lock doesn't match the initial one.
     editorExtraParams: Record<string, unknown> = {};
 
@@ -92,7 +108,7 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
         this.userId = CoreNavigator.getRouteNumberParam('userId');
 
         const pageTitle = CoreNavigator.getRouteParam<string>('pageTitle');
-        this.originalTitle = pageTitle ? CoreTextUtils.cleanTags(pageTitle.replace(/\+/g, ' '), { singleLine: true }) : '';
+        this.originalTitle = pageTitle ? CoreText.cleanTags(pageTitle.replace(/\+/g, ' '), { singleLine: true }) : '';
 
         this.canEditTitle = !this.originalTitle;
         this.title = this.originalTitle ?
@@ -105,7 +121,7 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
         this.pageForm.addControl('text', this.contentControl);
 
         // Block the wiki so it cannot be synced.
-        CoreSync.blockOperation(this.component, this.blockId);
+        CoreSync.blockOperation(ADDON_MOD_WIKI_COMPONENT, this.blockId);
 
         if (this.pageId) {
             this.editorExtraParams.pageid = this.pageId;
@@ -124,9 +140,9 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
                 // Block the subwiki now that we have blockId for sure.
                 const newBlockId = AddonModWikiSync.getSubwikiBlockId(this.subwikiId, this.wikiId, this.userId, this.groupId);
                 if (newBlockId !== this.blockId) {
-                    CoreSync.unblockOperation(this.component, this.blockId);
+                    CoreSync.unblockOperation(ADDON_MOD_WIKI_COMPONENT, this.blockId);
                     this.blockId = newBlockId;
-                    CoreSync.blockOperation(this.component, this.blockId);
+                    CoreSync.blockOperation(ADDON_MOD_WIKI_COMPONENT, this.blockId);
                 }
 
                 this.logView();
@@ -180,7 +196,7 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
                 const editContents = await AddonModWiki.getPageForEditing(this.pageId, this.section);
 
                 // Get the original page contents, treating file URLs if needed.
-                const content = CoreTextUtils.replacePluginfileUrls(editContents.content || '', this.subwikiFiles);
+                const content = CoreFileHelper.replacePluginfileUrls(editContents.content || '', this.subwikiFiles);
 
                 this.contentControl.setValue(content);
                 this.originalContent = content;
@@ -190,7 +206,7 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
                     // Renew the lock every certain time.
                     this.renewLockInterval = window.setInterval(() => {
                         this.renewLock();
-                    }, AddonModWikiProvider.RENEW_LOCK_TIME);
+                    }, ADDON_MOD_WIKI_RENEW_LOCK_TIME);
                 }
             } else {
                 const pageTitle = this.pageForm.controls.title.value;
@@ -221,7 +237,7 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
                     }
 
                     // Check if there's already some offline data for this page.
-                    const page = await CoreUtils.ignoreErrors(
+                    const page = await CorePromiseUtils.ignoreErrors(
                         AddonModWikiOffline.getNewPage(pageTitle, this.subwikiId, this.wikiId, this.userId, this.groupId),
                     );
 
@@ -241,7 +257,7 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
 
             return true;
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Error getting wiki data.');
+            CoreAlerts.showError(error, { default: 'Error getting wiki data.' });
             fetchFailed = true;
 
             // Go back.
@@ -251,7 +267,10 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
         } finally {
             if (!canEdit && !fetchFailed) {
                 // Cannot edit, show alert and go back.
-                CoreDomUtils.showAlert(Translate.instant('core.notice'), Translate.instant('addon.mod_wiki.cannoteditpage'));
+                CoreAlerts.show({
+                    header: Translate.instant('core.notice'),
+                    message: Translate.instant('addon.mod_wiki.cannoteditpage'),
+                });
                 this.forceLeavePage();
             }
         }
@@ -269,7 +288,7 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
 
         const module = await CoreCourse.getModuleBasicInfoByInstance(
             this.wikiId,
-            'wiki',
+            ADDON_MOD_WIKI_MODNAME,
             { readingStrategy: CoreSitesReadingStrategy.PREFER_CACHE },
         );
 
@@ -331,7 +350,7 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
 
         // Check if data has changed.
         if (this.hasDataChanged()) {
-            await CoreDomUtils.showConfirm(Translate.instant('core.confirmcanceledit'));
+            await CoreAlerts.confirmLeaveWithChanges();
         }
 
         CoreForms.triggerFormCancelledEvent(this.formElement, CoreSites.getCurrentSiteId());
@@ -361,10 +380,10 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
         const title = values.title;
         let text = values.text ?? '';
 
-        const modal = await CoreDomUtils.showModalLoading('core.sending', true);
+        const modal = await CoreLoadings.show('core.sending', true);
 
-        text = CoreTextUtils.restorePluginfileUrls(text, this.subwikiFiles);
-        text = CoreTextUtils.formatHtmlLines(text);
+        text = CoreFileHelper.restorePluginfileUrls(text, this.subwikiFiles);
+        text = CoreText.formatHtmlLines(text);
 
         try {
             if (this.editing && this.pageId) {
@@ -383,17 +402,17 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
             if (!title) {
                 // Title is mandatory, stop.
                 modal.dismiss();
-                CoreDomUtils.showAlert(
-                    Translate.instant('core.notice'),
-                    Translate.instant('addon.mod_wiki.titleshouldnotbeempty'),
-                );
+                CoreAlerts.show({
+                    header: Translate.instant('core.notice'),
+                    message: Translate.instant('addon.mod_wiki.titleshouldnotbeempty'),
+                });
 
                 return;
             }
 
             if (!this.editOffline) {
                 // Check if the user has an offline page with the same title.
-                const page = await CoreUtils.ignoreErrors(
+                const page = await CorePromiseUtils.ignoreErrors(
                     AddonModWikiOffline.getNewPage(title, this.subwikiId, this.wikiId, this.userId, this.groupId),
                 );
 
@@ -439,10 +458,10 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
             this.userId = pageContents.userid;
             this.groupId = pageContents.groupid;
 
-            await CoreUtils.ignoreErrors(Promise.all(promises));
+            await CorePromiseUtils.ignoreErrors(Promise.all(promises));
 
             // Notify page created.
-            CoreEvents.trigger(AddonModWikiProvider.PAGE_CREATED_EVENT, {
+            CoreEvents.trigger(ADDON_MOD_WIKI_PAGE_CREATED_EVENT, {
                 pageId: this.pageId,
                 subwikiId: this.subwikiId,
                 pageTitle: title,
@@ -450,7 +469,7 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
 
             this.goToPage(title);
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Error saving wiki data.');
+            CoreAlerts.showError(error, { default: 'Error saving wiki data.' });
         } finally {
             modal.dismiss();
         }
@@ -508,7 +527,7 @@ export class AddonModWikiEditPage implements OnInit, OnDestroy, CanLeave {
 
         // Unblock the subwiki.
         if (this.blockId) {
-            CoreSync.unblockOperation(this.component, this.blockId);
+            CoreSync.unblockOperation(ADDON_MOD_WIKI_COMPONENT, this.blockId);
         }
     }
 

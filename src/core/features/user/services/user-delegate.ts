@@ -16,12 +16,19 @@ import { Injectable } from '@angular/core';
 import { Subject, BehaviorSubject } from 'rxjs';
 
 import { CoreDelegate, CoreDelegateHandler } from '@classes/delegate';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { CoreEvents } from '@singletons/events';
-import { CoreUserProfile, USER_PROFILE_REFRESHED } from './user';
+import { CoreUserProfile } from './user';
 import { makeSingleton } from '@singletons';
 import { CoreCourses, CoreCourseUserAdminOrNavOptionIndexed } from '@features/courses/services/courses';
 import { CoreSites } from '@services/sites';
+import { CORE_USER_PROFILE_REFRESHED } from '../constants';
+
+export enum CoreUserProfileHandlerType {
+    LIST_ITEM = 'listitem', // User profile handler type to be shown as a list item.
+    LIST_ACCOUNT_ITEM = 'account_listitem', // User profile handler type to be shown as a list item and it's related to an account.
+    BUTTON = 'button', // User profile handler type to be shown as a button.
+}
 
 declare module '@singletons/events' {
 
@@ -46,13 +53,11 @@ export interface CoreUserProfileHandler extends CoreDelegateHandler {
     priority: number;
 
     /**
-     * A type should be specified among these:
-     * - TYPE_COMMUNICATION: will be displayed under the user avatar. Should have icon. Spinner not used.
-     * - TYPE_NEW_PAGE: will be displayed as a list of items. Should have icon. Spinner not used.
-     *     Default value if none is specified.
-     * - TYPE_ACTION: will be displayed as a button and should not redirect to any state. Spinner use is recommended.
+     * The type of Handler.
+     *
+     * @see CoreUserProfileHandlerType for more info.
      */
-    type: string;
+    type: CoreUserProfileHandlerType;
 
     /**
      * If isEnabledForUser Cache should be enabled.
@@ -106,7 +111,7 @@ export interface CoreUserProfileHandlerData {
     title: string;
 
     /**
-     * Name of the icon to display. Mandatory for TYPE_COMMUNICATION.
+     * Name of the icon to display. Mandatory for CoreUserProfileHandlerType.BUTTON.
      */
     icon?: string;
 
@@ -116,32 +121,34 @@ export interface CoreUserProfileHandlerData {
     class?: string;
 
     /**
-     * If enabled, element will be hidden. Only for TYPE_NEW_PAGE and TYPE_ACTION.
+     * If enabled, element will be hidden. Only for CoreUserProfileHandlerType.LIST_ITEM.
      */
     hidden?: boolean;
 
     /**
-     * If enabled will show an spinner. Only for TYPE_ACTION.
+     * If enabled will show an spinner.
+     *
+     * @deprecated since 4.4. Not used anymore.
      */
     spinner?: boolean;
 
     /**
-     * If the handler has badge to show or not. Only for TYPE_NEW_PAGE.
+     * If the handler has badge to show or not. Only for CoreUserProfileHandlerType.LIST_ITEM.
      */
     showBadge?: boolean;
 
     /**
-     * Text to display on the badge. Only used if showBadge is true and only for TYPE_NEW_PAGE.
+     * Text to display on the badge. Only used if showBadge is true and only for CoreUserProfileHandlerType.LIST_ITEM.
      */
     badge?: string;
 
     /**
-     * Accessibility text to add on the badge. Only used if showBadge is true and only for TYPE_NEW_PAGE.
+     * Accessibility text to add on the badge. Only used if showBadge is true and only for CoreUserProfileHandlerType.LIST_ITEM.
      */
     badgeA11yText?: string;
 
     /**
-     * If true, the badge number is being loaded. Only used if showBadge is true and only for TYPE_NEW_PAGE.
+     * If true, the badge number is being loaded. Only used if showBadge is true and only for CoreUserProfileHandlerType.LIST_ITEM.
      */
     loading?: boolean;
 
@@ -195,14 +202,20 @@ export class CoreUserDelegateService extends CoreDelegate<CoreUserProfileHandler
 
     /**
      * User profile handler type for communication.
+     *
+     * @deprecated since 4.4. Use CoreUserProfileHandlerType.BUTTON instead.
      */
     static readonly TYPE_COMMUNICATION = 'communication';
     /**
      * User profile handler type for new page.
+     *
+     * @deprecated since 4.4. Use CoreUserProfileHandlerType.LIST_ITEM instead.
      */
     static readonly TYPE_NEW_PAGE = 'newpage';
     /**
      * User profile handler type for actions.
+     *
+     * @deprecated since 4.4. Use CoreUserProfileHandlerType.BUTTON instead.
      */
     static readonly TYPE_ACTION = 'action';
 
@@ -217,7 +230,7 @@ export class CoreUserDelegateService extends CoreDelegate<CoreUserProfileHandler
     protected userHandlers: Record<number, Record<string, CoreUserDelegateHandlersData>> = {};
 
     constructor() {
-        super('CoreUserDelegate', true);
+        super('CoreUserDelegate');
 
         CoreEvents.on(USER_DELEGATE_UPDATE_HANDLER_EVENT, (data) => {
             const handlersData = this.getHandlersData(data.userId, data.context, data.contextId);
@@ -238,7 +251,7 @@ export class CoreUserDelegateService extends CoreDelegate<CoreUserProfileHandler
             this.clearHandlerCache();
         });
 
-        CoreEvents.on(USER_PROFILE_REFRESHED, (data) => {
+        CoreEvents.on(CORE_USER_PROFILE_REFRESHED, (data) => {
             const context = data.courseId ? CoreUserDelegateContext.COURSE : CoreUserDelegateContext.SITE;
             this.clearHandlerCache(data.userId, context, data.courseId);
         });
@@ -322,7 +335,7 @@ export class CoreUserDelegateService extends CoreDelegate<CoreUserProfileHandler
         const handlersData = this.getHandlersData(user.id, context, contextId);
         handlersData.handlers = [];
 
-        await CoreUtils.allPromises(Object.keys(this.enabledHandlers).map(async (name) => {
+        await CorePromiseUtils.allPromises(Object.keys(this.enabledHandlers).map(async (name) => {
             // Checks if the handler is enabled for the user.
             const handler = this.handlers[name];
 
@@ -341,7 +354,7 @@ export class CoreUserDelegateService extends CoreDelegate<CoreUserProfileHandler
                         name: name,
                         data: handler.getDisplayData(user, context, courseId),
                         priority: handler.priority || 0,
-                        type: handler.type || CoreUserDelegateService.TYPE_NEW_PAGE,
+                        type: handler.type || CoreUserProfileHandlerType.LIST_ITEM,
                     });
                 }
             } catch {
@@ -483,6 +496,24 @@ export class CoreUserDelegateService extends CoreDelegate<CoreUserProfileHandler
         }
 
         return this.userHandlers[userId][contextKey];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    registerHandler(handler: CoreUserProfileHandler): boolean {
+        const type = handler.type as string;
+
+        // eslint-disable-next-line deprecation/deprecation
+        if (type === CoreUserDelegateService.TYPE_COMMUNICATION || type === CoreUserDelegateService.TYPE_ACTION) {
+            handler.type = CoreUserProfileHandlerType.BUTTON;
+        // eslint-disable-next-line deprecation/deprecation
+        } else if (type === CoreUserDelegateService.TYPE_NEW_PAGE) {
+            handler.type = CoreUserProfileHandlerType.LIST_ITEM;
+
+        }
+
+        return super.registerHandler(handler);
     }
 
 }

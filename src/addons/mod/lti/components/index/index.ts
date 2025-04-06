@@ -14,11 +14,14 @@
 
 import { Component, Optional, OnInit } from '@angular/core';
 import { IonContent } from '@ionic/angular';
-
 import { CoreCourseModuleMainActivityComponent } from '@features/course/classes/main-activity-component';
-import { CoreCourseContentsPage } from '@features/course/pages/contents/contents';
-import { AddonModLti, AddonModLtiLti, AddonModLtiProvider } from '../../services/lti';
+import CoreCourseContentsPage from '@features/course/pages/contents/contents';
+import { AddonModLti, AddonModLtiLti } from '../../services/lti';
 import { AddonModLtiHelper } from '../../services/lti-helper';
+import { ADDON_MOD_LTI_COMPONENT_LEGACY } from '../../constants';
+import { CoreCourseModuleNavigationComponent } from '@features/course/components/module-navigation/module-navigation';
+import { CoreCourseModuleInfoComponent } from '@features/course/components/module-info/module-info';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component that displays an LTI entry page.
@@ -26,10 +29,16 @@ import { AddonModLtiHelper } from '../../services/lti-helper';
 @Component({
     selector: 'addon-mod-lti-index',
     templateUrl: 'addon-mod-lti-index.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCourseModuleInfoComponent,
+        CoreCourseModuleNavigationComponent,
+    ],
 })
 export class AddonModLtiIndexComponent extends CoreCourseModuleMainActivityComponent implements OnInit {
 
-    component = AddonModLtiProvider.COMPONENT;
+    component = ADDON_MOD_LTI_COMPONENT_LEGACY;
     pluginName = 'lti';
     displayDescription = false;
 

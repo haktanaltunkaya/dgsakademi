@@ -12,16 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreConstants } from '@/core/constants';
 import { Component, OnInit, Optional } from '@angular/core';
 import { CoreError } from '@classes/errors/error';
 import { CoreCourseModuleMainResourceComponent } from '@features/course/classes/main-resource-component';
-import { CoreCourseContentsPage } from '@features/course/pages/contents/contents';
+import CoreCourseContentsPage from '@features/course/pages/contents/contents';
 import { CoreCourse } from '@features/course/services/course';
-import { CoreMimetypeUtils } from '@services/utils/mimetype';
-import { CoreTextUtils } from '@services/utils/text';
-import { AddonModUrl, AddonModUrlDisplayOptions, AddonModUrlProvider, AddonModUrlUrl } from '../../services/url';
+import { CoreMimetype } from '@singletons/mimetype';
+import { CoreText } from '@singletons/text';
+import { AddonModUrl, AddonModUrlDisplayOptions, AddonModUrlUrl } from '../../services/url';
 import { AddonModUrlHelper } from '../../services/url-helper';
+import { ADDON_MOD_URL_COMPONENT_LEGACY } from '../../constants';
+import { CoreSites } from '@services/sites';
+import { CoreCourseModuleNavigationComponent } from '@features/course/components/module-navigation/module-navigation';
+import { CoreCourseModuleInfoComponent } from '@features/course/components/module-info/module-info';
+import { CoreSharedModule } from '@/core/shared.module';
+import { ModResourceDisplay } from '@addons/mod/constants';
 
 /**
  * Component that displays a url.
@@ -29,14 +34,21 @@ import { AddonModUrlHelper } from '../../services/url-helper';
 @Component({
     selector: 'addon-mod-url-index',
     templateUrl: 'addon-mod-url-index.html',
-    styleUrls: ['index.scss'],
+    styleUrl: 'index.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCourseModuleInfoComponent,
+        CoreCourseModuleNavigationComponent,
+    ],
 })
 export class AddonModUrlIndexComponent extends CoreCourseModuleMainResourceComponent implements OnInit {
 
-    component = AddonModUrlProvider.COMPONENT;
+    component = ADDON_MOD_URL_COMPONENT_LEGACY;
     pluginName = 'url';
 
     url?: string;
+    embeddedUrl?: string;
     name?: string;
     shouldEmbed = false;
     shouldIframe = false;
@@ -87,7 +99,7 @@ export class AddonModUrlIndexComponent extends CoreCourseModuleMainResourceCompo
             this.dataRetrieved.emit(url);
 
             if (url.displayoptions) {
-                const unserialized = CoreTextUtils.unserialize<AddonModUrlDisplayOptions>(url.displayoptions);
+                const unserialized = CoreText.unserialize<AddonModUrlDisplayOptions>(url.displayoptions);
                 this.displayDescription = unserialized.printintro === undefined || !!unserialized.printintro;
             }
 
@@ -133,18 +145,25 @@ export class AddonModUrlIndexComponent extends CoreCourseModuleMainResourceCompo
     protected async calculateDisplayOptions(url: AddonModUrlUrl): Promise<void> {
         const displayType = AddonModUrl.getFinalDisplayType(url);
 
-        this.shouldEmbed = displayType == CoreConstants.RESOURCELIB_DISPLAY_EMBED;
-        this.shouldIframe = displayType == CoreConstants.RESOURCELIB_DISPLAY_FRAME;
+        this.shouldEmbed = displayType === ModResourceDisplay.EMBED;
+        this.shouldIframe = displayType === ModResourceDisplay.FRAME;
 
-        if (this.shouldEmbed) {
-            const extension = CoreMimetypeUtils.guessExtensionFromUrl(url.externalurl);
-
-            this.mimetype = CoreMimetypeUtils.getMimeType(extension);
-            this.isImage = CoreMimetypeUtils.isExtensionInGroup(extension, ['web_image']);
-            this.isAudio = CoreMimetypeUtils.isExtensionInGroup(extension, ['web_audio']);
-            this.isVideo = CoreMimetypeUtils.isExtensionInGroup(extension, ['web_video']);
-            this.isOther = !this.isImage && !this.isAudio && !this.isVideo;
+        if (!this.shouldEmbed) {
+            return;
         }
+
+        const extension = CoreMimetype.guessExtensionFromUrl(url.externalurl);
+
+        this.mimetype = CoreMimetype.getMimeType(extension);
+        this.isImage = CoreMimetype.isExtensionInGroup(extension, ['web_image']);
+        this.isAudio = CoreMimetype.isExtensionInGroup(extension, ['web_audio']);
+        this.isVideo = CoreMimetype.isExtensionInGroup(extension, ['web_video']);
+        this.isOther = !this.isImage && !this.isAudio && !this.isVideo;
+
+        // Fix the URL if it uses pluginfile endpoint.
+        const currentSite = CoreSites.getCurrentSite();
+        this.embeddedUrl = currentSite && this.url ?
+            await currentSite.checkAndFixPluginfileURL(this.url) : '';
     }
 
     /**

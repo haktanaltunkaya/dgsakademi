@@ -18,9 +18,10 @@ import { CoreContentLinksAction } from '@features/contentlinks/services/contentl
 import { CoreCourse } from '@features/course/services/course';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSitesReadingStrategy } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
 import { makeSingleton } from '@singletons';
-import { AddonModFeedbackModuleHandlerService } from './module';
+import { ADDON_MOD_FEEDBACK_FEATURE_NAME, ADDON_MOD_FEEDBACK_PAGE_NAME } from '../../constants';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreAlerts } from '@services/overlays/alerts';
 /**
  * Content links handler for feedback show non respondents.
  * Match mod/feedback/show_nonrespondents.php with a valid feedback id.
@@ -29,7 +30,7 @@ import { AddonModFeedbackModuleHandlerService } from './module';
 export class AddonModFeedbackShowNonRespondentsLinkHandlerService extends CoreContentLinksHandlerBase {
 
     name = 'AddonModFeedbackShowNonRespondentsLinkHandler';
-    featureName = 'CoreCourseModuleDelegate_AddonModFeedback';
+    featureName = ADDON_MOD_FEEDBACK_FEATURE_NAME;
     pattern = /\/mod\/feedback\/show_nonrespondents\.php.*([?&](id)=\d+)/;
 
     /**
@@ -38,7 +39,7 @@ export class AddonModFeedbackShowNonRespondentsLinkHandlerService extends CoreCo
     getActions(siteIds: string[], url: string, params: Record<string, string>): CoreContentLinksAction[] {
         return [{
             action: async (siteId: string) => {
-                const modal = await CoreDomUtils.showModalLoading();
+                const modal = await CoreLoadings.show();
 
                 const moduleId = Number(params.id);
 
@@ -49,11 +50,11 @@ export class AddonModFeedbackShowNonRespondentsLinkHandlerService extends CoreCo
                     );
 
                     await CoreNavigator.navigateToSitePath(
-                        AddonModFeedbackModuleHandlerService.PAGE_NAME + `/${module.course}/${module.id}/nonrespondents`,
+                        `${ADDON_MOD_FEEDBACK_PAGE_NAME}/${module.course}/${module.id}/nonrespondents`,
                         { siteId },
                     );
                 } catch (error) {
-                    CoreDomUtils.showErrorModalDefault(error, 'Error opening link.');
+                    CoreAlerts.showError(error, { default: 'Error opening link.' });
                 } finally {
                     modal.dismiss();
                 }

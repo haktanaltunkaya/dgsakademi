@@ -16,10 +16,12 @@ import { Injectable } from '@angular/core';
 
 import { CoreContentLinksHandlerBase } from '@features/contentlinks/classes/base-handler';
 import { CoreContentLinksAction } from '@features/contentlinks/services/contentlinks-delegate';
-import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
+import { CoreContentLinksHelper } from '@features/contentlinks/services/contentlinks-helper';
 import { makeSingleton, Translate } from '@singletons';
 import { AddonReportInsights } from '../insights';
+import { CoreToasts } from '@services/overlays/toasts';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreAlerts } from '@services/overlays/alerts';
 
 // Bulk actions supported, along with the related lang string.
 const BULK_ACTIONS = {
@@ -50,12 +52,12 @@ export class AddonReportInsightsActionLinkHandlerService extends CoreContentLink
         return [{
             action: async (siteId?: string): Promise<void> => {
                 // Send the action.
-                const modal = await CoreDomUtils.showModalLoading('core.sending', true);
+                const modal = await CoreLoadings.show('core.sending', true);
 
                 try {
                     await AddonReportInsights.sendActionExecuted(params.action, [Number(params.predictionid)], siteId);
                 } catch (error) {
-                    CoreDomUtils.showErrorModal(error);
+                    CoreAlerts.showError(error);
 
                     return;
                 } finally {
@@ -64,17 +66,22 @@ export class AddonReportInsightsActionLinkHandlerService extends CoreContentLink
 
                 if (BULK_ACTIONS[params.action]) {
                     // Done, display a toast.
-                    CoreDomUtils.showToast(Translate.instant('addon.report_insights.actionsaved', {
-                        $a: Translate.instant(BULK_ACTIONS[params.action]),
-                    }));
+                    CoreToasts.show({
+                        message: Translate.instant('addon.report_insights.actionsaved', {
+                            $a: Translate.instant(BULK_ACTIONS[params.action]),
+                        }),
+                    });
                 } else if (!params.forwardurl) {
                     // Forward URL not defined, display a toast.
-                    CoreDomUtils.showToast('core.success', true);
+                    CoreToasts.show({
+                        message: 'core.success',
+                        translateMessage: true,
+                    });
                 } else {
                     // Try to open the link in the app.
                     const forwardUrl = decodeURIComponent(params.forwardurl);
 
-                    await CoreSites.visitLink(forwardUrl, { siteId });
+                    await CoreContentLinksHelper.visitLink(forwardUrl, { siteId });
                 }
             },
         }];

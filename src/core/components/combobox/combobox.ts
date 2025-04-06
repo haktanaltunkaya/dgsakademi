@@ -15,8 +15,13 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { Translate } from '@singletons';
 import { ModalOptions } from '@ionic/core';
-import { CoreDomUtils } from '@services/utils/dom';
+import { CoreModals } from '@services/overlays/modals';
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
+import { toBoolean } from '@/core/transforms/boolean';
+import { CoreBaseModule } from '@/core/base.module';
+import { CoreFaIconDirective } from '@directives/fa-icon';
+import { CoreFormatTextDirective } from '@directives/format-text';
+import { CoreUpdateNonReactiveAttributesDirective } from '@directives/update-non-reactive-attributes';
 
 /**
  * Component that show a combo select button (combobox).
@@ -39,20 +44,27 @@ import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 @Component({
     selector: 'core-combobox',
     templateUrl: 'core-combobox.html',
-    styleUrls: ['combobox.scss'],
+    styleUrl: 'combobox.scss',
     providers: [
         {
             provide: NG_VALUE_ACCESSOR,
-            multi:true,
+            multi: true,
             useExisting: CoreComboboxComponent,
         },
+    ],
+    standalone: true,
+    imports: [
+        CoreBaseModule,
+        CoreFaIconDirective,
+        CoreUpdateNonReactiveAttributesDirective,
+        CoreFormatTextDirective,
     ],
 })
 export class CoreComboboxComponent implements ControlValueAccessor {
 
     @Input() interface: 'popover' | 'modal' = 'popover';
     @Input() label = Translate.instant('core.show'); // Aria label.
-    @Input() disabled = false;
+    @Input({ transform: toBoolean }) disabled = false;
     @Input() selection = '';
     @Output() onChange = new EventEmitter<unknown>(); // Will emit an event the value changed.
 
@@ -123,7 +135,7 @@ export class CoreComboboxComponent implements ControlValueAccessor {
             this.modalOptions.id = this.listboxId;
         }
 
-        const data = await CoreDomUtils.openModal(this.modalOptions);
+        const data = await CoreModals.openModal(this.modalOptions);
         this.expanded = false;
 
         if (data) {

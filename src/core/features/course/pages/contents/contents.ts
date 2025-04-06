@@ -15,8 +15,7 @@
 import { Component, ViewChild, OnInit, OnDestroy, forwardRef, ChangeDetectorRef } from '@angular/core';
 import { IonContent } from '@ionic/angular';
 
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreUtils } from '@singletons/utils';
 import { CoreCourses, CoreCourseAnyCourseData } from '@features/courses/services/courses';
 import {
     CoreCourse,
@@ -25,11 +24,12 @@ import {
 import {
     CoreCourseHelper,
     CoreCourseModuleCompletionData,
+    CoreCourseModuleData,
     CoreCourseSection,
 } from '@features/course/services/course-helper';
 import { CoreCourseFormatDelegate } from '@features/course/services/format-delegate';
 import { CoreCourseModulePrefetchDelegate } from '@features/course/services/module-prefetch-delegate';
-import { CoreCourseSync, CoreCourseSyncProvider } from '@features/course/services/sync';
+import { CoreCourseSync } from '@features/course/services/sync';
 import { CoreCourseFormatComponent } from '../../components/course-format/course-format';
 import {
     CoreEvents,
@@ -37,6 +37,19 @@ import {
 } from '@singletons/events';
 import { CoreNavigator } from '@services/navigator';
 import { CoreRefreshContext, CORE_REFRESH_CONTEXT } from '@/core/utils/refresh-context';
+import { CoreCoursesHelper } from '@features/courses/services/courses-helper';
+import { CoreSites } from '@services/sites';
+import { CoreWait } from '@singletons/wait';
+import {
+    CoreCourseModuleCompletionStatus,
+    CORE_COURSE_AUTO_SYNCED,
+    CORE_COURSE_PROGRESS_UPDATED_EVENT,
+} from '@features/course/constants';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreObject } from '@singletons/object';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { Translate } from '@singletons';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays the contents of a course.
@@ -48,8 +61,13 @@ import { CoreRefreshContext, CORE_REFRESH_CONTEXT } from '@/core/utils/refresh-c
         provide: CORE_REFRESH_CONTEXT,
         useExisting: forwardRef(() => CoreCourseContentsPage),
     }],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCourseFormatComponent,
+    ],
 })
-export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshContext {
+export default class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshContext {
 
     @ViewChild(IonContent) content?: IonContent;
     @ViewChild(CoreCourseFormatComponent) formatComponent?: CoreCourseFormatComponent;
@@ -85,7 +103,7 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
         try {
             this.course = CoreNavigator.getRequiredRouteParam<CoreCourseAnyCourseData>('course');
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
+            CoreAlerts.showError(error);
             CoreNavigator.back();
 
             return;
@@ -99,9 +117,9 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
 
         this.debouncedUpdateCachedCompletion = CoreUtils.debounce(() => {
             if (this.modulesHaveCompletion) {
-                CoreUtils.ignoreErrors(CoreCourse.getSections(this.course.id, false, true));
+                CorePromiseUtils.ignoreErrors(CoreCourse.getSections(this.course.id, false, true));
             } else {
-                CoreUtils.ignoreErrors(CoreCourse.getActivitiesCompletionStatus(
+                CorePromiseUtils.ignoreErrors(CoreCourse.getActivitiesCompletionStatus(
                     this.course.id,
                     undefined,
                     undefined,
@@ -148,7 +166,7 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
             this.onCompletionChange(data.completion);
         });
 
-        this.syncObserver = CoreEvents.on(CoreCourseSyncProvider.AUTO_SYNCED, (data) => {
+        this.syncObserver = CoreEvents.on(CORE_COURSE_AUTO_SYNCED, (data) => {
             if (!data || data.courseId != this.course.id) {
                 return;
             }
@@ -156,7 +174,7 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
             this.showLoadingAndRefresh(false, false);
 
             if (data.warnings && data.warnings[0]) {
-                CoreDomUtils.showAlert(undefined, data.warnings[0].message);
+                CoreAlerts.show({ message: data.warnings[0].message });
             }
         });
     }
@@ -170,7 +188,7 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
      */
     protected async loadData(refresh?: boolean, sync?: boolean): Promise<void> {
         // First of all, get the course because the data might have changed.
-        const result = await CoreUtils.ignoreErrors(CoreCourseHelper.getCourse(this.course.id));
+        const result = await CorePromiseUtils.ignoreErrors(CoreCourseHelper.getCourse(this.course.id));
 
         if (result) {
             if (this.course.id === result.course.id && 'displayname' in this.course && !('displayname' in result.course)) {
@@ -182,12 +200,12 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
         if (sync) {
             // Try to synchronize the course data.
             // For now we don't allow manual syncing, so ignore errors.
-            const result = await CoreUtils.ignoreErrors(CoreCourseSync.syncCourse(
+            const result = await CorePromiseUtils.ignoreErrors(CoreCourseSync.syncCourse(
                 this.course.id,
                 this.course.displayname || this.course.fullname,
             ));
             if (result?.warnings?.length) {
-                CoreDomUtils.showAlert(undefined, result.warnings[0].message);
+                CoreAlerts.show({ message: result.warnings[0].message });
             }
         }
 
@@ -197,7 +215,7 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
                 this.loadCourseFormatOptions(),
             ]);
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'core.course.couldnotloadsectioncontent', true);
+            CoreAlerts.showError(error, { default: Translate.instant('core.course.couldnotloadsectioncontent') });
         }
     }
 
@@ -210,10 +228,11 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
     protected async loadSections(refresh?: boolean): Promise<void> {
         // Get all the sections.
         const sections = await CoreCourse.getSections(this.course.id, false, true);
+        let modules: CoreCourseModuleData[] | undefined;
 
         if (refresh) {
             // Invalidate the recently downloaded module list. To ensure info can be prefetched.
-            const modules = CoreCourse.getSectionsModules(sections);
+            modules = CoreCourse.getSectionsModules(sections);
 
             await CoreCourseModulePrefetchDelegate.invalidateModules(modules, this.course.id);
         }
@@ -221,16 +240,18 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
         let completionStatus: Record<string, CoreCourseCompletionActivityStatus> = {};
 
         // Get the completion status.
-        if (this.course.enablecompletion !== false) {
-            const sectionWithModules = sections.find((section) => section.modules.length > 0);
+        if (CoreCoursesHelper.isCompletionEnabledInCourse(this.course)) {
+            if (!modules) {
+                modules = CoreCourse.getSectionsModules(sections);
+            }
 
-            if (sectionWithModules && sectionWithModules.modules[0].completion !== undefined) {
+            if (modules[0]?.completion !== undefined) {
                 // The module already has completion (3.6 onwards). Load the offline completion.
                 this.modulesHaveCompletion = true;
 
-                await CoreUtils.ignoreErrors(CoreCourseHelper.loadOfflineCompletion(this.course.id, sections));
+                await CorePromiseUtils.ignoreErrors(CoreCourseHelper.loadOfflineCompletion(this.course.id, sections));
             } else {
-                const fetchedData = await CoreUtils.ignoreErrors(
+                const fetchedData = await CorePromiseUtils.ignoreErrors(
                     CoreCourse.getActivitiesCompletionStatus(this.course.id),
                 );
 
@@ -265,23 +286,23 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
     protected async loadCourseFormatOptions(): Promise<void> {
 
         // Load the course format options when course completion is enabled to show completion progress on sections.
-        if (!this.course.enablecompletion) {
+        if (!CoreCoursesHelper.isCompletionEnabledInCourse(this.course)) {
             return;
         }
 
         if ('courseformatoptions' in this.course && this.course.courseformatoptions) {
             // Already loaded.
-            this.formatOptions = CoreUtils.objectToKeyValueMap(this.course.courseformatoptions, 'name', 'value');
+            this.formatOptions = CoreObject.toKeyValueMap(this.course.courseformatoptions, 'name', 'value');
 
             return;
         }
 
-        const course = await CoreUtils.ignoreErrors(CoreCourses.getCourseByField('id', this.course.id));
+        const course = await CorePromiseUtils.ignoreErrors(CoreCourses.getCourseByField('id', this.course.id));
 
         course && Object.assign(this.course, course);
 
         if (course?.courseformatoptions) {
-            this.formatOptions = CoreUtils.objectToKeyValueMap(course.courseformatoptions, 'name', 'value');
+            this.formatOptions = CoreObject.toKeyValueMap(course.courseformatoptions, 'name', 'value');
         }
     }
 
@@ -292,7 +313,7 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
      * @returns Promise resolved when done.
      */
     async doRefresh(refresher?: HTMLIonRefresherElement): Promise<void> {
-        await CoreUtils.ignoreErrors(this.invalidateData());
+        await CorePromiseUtils.ignoreErrors(this.invalidateData());
 
         try {
             await this.loadData(true, true);
@@ -300,7 +321,7 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
             // Do not call doRefresh on the format component if the refresher is defined in the format component
             // to prevent an infinite loop.
             if (this.displayRefresher && this.formatComponent) {
-                await CoreUtils.ignoreErrors(this.formatComponent.doRefresh(refresher));
+                await CorePromiseUtils.ignoreErrors(this.formatComponent.doRefresh(refresher));
             }
 
             refresher?.complete();
@@ -314,20 +335,48 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
      * @returns Promise resolved when done.
      */
     async onCompletionChange(completionData: CoreCourseModuleCompletionData): Promise<void> {
-        const shouldReload = completionData.valueused === undefined || completionData.valueused;
-
-        if (!shouldReload) {
-            // Invalidate the completion.
-            await CoreUtils.ignoreErrors(CoreCourse.invalidateSections(this.course.id));
-
-            this.debouncedUpdateCachedCompletion?.();
-
+        if (completionData.courseId != this.course?.id) {
             return;
         }
 
-        await CoreUtils.ignoreErrors(this.invalidateData());
+        const siteId = CoreSites.getCurrentSiteId();
+        const shouldReload = completionData.valueused === true;
 
-        await this.showLoadingAndRefresh(true, false);
+        if (!shouldReload) {
+
+            if (!this.course || !('progress' in this.course) || typeof this.course.progress != 'number') {
+                return;
+            }
+
+            if (this.sections) {
+                // If the completion value is not used, the page won't be reloaded, so update the progress bar.
+                const completionModules = CoreCourse.getSectionsModules(this.sections)
+                    .map((module) => module.completion && module.completion > 0 ? 1 : module.completion)
+                    .reduce((accumulator, currentValue) => (accumulator || 0) + (currentValue || 0), 0);
+
+                const moduleProgressPercent = 100 / (completionModules || 1);
+                // Use min/max here to avoid floating point rounding errors over/under-flowing the progress bar.
+                if (completionData.state === CoreCourseModuleCompletionStatus.COMPLETION_COMPLETE) {
+                    this.course.progress = Math.min(100, this.course.progress + moduleProgressPercent);
+                } else {
+                    this.course.progress = Math.max(0, this.course.progress - moduleProgressPercent);
+                }
+            }
+
+            await CorePromiseUtils.ignoreErrors(this.invalidateData());
+            this.debouncedUpdateCachedCompletion?.();
+        } else {
+            await CorePromiseUtils.ignoreErrors(this.invalidateData());
+            await this.showLoadingAndRefresh(true, false);
+        }
+
+        if (!('progress' in this.course) || this.course.progress === undefined || this.course.progress === null) {
+            return;
+        }
+
+        CoreEvents.trigger(CORE_COURSE_PROGRESS_UPDATED_EVENT, {
+            courseId: this.course.id, progress: this.course.progress,
+        }, siteId);
     }
 
     /**
@@ -358,7 +407,7 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
      */
     protected async showLoadingAndRefresh(sync = false, invalidateData = true): Promise<void> {
         // Try to keep current scroll position.
-        const scrollElement = await CoreUtils.ignoreErrors(this.content?.getScrollElement());
+        const scrollElement = await CorePromiseUtils.ignoreErrors(this.content?.getScrollElement());
         const scrollTop = scrollElement?.scrollTop ?? -1;
 
         this.updatingData = true;
@@ -366,7 +415,7 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
 
         try {
             if (invalidateData) {
-                await CoreUtils.ignoreErrors(this.invalidateData());
+                await CorePromiseUtils.ignoreErrors(this.invalidateData());
             }
 
             await this.loadData(true, sync);
@@ -377,7 +426,7 @@ export class CoreCourseContentsPage implements OnInit, OnDestroy, CoreRefreshCon
             this.changeDetectorRef.detectChanges();
 
             if (scrollTop > 0) {
-                await CoreUtils.nextTick();
+                await CoreWait.nextTick();
                 this.content?.scrollToPoint(0, scrollTop, 0);
             }
         }

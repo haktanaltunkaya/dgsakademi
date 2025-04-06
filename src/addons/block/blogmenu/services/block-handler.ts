@@ -16,8 +16,8 @@ import { Injectable } from '@angular/core';
 
 import { CoreBlockHandlerData } from '@features/block/services/block-delegate';
 import { CoreBlockBaseHandler } from '@features/block/classes/base-block-handler';
-import { AddonBlockBlogMenuComponent } from '../components/blogmenu/blogmenu';
 import { makeSingleton } from '@singletons';
+import { AddonBlog } from '@addons/blog/services/blog';
 
 /**
  * Block handler.
@@ -29,11 +29,17 @@ export class AddonBlockBlogMenuHandlerService extends CoreBlockBaseHandler {
     blockName = 'blog_menu';
 
     /**
-     * Returns the data needed to render the block.
-     *
-     * @returns Data or promise resolved with the data.
+     * @inheritdoc
      */
-    getDisplayData(): CoreBlockHandlerData {
+    async isEnabled(): Promise<boolean> {
+        return await AddonBlog.isPluginEnabled();
+    }
+
+    /**
+     * @inheritdoc
+     */
+    async getDisplayData(): Promise<CoreBlockHandlerData> {
+        const { AddonBlockBlogMenuComponent } = await import('../components/blogmenu/blogmenu');
 
         return {
             title: 'addon.block_blogmenu.pluginname',

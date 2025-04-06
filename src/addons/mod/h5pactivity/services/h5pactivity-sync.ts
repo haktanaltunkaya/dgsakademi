@@ -22,28 +22,31 @@ import { CoreXAPIOffline } from '@features/xapi/services/offline';
 import { CoreXAPI, XAPI_STATE_DELETED } from '@features/xapi/services/xapi';
 import { CoreNetwork } from '@services/network';
 import { CoreSites, CoreSitesReadingStrategy } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
 import { makeSingleton, Translate } from '@singletons';
 import { CoreEvents } from '@singletons/events';
 import {
     AddonModH5PActivity,
     AddonModH5PActivityAttempt,
     AddonModH5PActivityData,
-    AddonModH5PActivityProvider,
 } from './h5pactivity';
 import { CoreXAPIStateDBRecord, CoreXAPIStatementDBRecord } from '@features/xapi/services/database/xapi';
-import { CoreTextUtils } from '@services/utils/text';
 import { CoreXAPIIRI } from '@features/xapi/classes/iri';
 import { CoreXAPIItemAgent } from '@features/xapi/classes/item-agent';
 import { CoreWSError } from '@classes/errors/wserror';
+import { CoreArray } from '@singletons/array';
+import {
+    ADDON_MOD_H5PACTIVITY_AUTO_SYNCED,
+    ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY,
+    ADDON_MOD_H5PACTIVITY_TRACK_COMPONENT,
+} from '../constants';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreCourseModuleHelper } from '@features/course/services/course-module-helper';
 
 /**
  * Service to sync H5P activities.
  */
 @Injectable({ providedIn: 'root' })
 export class AddonModH5PActivitySyncProvider extends CoreCourseActivitySyncBaseProvider<AddonModH5PActivitySyncResult> {
-
-    static readonly AUTO_SYNCED = 'addon_mod_h5pactivity_autom_synced';
 
     protected componentTranslatableString = 'h5pactivity';
 
@@ -76,7 +79,7 @@ export class AddonModH5PActivitySyncProvider extends CoreCourseActivitySyncBaseP
         ]);
 
         const entries = (<(CoreXAPIStatementDBRecord|CoreXAPIStateDBRecord)[]> statements).concat(states);
-        const contextIds = CoreUtils.uniqueArray(entries.map(entry => 'contextid' in entry ? entry.contextid : entry.itemid));
+        const contextIds = CoreArray.unique(entries.map(entry => 'contextid' in entry ? entry.contextid : entry.itemid));
 
         // Sync all activities.
         const promises = contextIds.map(async (contextId) => {
@@ -85,7 +88,7 @@ export class AddonModH5PActivitySyncProvider extends CoreCourseActivitySyncBaseP
 
             if (result?.updated) {
                 // Sync successful, send event.
-                CoreEvents.trigger(AddonModH5PActivitySyncProvider.AUTO_SYNCED, {
+                CoreEvents.trigger(ADDON_MOD_H5PACTIVITY_AUTO_SYNCED, {
                     contextId,
                     warnings: result.warnings,
                 }, siteId);
@@ -160,7 +163,7 @@ export class AddonModH5PActivitySyncProvider extends CoreCourseActivitySyncBaseP
         const deleteOfflineData = async (): Promise<void> => {
             await Promise.all([
                 statements.length ? CoreXAPIOffline.deleteStatementsForContext(contextId, siteId) : undefined,
-                states.length ? CoreXAPIOffline.deleteStates(AddonModH5PActivityProvider.TRACK_COMPONENT, {
+                states.length ? CoreXAPIOffline.deleteStates(ADDON_MOD_H5PACTIVITY_TRACK_COMPONENT, {
                     itemId: contextId,
                     siteId,
                 }) : undefined,
@@ -192,8 +195,8 @@ export class AddonModH5PActivitySyncProvider extends CoreCourseActivitySyncBaseP
             h5pActivity = await AddonModH5PActivity.getH5PActivityByContextId(courseId, contextId, { siteId });
         } catch (error) {
             if (
-                CoreUtils.isWebServiceError(error) ||
-                CoreTextUtils.getErrorMessageFromError(error) === Translate.instant('core.course.modulenotfound')
+                CoreWSError.isWebServiceError(error) ||
+                CoreCourseModuleHelper.isNotFoundError(error)
             ) {
                 // Activity no longer accessible. Delete the data and finish the sync.
                 await deleteOfflineData();
@@ -205,8 +208,8 @@ export class AddonModH5PActivitySyncProvider extends CoreCourseActivitySyncBaseP
         }
 
         // Sync offline logs.
-        await CoreUtils.ignoreErrors(
-            CoreCourseLogHelper.syncActivity(AddonModH5PActivityProvider.COMPONENT, h5pActivity.id, siteId),
+        await CorePromiseUtils.ignoreErrors(
+            CoreCourseLogHelper.syncActivity(ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY, h5pActivity.id, siteId),
         );
 
         const results = await Promise.all([
@@ -249,7 +252,7 @@ export class AddonModH5PActivitySyncProvider extends CoreCourseActivitySyncBaseP
 
                 await CoreXAPIOffline.deleteStatements(entry.id, siteId);
             } catch (error) {
-                if (!CoreUtils.isWebServiceError(error)) {
+                if (!CoreWSError.isWebServiceError(error)) {
                     throw error;
                 }
 
@@ -265,7 +268,7 @@ export class AddonModH5PActivitySyncProvider extends CoreCourseActivitySyncBaseP
 
         if (result.updated) {
             // Data has been sent to server, invalidate attempts.
-            await CoreUtils.ignoreErrors(AddonModH5PActivity.invalidateUserAttempts(id, undefined, siteId));
+            await CorePromiseUtils.ignoreErrors(AddonModH5PActivity.invalidateUserAttempts(id, undefined, siteId));
         }
 
         return result;
@@ -309,7 +312,7 @@ export class AddonModH5PActivitySyncProvider extends CoreCourseActivitySyncBaseP
         } catch (error) {
             // Error getting attempts. If the WS has thrown an exception it means the user cannot retrieve the attempts for
             // some reason (it shouldn't happen), continue synchronizing in that case.
-            if (!CoreUtils.isWebServiceError(error)) {
+            if (!CoreWSError.isWebServiceError(error)) {
                 throw error;
             }
         }
@@ -360,7 +363,7 @@ export class AddonModH5PActivitySyncProvider extends CoreCourseActivitySyncBaseP
                     siteId,
                 });
             } catch (error) {
-                if (!CoreUtils.isWebServiceError(error)) {
+                if (!CoreWSError.isWebServiceError(error)) {
                     throw error;
                 }
 
@@ -398,3 +401,16 @@ export type AddonModH5PActivityAutoSyncData = {
     contextId: number;
     warnings: string[];
 };
+
+declare module '@singletons/events' {
+
+    /**
+     * Augment CoreEventsData interface with events specific to this service.
+     *
+     * @see https://www.typescriptlang.org/docs/handbook/declaration-merging.html#module-augmentation
+     */
+    export interface CoreEventsData {
+        [ADDON_MOD_H5PACTIVITY_AUTO_SYNCED]: AddonModH5PActivityAutoSyncData;
+    }
+
+}

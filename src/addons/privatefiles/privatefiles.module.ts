@@ -14,32 +14,51 @@
 
 import { APP_INITIALIZER, NgModule, Type } from '@angular/core';
 import { Routes } from '@angular/router';
-
-import { CoreMainMenuRoutingModule } from '@features/mainmenu/mainmenu-routing.module';
 import { CoreMainMenuTabRoutingModule } from '@features/mainmenu/mainmenu-tab-routing.module';
-import { AddonPrivateFilesProvider } from './services/privatefiles';
-import { AddonPrivateFilesHelperProvider } from './services/privatefiles-helper';
 import { CoreUserDelegate } from '@features/user/services/user-delegate';
-import { AddonPrivateFilesUserHandler, AddonPrivateFilesUserHandlerService } from './services/handlers/user';
+import { AddonPrivateFilesUserHandler } from './services/handlers/user';
+import { ADDON_PRIVATE_FILES_PAGE_NAME } from './constants';
 
-export const ADDON_PRIVATEFILES_SERVICES: Type<unknown>[] = [
-    AddonPrivateFilesProvider,
-    AddonPrivateFilesHelperProvider,
-];
+/**
+ * Get private files services.
+ *
+ * @returns Returns private files services.
+ */
+export async function getPrivateFilesServices(): Promise<Type<unknown>[]> {
+    const { AddonPrivateFilesProvider } = await import('@addons/privatefiles/services/privatefiles');
+    const { AddonPrivateFilesHelperProvider } = await import('@addons/privatefiles/services/privatefiles-helper');
+
+    return [
+        AddonPrivateFilesProvider,
+        AddonPrivateFilesHelperProvider,
+    ];
+}
 
 const routes: Routes = [
     {
-        path: AddonPrivateFilesUserHandlerService.PAGE_NAME,
-        loadChildren: () => import('@addons/privatefiles/privatefiles-lazy.module').then(m => m.AddonPrivateFilesLazyModule),
+        path: ADDON_PRIVATE_FILES_PAGE_NAME,
+        loadChildren: () => [
+            {
+                path: '',
+                redirectTo: 'root',
+                pathMatch: 'full',
+            },
+            {
+                path: 'root',
+                loadComponent: () => import('@addons/privatefiles/pages/index'),
+            },
+            {
+                path: ':hash',
+                loadComponent: () => import('@addons/privatefiles/pages/index'),
+            },
+        ],
     },
 ];
 
 @NgModule({
     imports: [
         CoreMainMenuTabRoutingModule.forChild(routes),
-        CoreMainMenuRoutingModule.forChild({ children: routes }),
     ],
-    exports: [CoreMainMenuRoutingModule],
     providers: [
         {
             provide: APP_INITIALIZER,

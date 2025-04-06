@@ -14,7 +14,6 @@
 
 import { InjectionToken, Injector, ModuleWithProviders, NgModule, Type } from '@angular/core';
 import {
-    PreloadAllModules,
     RouterModule,
     Route,
     Routes,
@@ -23,9 +22,9 @@ import {
     UrlMatchResult,
     UrlSegment,
     UrlSegmentGroup,
+    DefaultExport,
 } from '@angular/router';
-
-import { CoreArray } from '@singletons/array';
+import { Observable } from 'rxjs';
 
 const modulesRoutes: WeakMap<InjectionToken<unknown>, ModuleRoutes> = new WeakMap();
 
@@ -36,7 +35,7 @@ const modulesRoutes: WeakMap<InjectionToken<unknown>, ModuleRoutes> = new WeakMa
  * @returns App routes.
  */
 function buildAppRoutes(injector: Injector): Routes {
-    return CoreArray.flatten(injector.get<Routes[]>(APP_ROUTES, []));
+    return injector.get<Routes[]>(APP_ROUTES, []).flat();
 }
 
 /**
@@ -100,10 +99,24 @@ function buildConditionalUrlMatcher(pathOrMatcher: string | UrlMatcher, conditio
 }
 
 /**
- * Type to declare lazy route modules.
+ * Type to declare lazy route modules. Extracted from Angular's LoadChildrenCallback type.
+ *
+ * @deprecated since 5.0. Now pages are loaded using the loadComponent property. You can use LazyDefaultStandaloneComponent instead.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type LazyRoutesModule = Type<any>;
+export type LazyRoutesModule = Type<any> |
+    Routes |
+    Observable<Type<any> | // eslint-disable-line @typescript-eslint/no-explicit-any
+    Routes |
+    DefaultExport<Type<any>> | // eslint-disable-line @typescript-eslint/no-explicit-any
+    DefaultExport<Routes>> |
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Promise<Type<any> | Routes | DefaultExport<Type<any>> |DefaultExport<Routes>>;
+
+/**
+ * Type to declare lazy standalone component. Extracted from Angular's LoadComponent type with default class.
+ */
+export type LazyDefaultStandaloneComponent = Promise<DefaultExport<Type<unknown>>>;
 
 /**
  * Build url matcher using a regular expression.
@@ -211,8 +224,8 @@ export function resolveModuleRoutes(injector: Injector, token: InjectionToken<Mo
     });
 
     const moduleRoutes = {
-        children: CoreArray.flatten(routes.map(r => r.children)),
-        siblings: CoreArray.flatten(routes.map(r => r.siblings)),
+        children: routes.map(r => r.children).flat(),
+        siblings: routes.map(r => r.siblings).flat(),
     };
 
     modulesRoutes.set(token, moduleRoutes);
@@ -222,14 +235,16 @@ export function resolveModuleRoutes(injector: Injector, token: InjectionToken<Mo
 
 export const APP_ROUTES = new InjectionToken('APP_ROUTES');
 
+/**
+ * Module used to register routes at the root of the application.
+ */
 @NgModule({
     imports: [
-        RouterModule.forRoot([], { preloadingStrategy: PreloadAllModules }),
+        RouterModule.forRoot([]),
     ],
     providers: [
         { provide: ROUTES, multi: true, useFactory: buildAppRoutes, deps: [Injector] },
     ],
-    exports: [RouterModule],
 })
 export class AppRoutingModule {
 

@@ -13,17 +13,19 @@
 // limitations under the License.
 
 import { Component, OnInit } from '@angular/core';
-import {
-    CoreCourseModuleSummaryResult,
-    CoreCourseModuleSummaryComponent,
-} from '@features/course/components/module-summary/module-summary';
+import { CoreCourseModuleSummaryResult } from '@features/course/components/module-summary/module-summary';
 import { CoreCourse } from '@features/course/services/course';
-import { CoreCourseHelper, CoreCourseModuleData, CoreCourseSection } from '@features/course/services/course-helper';
+import { CoreCourseHelper, CoreCourseModuleData } from '@features/course/services/course-helper';
 import { CoreCourseModuleDelegate } from '@features/course/services/module-delegate';
+import { CoreModals } from '@services/overlays/modals';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreUtils } from '@singletons/utils';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreCourseModuleNavigationComponent } from '../../components/module-navigation/module-navigation';
+import { CoreCourseUnsupportedModuleComponent } from '../../components/unsupported-module/unsupported-module';
+import { CoreCourseModuleInfoComponent } from '../../components/module-info/module-info';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays a module preview.
@@ -31,17 +33,22 @@ import { CoreUtils } from '@services/utils/utils';
 @Component({
     selector: 'page-core-course-module-preview',
     templateUrl: 'module-preview.html',
-    styleUrls: ['module-preview.scss'],
+    styleUrl: 'module-preview.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCourseModuleInfoComponent,
+        CoreCourseUnsupportedModuleComponent,
+        CoreCourseModuleNavigationComponent,
+    ],
 })
-export class CoreCourseModulePreviewPage implements OnInit {
+export default class CoreCourseModulePreviewPage implements OnInit {
 
     title!: string;
     module!: CoreCourseModuleData;
-    section?: CoreCourseSection; // The section the module belongs to.
     courseId!: number;
     loaded = false;
     unsupported = false;
-    isDisabledInSite = false;
     showManualCompletion = false;
     displayOpenInBrowser = false;
 
@@ -54,10 +61,8 @@ export class CoreCourseModulePreviewPage implements OnInit {
         try {
             this.module = CoreNavigator.getRequiredRouteParam<CoreCourseModuleData>('module');
             this.courseId = CoreNavigator.getRequiredRouteNumberParam('courseId');
-            this.section = CoreNavigator.getRouteParam<CoreCourseSection>('section');
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
-
+            CoreAlerts.showError(error);
             CoreNavigator.back();
 
             return;
@@ -87,8 +92,6 @@ export class CoreCourseModulePreviewPage implements OnInit {
         if (!this.unsupported) {
             this.module.handlerData =
                 await CoreCourseModuleDelegate.getModuleDataFor(this.module.modname, this.module, this.courseId);
-        } else {
-            this.isDisabledInSite = CoreCourseModuleDelegate.isModuleDisabledInSite(this.module.modname);
         }
 
         this.title = this.module.name;
@@ -106,7 +109,9 @@ export class CoreCourseModulePreviewPage implements OnInit {
             return;
         }
 
-        const data = await CoreDomUtils.openSideModal<CoreCourseModuleSummaryResult>({
+        const { CoreCourseModuleSummaryComponent } = await import('@features/course/components/module-summary/module-summary');
+
+        const data = await CoreModals.openSideModal<CoreCourseModuleSummaryResult>({
             component: CoreCourseModuleSummaryComponent,
             componentProps: {
                 moduleId: this.module.id,

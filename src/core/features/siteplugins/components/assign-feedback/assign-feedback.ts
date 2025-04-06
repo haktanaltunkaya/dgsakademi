@@ -17,6 +17,10 @@ import { Component, OnInit, Input } from '@angular/core';
 import { AddonModAssignAssign, AddonModAssignPlugin, AddonModAssignSubmission } from '@addons/mod/assign/services/assign';
 import { AddonModAssignFeedbackDelegate } from '@addons/mod/assign/services/feedback-delegate';
 import { CoreSitePluginsCompileInitComponent } from '@features/siteplugins/classes/compile-init-component';
+import { toBoolean } from '@/core/transforms/boolean';
+import { CoreCompileHtmlComponent } from '@features/compile/components/compile-html/compile-html';
+import { CoreSharedModule } from '@/core/shared.module';
+import { getModAssignComponentModules } from '@addons/mod/assign/assign.module';
 
 /**
  * Component that displays an assign feedback plugin created using a site plugin.
@@ -25,21 +29,26 @@ import { CoreSitePluginsCompileInitComponent } from '@features/siteplugins/class
     selector: 'core-site-plugins-assign-feedback',
     templateUrl: 'core-siteplugins-assign-feedback.html',
     styles: [':host { display: contents; }'],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCompileHtmlComponent,
+    ],
 })
 export class CoreSitePluginsAssignFeedbackComponent extends CoreSitePluginsCompileInitComponent implements OnInit {
 
-    @Input() assign!: AddonModAssignAssign; // The assignment.
-    @Input() submission!: AddonModAssignSubmission; // The submission.
-    @Input() plugin!: AddonModAssignPlugin; // The plugin object.
-    @Input() userId!: number; // The user ID of the submission.
+    @Input({ required: true }) assign!: AddonModAssignAssign; // The assignment.
+    @Input({ required: true }) submission!: AddonModAssignSubmission; // The submission.
+    @Input({ required: true }) plugin!: AddonModAssignPlugin; // The plugin object.
+    @Input({ required: true }) userId!: number; // The user ID of the submission.
     @Input() configs?: Record<string,string>; // The configs for the plugin.
-    @Input() canEdit = false; // Whether the user can edit.
-    @Input() edit = false; // Whether the user is editing.
+    @Input({ transform: toBoolean }) canEdit = false; // Whether the user can edit.
+    @Input({ transform: toBoolean }) edit = false; // Whether the user is editing.
 
     /**
      * @inheritdoc
      */
-    ngOnInit(): void {
+    async ngOnInit(): Promise<void> {
         // Pass the input and output data to the component.
         this.jsData.assign = this.assign;
         this.jsData.submission = this.submission;
@@ -48,6 +57,8 @@ export class CoreSitePluginsAssignFeedbackComponent extends CoreSitePluginsCompi
         this.jsData.configs = this.configs;
         this.jsData.edit = this.edit;
         this.jsData.canEdit = this.canEdit;
+
+        this.extraImports = await getModAssignComponentModules();
 
         if (this.plugin) {
             this.getHandlerData(AddonModAssignFeedbackDelegate.getHandlerName(this.plugin.type));

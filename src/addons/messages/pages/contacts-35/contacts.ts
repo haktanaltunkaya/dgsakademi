@@ -15,20 +15,22 @@
 import { Component, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { CoreSites } from '@services/sites';
 import {
-    AddonMessagesProvider,
     AddonMessagesGetContactsWSResponse,
     AddonMessagesSearchContactsContact,
     AddonMessagesGetContactsContact,
     AddonMessages,
 } from '../../services/messages';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreApp } from '@services/app';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
 import { ActivatedRoute } from '@angular/router';
 import { Translate } from '@singletons';
 import { CoreScreen } from '@services/screen';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSplitViewComponent } from '@components/split-view/split-view';
+import { CoreKeyboard } from '@singletons/keyboard';
+import { ADDON_MESSAGES_MEMBER_INFO_CHANGED_EVENT } from '@addons/messages/constants';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreSearchBoxComponent } from '@features/search/components/search-box/search-box';
 
 /**
  * Page that displays the list of contacts.
@@ -36,9 +38,14 @@ import { CoreSplitViewComponent } from '@components/split-view/split-view';
 @Component({
     selector: 'addon-messages-contacts',
     templateUrl: 'contacts.html',
-    styleUrls: ['../../messages-common.scss'],
+    styleUrl: '../../messages-common.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreSearchBoxComponent,
+    ],
 })
-export class AddonMessagesContacts35Page implements OnInit, OnDestroy {
+export default class AddonMessagesContacts35Page implements OnInit, OnDestroy {
 
     @ViewChild(CoreSplitViewComponent) splitView!: CoreSplitViewComponent;
 
@@ -73,7 +80,7 @@ export class AddonMessagesContacts35Page implements OnInit, OnDestroy {
 
         // Refresh the list when a contact request is confirmed.
         this.memberInfoObserver = CoreEvents.on(
-            AddonMessagesProvider.MEMBER_INFO_CHANGED_EVENT,
+            ADDON_MESSAGES_MEMBER_INFO_CHANGED_EVENT,
             (data) => {
                 if (data.contactRequestConfirmed) {
                     this.refreshData();
@@ -163,7 +170,7 @@ export class AddonMessagesContacts35Page implements OnInit, OnDestroy {
 
             this.clearSearch();
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'addon.messages.errorwhileretrievingcontacts', true);
+            CoreAlerts.showError(error, { default: Translate.instant('addon.messages.errorwhileretrievingcontacts') });
         }
     }
 
@@ -205,15 +212,17 @@ export class AddonMessagesContacts35Page implements OnInit, OnDestroy {
      * @param query Text to search for.
      * @returns Resolved when done.
      */
-    search(query: string): Promise<void> {
-        CoreApp.closeKeyboard();
+    async search(query: string): Promise<void> {
+        CoreKeyboard.close();
 
         this.loaded = false;
         this.loadingMessage = this.searchingMessages;
 
-        return this.performSearch(query).finally(() => {
+        try {
+            await this.performSearch(query);
+        } finally {
             this.loaded = true;
-        });
+        }
     }
 
     /**
@@ -231,7 +240,7 @@ export class AddonMessagesContacts35Page implements OnInit, OnDestroy {
 
             this.contacts.search = this.sortUsers(result);
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'addon.messages.errorwhileretrievingcontacts', true);
+            CoreAlerts.showError(error, { default: Translate.instant('addon.messages.errorwhileretrievingcontacts') });
         }
     }
 

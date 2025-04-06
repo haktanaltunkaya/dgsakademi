@@ -13,10 +13,10 @@
 // limitations under the License.
 
 import { CoreConstants } from '@/core/constants';
-import { AddonNotesAddComponent, AddonNotesAddModalReturn } from '@addons/notes/components/add/add-modal';
+import { AddonNotesAddModalReturn } from '@addons/notes/components/add/add-modal';
 import { AddonNotes, AddonNotesNoteFormatted, AddonNotesPublishState } from '@addons/notes/services/notes';
 import { AddonNotesOffline } from '@addons/notes/services/notes-offline';
-import { AddonNotesSync, AddonNotesSyncProvider } from '@addons/notes/services/notes-sync';
+import { AddonNotesSync } from '@addons/notes/services/notes-sync';
 import { Component, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { CoreAnimations } from '@components/animations';
 import { CoreUser, CoreUserProfile } from '@features/user/services/user';
@@ -24,13 +24,17 @@ import { IonContent } from '@ionic/angular';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils, ToastDuration } from '@services/utils/dom';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUrlUtils } from '@services/utils/url';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreText } from '@singletons/text';
+import { CoreUrl } from '@singletons/url';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { Translate } from '@singletons';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
 import { CoreTime } from '@singletons/time';
+import { CoreToasts, ToastDuration } from '@services/overlays/toasts';
+import { CoreModals } from '@services/overlays/modals';
+import { ADDON_NOTES_AUTO_SYNCED } from '@addons/notes/services/constants';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays a list of notes.
@@ -39,8 +43,12 @@ import { CoreTime } from '@singletons/time';
     selector: 'page-addon-notes-list-page',
     templateUrl: 'list.html',
     animations: [CoreAnimations.SLIDE_IN_OUT],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
-export class AddonNotesListPage implements OnInit, OnDestroy {
+export default class AddonNotesListPage implements OnInit, OnDestroy {
 
     @ViewChild(IonContent) content?: IonContent;
 
@@ -67,7 +75,7 @@ export class AddonNotesListPage implements OnInit, OnDestroy {
             this.courseId = CoreNavigator.getRequiredRouteNumberParam('courseId');
             this.userId = CoreNavigator.getRouteNumberParam('userId');
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
+            CoreAlerts.showError(error);
 
             CoreNavigator.back();
 
@@ -75,7 +83,7 @@ export class AddonNotesListPage implements OnInit, OnDestroy {
         }
 
         // Refresh data if notes are synchronized automatically.
-        this.syncObserver = CoreEvents.on(AddonNotesSyncProvider.AUTO_SYNCED, (data) => {
+        this.syncObserver = CoreEvents.on(ADDON_NOTES_AUTO_SYNCED, (data) => {
             if (data.courseId == this.courseId) {
                 // Show the sync warnings.
                 this.showSyncWarnings(data.warnings);
@@ -115,10 +123,10 @@ export class AddonNotesListPage implements OnInit, OnDestroy {
         try {
             const allNotes = await AddonNotes.getNotes(this.courseId, this.userId);
 
-            const notesList: AddonNotesNoteFormatted[] = allNotes[this.type + 'notes'] || [];
+            const notesList: AddonNotesNoteFormatted[] = allNotes[`${this.type}notes`] || [];
 
             notesList.forEach((note) => {
-                note.content = CoreTextUtils.decodeHTML(note.content);
+                note.content = CoreText.decodeHTML(note.content);
             });
 
             await AddonNotes.setOfflineDeletedNotes(notesList, this.courseId);
@@ -136,7 +144,7 @@ export class AddonNotesListPage implements OnInit, OnDestroy {
 
             this.logView();
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
+            CoreAlerts.showError(error);
         } finally {
             let canDelete = this.notes && this.notes.length > 0;
             if (canDelete && this.type == 'personal') {
@@ -194,7 +202,9 @@ export class AddonNotesListPage implements OnInit, OnDestroy {
 
         this.logViewAdd();
 
-        const modalData = await CoreDomUtils.openModal<AddonNotesAddModalReturn>({
+        const { AddonNotesAddComponent } = await import('@addons/notes/components/add/add-modal');
+
+        const modalData = await CoreModals.openModal<AddonNotesAddModalReturn>({
             component: AddonNotesAddComponent,
             componentProps: {
                 userId: this.userId,
@@ -231,17 +241,21 @@ export class AddonNotesListPage implements OnInit, OnDestroy {
         try {
             this.logViewDelete(note);
 
-            await CoreDomUtils.showDeleteConfirm('addon.notes.deleteconfirm');
+            await CoreAlerts.confirmDelete(Translate.instant('addon.notes.deleteconfirm'));
             try {
                 await AddonNotes.deleteNote(note, this.courseId);
                 this.showDelete = false;
 
                 this.refreshNotes(false);
 
-                CoreDomUtils.showToast('addon.notes.eventnotedeleted', true, ToastDuration.LONG);
+                CoreToasts.show({
+                    message: 'addon.notes.eventnotedeleted',
+                    translateMessage: true,
+                    duration: ToastDuration.LONG,
+                });
 
             } catch (error) {
-                CoreDomUtils.showErrorModalDefault(error, 'Delete note failed.');
+                CoreAlerts.showError(error, { default: 'Delete note failed.' });
             }
         } catch {
             // User cancelled, nothing to do.
@@ -282,7 +296,7 @@ export class AddonNotesListPage implements OnInit, OnDestroy {
             this.showSyncWarnings(result.warnings);
         } catch (error) {
             if (showSyncErrors) {
-                CoreDomUtils.showErrorModalDefault(error, 'core.errorsync', true);
+                CoreAlerts.showError(error, { default: Translate.instant('core.errorsync') });
             }
         }
     }
@@ -293,10 +307,10 @@ export class AddonNotesListPage implements OnInit, OnDestroy {
      * @param warnings the warnings
      */
     protected showSyncWarnings(warnings: string[]): void {
-        const message = CoreTextUtils.buildMessage(warnings);
+        const message = CoreText.buildMessage(warnings);
 
         if (message) {
-            CoreDomUtils.showAlert(undefined, message);
+            CoreAlerts.show({ message });
         }
     }
 
@@ -304,14 +318,14 @@ export class AddonNotesListPage implements OnInit, OnDestroy {
      * Log view.
      */
     protected async performLogView(): Promise<void> {
-        await CoreUtils.ignoreErrors(AddonNotes.logView(this.courseId, this.userId));
+        await CorePromiseUtils.ignoreErrors(AddonNotes.logView(this.courseId, this.userId));
 
         CoreAnalytics.logEvent({
             type: CoreAnalyticsEventType.VIEW_ITEM_LIST,
             ws: 'core_notes_view_notes',
             name: Translate.instant('addon.notes.notes'),
             data: { courseid: this.courseId, userid: this.userId || 0, category: 'notes' },
-            url: CoreUrlUtils.addParamsToUrl('/notes/index.php', {
+            url: CoreUrl.addParamsToUrl('/notes/index.php', {
                 user: this.userId,
                 course: this.courseId !== CoreSites.getCurrentSiteHomeId() ? this.courseId : undefined,
             }),
@@ -327,7 +341,7 @@ export class AddonNotesListPage implements OnInit, OnDestroy {
             ws: 'core_notes_create_notes',
             name: Translate.instant('addon.notes.notes'),
             data: { courseid: this.courseId, userid: this.userId || 0, category: 'notes' },
-            url: CoreUrlUtils.addParamsToUrl('/notes/edit.php', {
+            url: CoreUrl.addParamsToUrl('/notes/edit.php', {
                 courseid: this.courseId,
                 userid: this.userId,
                 publishstate: this.type === 'personal' ? 'draft' : (this.type === 'course' ? 'public' : 'site'),

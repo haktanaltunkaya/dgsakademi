@@ -15,8 +15,8 @@
 import { Injectable } from '@angular/core';
 import { CoreLogger } from '@singletons/logger';
 import { CoreSites, CoreSitesCommonWSOptions } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
-import { CoreCourses } from '@features/courses/services/courses';
+import { CoreWSError } from '@classes/errors/wserror';
+import { CoreCourseAnyCourseData, CoreCourses } from '@features/courses/services/courses';
 import { CoreSite  } from '@classes/sites/site';
 import { CoreStatusWithWarningsWSResponse, CoreWSExternalWarning } from '@services/ws';
 import { makeSingleton } from '@singletons';
@@ -25,8 +25,7 @@ import { asyncObservable } from '@/core/utils/rxjs';
 import { map } from 'rxjs/operators';
 import { CoreSiteWSPreSets, WSObservable } from '@classes/sites/authenticated-site';
 import { firstValueFrom } from 'rxjs';
-
-const ROOT_CACHE_KEY = 'mmaCourseCompletion:';
+import { CoreCacheUpdateFrequency } from '@/core/constants';
 
 /**
  * Service to handle course completion.
@@ -34,10 +33,46 @@ const ROOT_CACHE_KEY = 'mmaCourseCompletion:';
 @Injectable({ providedIn: 'root' })
 export class AddonCourseCompletionProvider {
 
-    protected logger: CoreLogger;
+    protected static readonly ROOT_CACHE_KEY = 'mmaCourseCompletion:';
 
-    constructor() {
-        this.logger = CoreLogger.getInstance('AddonCourseCompletion');
+    protected logger = CoreLogger.getInstance('AddonCourseCompletion');
+
+    /**
+     * Check whether completion is available in a certain site.
+     *
+     * @param site Site. If not defined, use current site.
+     * @returns True if available.
+     */
+    isCompletionEnabledInSite(site?: CoreSite): boolean {
+        site = site || CoreSites.getCurrentSite();
+
+        return !!site && site.canUseAdvancedFeature('enablecompletion');
+    }
+
+    /**
+     * Check whether completion is available in a certain course.
+     *
+     * @param course Course.
+     * @param site Site. If not defined, use current site.
+     * @returns True if available.
+     */
+    isCompletionEnabledInCourse(course: CoreCourseAnyCourseData, site?: CoreSite): boolean {
+        if (!this.isCompletionEnabledInSite(site)) {
+            return false;
+        }
+
+        return this.isCompletionEnabledInCourseObject(course);
+    }
+
+    /**
+     * Check whether completion is enabled in a certain course object.
+     *
+     * @param course Course object.
+     * @returns True if completion is enabled, false otherwise.
+     */
+    protected isCompletionEnabledInCourseObject(course: CoreCourseAnyCourseData): boolean {
+        // Undefined means it's not supported, so it's enabled by default.
+        return course.enablecompletion !== false;
     }
 
     /**
@@ -97,13 +132,13 @@ export class AddonCourseCompletionProvider {
      * @param siteId Site ID. If not defined, use current site.
      * @returns Promise to be resolved when the completion is retrieved.
      */
-    getCompletion(
+    async getCompletion(
         courseId: number,
         userId?: number,
         preSets: CoreSiteWSPreSets = {},
         siteId?: string,
     ): Promise<AddonCourseCompletionCourseCompletionStatus> {
-        return firstValueFrom(this.getCompletionObservable(courseId, {
+        return await firstValueFrom(this.getCompletionObservable(courseId, {
             userId,
             preSets,
             siteId,
@@ -125,7 +160,7 @@ export class AddonCourseCompletionProvider {
             const site = await CoreSites.getSite(options.siteId);
 
             const userId = options.userId || site.getUserId();
-            this.logger.debug('Get completion for course ' + courseId + ' and user ' + userId);
+            this.logger.debug(`Get completion for course ${courseId} and user ${userId}`);
 
             const data: AddonCourseCompletionGetCourseCompletionStatusWSParams = {
                 courseid: courseId,
@@ -135,7 +170,7 @@ export class AddonCourseCompletionProvider {
             const preSets = {
                 ...(options.preSets ?? {}),
                 cacheKey: this.getCompletionCacheKey(courseId, userId),
-                updateFrequency: CoreSite.FREQUENCY_SOMETIMES,
+                updateFrequency: CoreCacheUpdateFrequency.SOMETIMES,
                 cacheErrors: ['notenroled'],
                 ...CoreSites.getReadingStrategyPreSets(options.readingStrategy),
             };
@@ -156,7 +191,7 @@ export class AddonCourseCompletionProvider {
      * @returns Cache key.
      */
     protected getCompletionCacheKey(courseId: number, userId: number): string {
-        return ROOT_CACHE_KEY + 'view:' + courseId + ':' + userId;
+        return `${AddonCourseCompletionProvider.ROOT_CACHE_KEY}view:${courseId}:${userId}`;
     }
 
     /**
@@ -165,7 +200,6 @@ export class AddonCourseCompletionProvider {
      * @param courseId Course ID.
      * @param userId User ID. If not defined, use current user.
      * @param siteId Site ID. If not defined, use current site.
-     * @returns Promise resolved when the list is invalidated.
      */
     async invalidateCourseCompletion(courseId: number, userId?: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -180,7 +214,7 @@ export class AddonCourseCompletionProvider {
      * @returns True if plugin enabled, false otherwise.
      */
     isPluginViewEnabled(): boolean {
-        return CoreSites.isLoggedIn();
+        return CoreSites.isLoggedIn() && this.isCompletionEnabledInSite();
     }
 
     /**
@@ -190,26 +224,19 @@ export class AddonCourseCompletionProvider {
      * @param preferCache True if shouldn't call WS if data is cached, false otherwise.
      * @returns Promise resolved with true if plugin is enabled, rejected or resolved with false otherwise.
      */
-    async isPluginViewEnabledForCourse(courseId?: number, preferCache: boolean = true): Promise<boolean> {
-        if (!courseId) {
+    async isPluginViewEnabledForCourse(courseId?: number, preferCache = true): Promise<boolean> {
+        if (!courseId || !this.isCompletionEnabledInSite()) {
             return false;
         }
 
         const course = await CoreCourses.getUserCourse(courseId, preferCache);
 
-        if (course) {
-            if (course.enablecompletion !== undefined && !course.enablecompletion) {
-                // Completion not enabled for the course.
-                return false;
-            }
-
-            if (course.completionhascriteria !== undefined && !course.completionhascriteria) {
-                // No criteria, cannot view completion.
-                return false;
-            }
+        if (!course) {
+            return true;
         }
 
-        return true;
+        // Check completion is enabled in the course and it has criteria, to view completion.
+        return this.isCompletionEnabledInCourseObject(course) && course.completionhascriteria !== false;
     }
 
     /**
@@ -252,7 +279,7 @@ export class AddonCourseCompletionProvider {
 
             return true;
         } catch (error) {
-            if (CoreUtils.isWebServiceError(error)) {
+            if (CoreWSError.isWebServiceError(error)) {
                 // The WS returned an error, plugin is not enabled.
                 return false;
             }

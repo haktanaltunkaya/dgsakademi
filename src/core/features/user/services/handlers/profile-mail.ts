@@ -14,9 +14,13 @@
 
 import { Injectable } from '@angular/core';
 
-import { CoreUserDelegateService, CoreUserProfileHandler, CoreUserProfileHandlerData } from '../user-delegate';
+import {
+    CoreUserProfileHandlerType,
+    CoreUserProfileHandler,
+    CoreUserProfileHandlerData,
+} from '../user-delegate';
 import { CoreSites } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreOpener } from '@singletons/opener';
 import { CoreUserProfile } from '../user';
 import { makeSingleton } from '@singletons';
 
@@ -28,7 +32,7 @@ export class CoreUserProfileMailHandlerService implements CoreUserProfileHandler
 
     name = 'CoreUserProfileMail';
     priority = 700;
-    type = CoreUserDelegateService.TYPE_COMMUNICATION;
+    type = CoreUserProfileHandlerType.BUTTON;
 
     /**
      * @inheritdoc
@@ -56,7 +60,7 @@ export class CoreUserProfileMailHandlerService implements CoreUserProfileHandler
                 event.preventDefault();
                 event.stopPropagation();
 
-                CoreUtils.openInBrowser('mailto:' + user.email, { showBrowserWarning: false });
+                CoreOpener.openInBrowser(`mailto:${user.email}`, { showBrowserWarning: false });
             },
         };
     }

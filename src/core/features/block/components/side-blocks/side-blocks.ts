@@ -14,14 +14,16 @@
 
 import { Component, ViewChildren, Input, OnInit, QueryList, ElementRef } from '@angular/core';
 import { ModalController } from '@singletons';
-import { CoreDomUtils } from '@services/utils/dom';
 import { CoreCourse, CoreCourseBlock } from '@features/course/services/course';
 import { CoreBlockHelper } from '../../services/block-helper';
 import { CoreBlockComponent } from '../block/block';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { CoreCoursesDashboard } from '@features/courses/services/dashboard';
-import { CoreTextUtils } from '@services/utils/text';
 import { CoreDom } from '@singletons/dom';
+import { ContextLevel } from '@/core/constants';
+import { CoreWait } from '@singletons/wait';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreAlerts } from '@services/overlays/alerts';
 
 /**
  * Component that displays the list of side blocks.
@@ -29,12 +31,17 @@ import { CoreDom } from '@singletons/dom';
 @Component({
     selector: 'core-block-side-blocks',
     templateUrl: 'side-blocks.html',
-    styleUrls: ['side-blocks.scss'],
+    styleUrl: 'side-blocks.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreBlockComponent,
+    ],
 })
 export class CoreBlockSideBlocksComponent implements OnInit {
 
-    @Input() contextLevel!: string;
-    @Input() instanceId!: number;
+    @Input({ required: true }) contextLevel!: ContextLevel;
+    @Input({ required: true }) instanceId!: number;
     @Input() initialBlockInstanceId?: number;
     @Input() myDashboardPage?: string;
 
@@ -64,7 +71,7 @@ export class CoreBlockSideBlocksComponent implements OnInit {
     async invalidateBlocks(): Promise<void> {
         const promises: Promise<void>[] = [];
 
-        if (this.contextLevel === 'course') {
+        if (this.contextLevel === ContextLevel.COURSE) {
             promises.push(CoreCourse.invalidateCourseBlocks(this.instanceId));
         } else {
             promises.push(CoreCoursesDashboard.invalidateDashboardBlocks());
@@ -87,7 +94,7 @@ export class CoreBlockSideBlocksComponent implements OnInit {
      */
     async loadContent(): Promise<void> {
         try {
-            if (this.contextLevel === 'course') {
+            if (this.contextLevel === ContextLevel.COURSE) {
                 this.blocks = await CoreBlockHelper.getCourseBlocks(this.instanceId);
             } else {
                 const blocks = await CoreCoursesDashboard.getDashboardBlocks(undefined, undefined, this.myDashboardPage);
@@ -95,13 +102,12 @@ export class CoreBlockSideBlocksComponent implements OnInit {
                 this.blocks = blocks.sideBlocks;
             }
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
-
+            CoreAlerts.showError(error);
             this.blocks = [];
         }
 
         this.blocks = this.blocks.filter(block =>
-            block.name !== 'html' || (block.contents && !CoreTextUtils.htmlIsBlank(block.contents.content)));
+            block.name !== 'html' || (block.contents && !CoreDom.htmlIsBlank(block.contents.content)));
     }
 
     /**
@@ -110,7 +116,7 @@ export class CoreBlockSideBlocksComponent implements OnInit {
      * @param refresher Refresher.
      */
     async doRefresh(refresher?: HTMLIonRefresherElement): Promise<void> {
-        await CoreUtils.ignoreErrors(this.invalidateBlocks());
+        await CorePromiseUtils.ignoreErrors(this.invalidateBlocks());
 
         await this.loadContent().finally(() => {
             refresher?.complete();
@@ -132,10 +138,10 @@ export class CoreBlockSideBlocksComponent implements OnInit {
             return;
         }
 
-        const selector = '#block-' + this.initialBlockInstanceId;
+        const selector = `#block-${this.initialBlockInstanceId}`;
 
-        await CoreUtils.waitFor(() => !!this.elementRef.nativeElement.querySelector(selector));
-        await CoreUtils.wait(200);
+        await CoreWait.waitFor(() => !!this.elementRef.nativeElement.querySelector(selector));
+        await CoreWait.wait(200);
 
         CoreDom.scrollToElement(this.elementRef.nativeElement, selector, { addYAxis: -10 });
     }

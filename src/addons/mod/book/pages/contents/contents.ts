@@ -12,36 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreConstants } from '@/core/constants';
 import { Component, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { CoreError } from '@classes/errors/error';
 import { CoreSwipeSlidesItemsManager } from '@classes/items-management/swipe-slides-items-manager';
 import { CoreSwipeSlidesItemsManagerSource } from '@classes/items-management/swipe-slides-items-manager-source';
 import { CoreNavigationBarItem } from '@components/navigation-bar/navigation-bar';
 import { CoreSwipeSlidesComponent, CoreSwipeSlidesOptions } from '@components/swipe-slides/swipe-slides';
-import { CoreCourseResourceDownloadResult } from '@features/course/classes/main-resource-component';
-import { CoreCourse } from '@features/course/services/course';
+import { CoreCourse, CoreCourseModuleContentFile } from '@features/course/services/course';
 import { CoreCourseModuleData } from '@features/course/services/course-helper';
 import { CoreCourseModulePrefetchDelegate } from '@features/course/services/module-prefetch-delegate';
 import { CoreTag, CoreTagItem } from '@features/tag/services/tag';
 import { CoreNetwork } from '@services/network';
 import { CoreNavigator } from '@services/navigator';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreErrorHelper } from '@services/error-helper';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { Translate } from '@singletons';
-import { AddonModBookTocComponent } from '../../components/toc/toc';
 import {
     AddonModBook,
     AddonModBookBookWSData,
     AddonModBookContentsMap,
-    AddonModBookNavStyle,
-    AddonModBookProvider,
     AddonModBookTocChapter,
 } from '../../services/book';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
-import { CoreUrlUtils } from '@services/utils/url';
-import { IonicSlides } from '@ionic/angular';
+import { CoreUrl } from '@singletons/url';
+import { ADDON_MOD_BOOK_COMPONENT, ADDON_MOD_BOOK_MODNAME, AddonModBookNavStyle } from '../../constants';
+import { CoreModals } from '@services/overlays/modals';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreTagListComponent } from '@features/tag/components/list/list';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays a book contents.
@@ -49,9 +47,14 @@ import { IonicSlides } from '@ionic/angular';
 @Component({
     selector: 'page-addon-mod-book-contents',
     templateUrl: 'contents.html',
-    styleUrls: ['contents.scss'],
+    styleUrl: 'contents.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreTagListComponent,
+    ],
 })
-export class AddonModBookContentsPage implements OnInit, OnDestroy {
+export default class AddonModBookContentsPage implements OnInit, OnDestroy {
 
     @ViewChild(CoreSwipeSlidesComponent) swipeSlidesComponent?: CoreSwipeSlidesComponent;
 
@@ -59,13 +62,11 @@ export class AddonModBookContentsPage implements OnInit, OnDestroy {
     cmId!: number;
     courseId!: number;
     initialChapterId?: number;
-    component = AddonModBookProvider.COMPONENT;
+    component = ADDON_MOD_BOOK_COMPONENT;
     manager?: CoreSwipeSlidesItemsManager<LoadedChapter, AddonModBookSlidesItemsManagerSource>;
-    warning = '';
     displayNavBar = true;
     navigationItems: CoreNavigationBarItem<AddonModBookTocChapter>[] = [];
     swiperOpts: CoreSwipeSlidesOptions = {
-        modules: [IonicSlides],
         autoHeight: true,
         observer: true,
         observeParents: true,
@@ -85,8 +86,7 @@ export class AddonModBookContentsPage implements OnInit, OnDestroy {
             this.courseId = CoreNavigator.getRequiredRouteNumberParam('courseId');
             this.initialChapterId = CoreNavigator.getRouteNumberParam('chapterId');
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
-
+            CoreAlerts.showError(error);
             CoreNavigator.back();
 
             return;
@@ -133,85 +133,19 @@ export class AddonModBookContentsPage implements OnInit, OnDestroy {
                 return;
             }
 
-            const { module, book } = await source.loadBookData();
-
-            const downloadResult = await this.downloadResourceIfNeeded(module, refresh);
+            const { book } = await source.loadBookData();
 
             this.displayNavBar = book.navstyle != AddonModBookNavStyle.TOC_ONLY;
             this.title = book.name;
 
-            // Get contents. No need to refresh, it has been done in downloadResourceIfNeeded.
-            await source.loadContents();
+            await source.loadContents(refresh);
 
             await source.load();
-
-            if (downloadResult?.failed) {
-                const error = CoreTextUtils.getErrorMessageFromError(downloadResult.error) || downloadResult.error;
-                this.warning = Translate.instant('core.errordownloadingsomefiles') + (error ? ' ' + error : '');
-            } else {
-                this.warning = '';
-            }
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'core.course.errorgetmodule', true);
+            CoreAlerts.showError(error, { default: Translate.instant('core.course.errorgetmodule') });
         } finally {
             this.loaded = true;
         }
-    }
-
-    /**
-     * Download a resource if needed.
-     * If the download call fails the promise won't be rejected, but the error will be included in the returned object.
-     * If module.contents cannot be loaded then the Promise will be rejected.
-     *
-     * @param module Module to download.
-     * @param refresh Whether we're refreshing data.
-     * @returns Promise resolved when done.
-     */
-    protected async downloadResourceIfNeeded(
-        module: CoreCourseModuleData,
-        refresh = false,
-    ): Promise<CoreCourseResourceDownloadResult> {
-
-        const result: CoreCourseResourceDownloadResult = {
-            failed: false,
-        };
-        let contentsAlreadyLoaded = false;
-
-        // Get module status to determine if it needs to be downloaded.
-        const status = await CoreCourseModulePrefetchDelegate.getModuleStatus(module, this.courseId, undefined, refresh);
-
-        if (status !== CoreConstants.DOWNLOADED) {
-            // Download content. This function also loads module contents if needed.
-            try {
-                await CoreCourseModulePrefetchDelegate.downloadModule(module, this.courseId);
-
-                // If we reach here it means the download process already loaded the contents, no need to do it again.
-                contentsAlreadyLoaded = true;
-            } catch (error) {
-                // Mark download as failed but go on since the main files could have been downloaded.
-                result.failed = true;
-                result.error = error;
-            }
-        }
-
-        if (!module.contents?.length || (refresh && !contentsAlreadyLoaded)) {
-            // Try to load the contents.
-            const ignoreCache = refresh && CoreNetwork.isOnline();
-
-            try {
-                await CoreCourse.loadModuleContents(module, undefined, undefined, false, ignoreCache);
-            } catch (error) {
-                // Error loading contents. If we ignored cache, try to get the cached value.
-                if (ignoreCache && !module.contents) {
-                    await CoreCourse.loadModuleContents(module);
-                } else if (!module.contents) {
-                    // Not able to load contents, throw the error.
-                    throw error;
-                }
-            }
-        }
-
-        return result;
     }
 
     /**
@@ -235,13 +169,13 @@ export class AddonModBookContentsPage implements OnInit, OnDestroy {
      */
     async doRefresh(refresher?: HTMLIonRefresherElement): Promise<void> {
         if (this.manager) {
-            await CoreUtils.ignoreErrors(Promise.all([
+            await CorePromiseUtils.ignoreErrors(Promise.all([
                 this.manager.getSource().invalidateContent(),
                 CoreCourseModulePrefetchDelegate.invalidateCourseUpdates(this.courseId), // To detect if book was updated.
             ]));
         }
 
-        await CoreUtils.ignoreErrors(this.fetchContent(true));
+        await CorePromiseUtils.ignoreErrors(this.fetchContent(true));
 
         refresher?.complete();
     }
@@ -253,7 +187,9 @@ export class AddonModBookContentsPage implements OnInit, OnDestroy {
         // Create the toc modal.
         const visibleChapter = this.manager?.getSelectedItem();
 
-        const modalData = await CoreDomUtils.openSideModal<number>({
+        const { AddonModBookTocComponent } = await import('../../components/toc/toc');
+
+        const modalData = await CoreModals.openSideModal<number>({
             component: AddonModBookTocComponent,
             componentProps: {
                 moduleId: this.cmId,
@@ -289,14 +225,14 @@ export class AddonModBookContentsPage implements OnInit, OnDestroy {
         }
 
         // Chapter loaded, log view.
-        await CoreUtils.ignoreErrors(AddonModBook.logView(this.module.instance, chapterId));
+        await CorePromiseUtils.ignoreErrors(AddonModBook.logView(this.module.instance, chapterId));
 
         CoreAnalytics.logEvent({
             type: CoreAnalyticsEventType.VIEW_ITEM,
             ws: 'mod_book_view_book',
             name: this.module.name,
-            data: { id: this.module.instance, category: 'book', chapterid: chapterId },
-            url: CoreUrlUtils.addParamsToUrl(`/mod/book/view.php?id=${this.module.id}`, { chapterid: chapterId }),
+            data: { id: this.module.instance, category: ADDON_MOD_BOOK_MODNAME, chapterid: chapterId },
+            url: CoreUrl.addParamsToUrl(`/mod/book/view.php?id=${this.module.id}`, { chapterid: chapterId }),
         });
 
         const currentChapterIndex = this.chapters.findIndex((chapter) => chapter.id == chapterId);
@@ -396,16 +332,46 @@ class AddonModBookSlidesItemsManagerSource extends CoreSwipeSlidesItemsManagerSo
 
     /**
      * Load module contents.
+     *
+     * @param refresh Whether we're refreshing data.
      */
-    async loadContents(): Promise<void> {
+    async loadContents(refresh = false): Promise<void> {
         if (!this.module) {
             return;
         }
 
-        const contents = await CoreCourse.getModuleContents(this.module, this.COURSE_ID);
+        const contents = await this.getModuleContents(refresh);
 
         this.contentsMap = AddonModBook.getContentsMap(contents);
         this.chapters = AddonModBook.getTocList(contents);
+    }
+
+    /**
+     * Get module contents.
+     *
+     * @param refresh Whether we're refreshing data.
+     * @returns Module contents.
+     */
+    protected async getModuleContents(refresh = false): Promise<CoreCourseModuleContentFile[]> {
+        if (!this.module) {
+            return [];
+        }
+
+        const ignoreCache = refresh && CoreNetwork.isOnline();
+
+        try {
+            return await CoreCourse.getModuleContents(this.module, this.COURSE_ID, undefined, false, ignoreCache);
+        } catch (error) {
+            // Error loading contents. If we ignored cache, try to get the cached value.
+            if (ignoreCache && !this.module.contents) {
+                return await CoreCourse.getModuleContents(this.module);
+            } else if (!this.module.contents) {
+                // Not able to load contents, throw the error.
+                throw error;
+            }
+
+            return this.module.contents;
+        }
     }
 
     /**
@@ -425,7 +391,7 @@ class AddonModBookSlidesItemsManagerSource extends CoreSwipeSlidesItemsManagerSo
 
             return newChapters;
         } catch (error) {
-            if (!CoreTextUtils.getErrorMessageFromError(error)) {
+            if (!CoreErrorHelper.getErrorMessageFromError(error)) {
                 throw new CoreError(Translate.instant('addon.mod_book.errorchapter'));
             }
 

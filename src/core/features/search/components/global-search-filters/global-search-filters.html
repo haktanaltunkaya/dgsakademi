@@ -4,8 +4,8 @@
             <h1>{{ 'core.search.filterheader' | translate }}</h1>
         </ion-title>
         <ion-buttons slot="end">
-            <ion-button fill="clear" (click)="close()" [attr.aria-label]="'core.close' | translate">
-                <ion-icon name="fas-xmark" slot="icon-only" aria-hidden=true />
+            <ion-button fill="clear" (click)="close()" [ariaLabel]="'core.close' | translate">
+                <ion-icon name="fas-xmark" slot="icon-only" aria-hidden="true" />
             </ion-button>
         </ion-buttons>
     </ion-toolbar>
@@ -17,9 +17,9 @@
     <ion-list>
         <ng-container *ngIf="searchAreaCategories.length > 0">
             <core-spacer />
-            <ion-item class="ion-text-wrap help">
+            <ion-item class="ion-text-wrap heading">
                 <ion-label>
-                    {{ 'core.search.filtercategories' | translate }}
+                    <p class="item-heading">{{ 'core.search.filtercategories' | translate }}</p>
                 </ion-label>
             </ion-item>
             <ion-item class="ion-text-wrap">
@@ -35,9 +35,9 @@
         </ng-container>
         <ng-container *ngIf="!hideCourses && courses.length > 0">
             <core-spacer />
-            <ion-item class="ion-text-wrap help">
+            <ion-item class="ion-text-wrap heading">
                 <ion-label>
-                    {{ 'core.search.filtercourses' | translate }}
+                    <p class="item-heading">{{ 'core.search.filtercourses' | translate }}</p>
                 </ion-label>
             </ion-item>
             <ion-item class="ion-text-wrap">

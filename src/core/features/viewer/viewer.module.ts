@@ -16,19 +16,22 @@ import { NgModule } from '@angular/core';
 import { Routes } from '@angular/router';
 
 import { CoreMainMenuTabRoutingModule } from '@features/mainmenu/mainmenu-tab-routing.module';
-import { CoreViewerComponentsModule } from './components/components.module';
 
 const routes: Routes = [
     {
         path: 'viewer',
-        loadChildren: () => import('./viewer-lazy.module').then(m => m.CoreViewerLazyModule),
+        loadChildren: () => [
+            {
+                path: 'iframe',
+                loadComponent: () => import('@features/viewer/pages/iframe/iframe'),
+            },
+        ],
     },
 ];
 
 @NgModule({
     imports: [
         CoreMainMenuTabRoutingModule.forChild(routes),
-        CoreViewerComponentsModule,
     ],
 })
 export class CoreViewerModule {}

@@ -17,6 +17,7 @@ import { Component, OnDestroy, ElementRef } from '@angular/core';
 import { AddonModQuizQuestionBasicData, CoreQuestionBaseComponent } from '@features/question/classes/base-question-component';
 import { CoreQuestionHelper } from '@features/question/services/question-helper';
 import { AddonQtypeDdImageOrTextQuestion } from '../classes/ddimageortext';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component to render a drag-and-drop onto image question.
@@ -25,6 +26,10 @@ import { AddonQtypeDdImageOrTextQuestion } from '../classes/ddimageortext';
     selector: 'addon-qtype-ddimageortext',
     templateUrl: 'addon-qtype-ddimageortext.html',
     styleUrls: ['../../../../core/features/question/question.scss', 'ddimageortext.scss'],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class AddonQtypeDdImageOrTextComponent
     extends CoreQuestionBaseComponent<AddonModQuizDdImageOrTextQuestionData>
@@ -45,11 +50,15 @@ export class AddonQtypeDdImageOrTextComponent
      */
     init(): void {
         if (!this.question) {
+            this.onReadyPromise.resolve();
+
             return;
         }
 
         const questionElement = this.initComponent();
         if (!questionElement) {
+            this.onReadyPromise.resolve();
+
             return;
         }
 
@@ -57,6 +66,7 @@ export class AddonQtypeDdImageOrTextComponent
         const ddArea = questionElement.querySelector('.ddarea');
         if (!ddArea) {
             this.logger.warn('Aborting because of an error parsing question.', this.question.slot);
+            this.onReadyPromise.resolve();
 
             return CoreQuestionHelper.showComponentError(this.onAbort);
         }
@@ -84,6 +94,7 @@ export class AddonQtypeDdImageOrTextComponent
         }
 
         this.question.loaded = false;
+        this.onReadyPromise.resolve();
     }
 
     /**

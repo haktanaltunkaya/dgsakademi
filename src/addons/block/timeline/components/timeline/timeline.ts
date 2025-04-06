@@ -16,8 +16,7 @@ import { ChangeDetectionStrategy, Component, OnInit } from '@angular/core';
 import { CoreSites } from '@services/sites';
 import { ICoreBlockComponent } from '@features/block/classes/base-block-component';
 import { AddonBlockTimeline } from '../../services/timeline';
-import { CoreUtils } from '@services/utils/utils';
-import { CoreDomUtils } from '@services/utils/dom';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { CoreCoursesHelper, CoreEnrolledCourseDataWithOptions } from '@features/courses/services/courses-helper';
 import { CoreCourses } from '@features/courses/services/courses';
 import { CoreCourseOptionsDelegate } from '@features/course/services/course-options-delegate';
@@ -27,6 +26,12 @@ import { AddonBlockTimelineDateRange, AddonBlockTimelineSection } from '@addons/
 import { FormControl } from '@angular/forms';
 import { formControlValue, resolved } from '@/core/utils/rxjs';
 import { CoreLogger } from '@singletons/logger';
+import { CoreSharedModule } from '@/core/shared.module';
+import { AddonBlockTimelineEventsComponent } from '../events/events';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreSearchBoxComponent } from '@features/search/components/search-box/search-box';
+import { CoreToasts } from '@services/overlays/toasts';
+import { Translate } from '@singletons';
 
 /**
  * Component to render a timeline block.
@@ -34,8 +39,14 @@ import { CoreLogger } from '@singletons/logger';
 @Component({
     selector: 'addon-block-timeline',
     templateUrl: 'addon-block-timeline.html',
-    styleUrls: ['timeline.scss'],
+    styleUrl: 'timeline.scss',
     changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreSearchBoxComponent,
+        AddonBlockTimelineEventsComponent,
+    ],
 })
 export class AddonBlockTimelineComponent implements OnInit, ICoreBlockComponent {
 
@@ -113,7 +124,7 @@ export class AddonBlockTimelineComponent implements OnInit, ICoreBlockComponent 
      * @inheritdoc
      */
     async invalidateContent(): Promise<void> {
-        await CoreUtils.allPromises([
+        await CorePromiseUtils.allPromises([
             AddonBlockTimeline.invalidateActionEventsByTimesort(),
             AddonBlockTimeline.invalidateActionEventsByCourses(),
             CoreCourses.invalidateUserCourses(),
@@ -199,12 +210,18 @@ export class AddonBlockTimelineComponent implements OnInit, ICoreBlockComponent 
             }),
             resolved(),
             mergeAll(),
+            tap((sections) => {
+                if (this.loaded) {
+                    CoreToasts.show({
+                        cssClass: 'sr-only',
+                        message: Translate.instant('core.resultsfound', { $a: sections.length }),
+                    });
+                }
+            }),
             catchError(error => {
                 // An error ocurred in the function, log the error and just resolve the observable so the workflow continues.
                 this.logger.error(error);
-
-                // Error getting data, fail.
-                CoreDomUtils.showErrorModalDefault(error, this.fetchContentDefaultError, true);
+                CoreAlerts.showError(error, { default: this.fetchContentDefaultError });
 
                 return of([] as AddonBlockTimelineSection[]);
             }),
@@ -256,9 +273,8 @@ export class AddonBlockTimelineComponent implements OnInit, ICoreBlockComponent 
             .filter(
                 course =>
                     !course.hidden &&
-                !CoreCoursesHelper.isPastCourse(course, gracePeriod.after) &&
-                !CoreCoursesHelper.isFutureCourse(course, gracePeriod.after, gracePeriod.before) &&
-                courseEvents[course.id].events.length > 0,
+                    !CoreCoursesHelper.isFutureCourse(course, gracePeriod.after, gracePeriod.before) &&
+                    courseEvents[course.id].events.length > 0,
             )
             .map(course => {
                 const section = new AddonBlockTimelineSection(

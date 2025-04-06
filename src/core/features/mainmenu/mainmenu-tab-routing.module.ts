@@ -18,77 +18,43 @@ import { Route, Routes } from '@angular/router';
 import { ModuleRoutesConfig, isEmptyRoute, resolveModuleRoutes } from '@/app/app-routing.module';
 
 const MAIN_MENU_TAB_ROUTES = new InjectionToken('MAIN_MENU_TAB_ROUTES');
-const modulesPaths: Record<string, Set<string>> = {};
-
-/**
- * Get the name of the module the injector belongs to.
- *
- * @param injector Injector.
- * @returns Injector module name.
- */
-function getInjectorModule(injector: Injector): string | null {
-    if (!('source' in injector) || typeof injector.source !== 'string') {
-        return null;
-    }
-
-    // Get module name from R3Injector source.
-    // See https://github.com/angular/angular/blob/16.2.0/packages/core/src/di/r3_injector.ts#L161C8
-    return injector.source;
-}
-
-/**
- * Get module paths.
- *
- * @param injector Injector.
- * @returns Module paths.
- */
-function getModulePaths(injector: Injector): Set<string> | null {
-    const module = getInjectorModule(injector);
-
-    if (!module) {
-        return null;
-    }
-
-    return modulesPaths[module] ??= new Set();
-}
 
 /**
  * Build module routes.
  *
  * @param injector Injector.
- * @param mainRoute Main route.
+ * @param mainRoute Main route. Cannot use loadChildren because we might need to add more children.
  * @returns Routes.
  */
-export function buildTabMainRoutes(injector: Injector, mainRoute: Route): Routes {
+export function buildTabMainRoutes(injector: Injector, mainRoute: Omit<Route, 'loadChildren'>): Routes {
     const path = mainRoute.path ?? '';
-    const modulePaths = getModulePaths(injector);
-    const isRootRoute = modulePaths && !modulePaths.has(path);
     const routes = resolveModuleRoutes(injector, MAIN_MENU_TAB_ROUTES);
 
     mainRoute.path = path;
-    modulePaths?.add(path);
 
-    if (isRootRoute && !('redirectTo' in mainRoute)) {
+    if (!('redirectTo' in mainRoute)) {
         mainRoute.children = mainRoute.children || [];
         mainRoute.children = mainRoute.children.concat(routes.children);
     } else if (isEmptyRoute(mainRoute)) {
         return [];
     }
 
-    return isRootRoute
-        ? [mainRoute, ...routes.siblings]
-        : [mainRoute];
+    return [mainRoute, ...routes.siblings];
 }
 
+/**
+ * Module used to register children routes for all main menu tabs. These are routes that can be navigated within any tab in the
+ * main menu, but will remain within the navigation stack of the tab rather than overriding the main menu or moving to another tab.
+ *
+ * Some examples of routes registered in this module are:
+ * - /main/{tab}/user
+ * - /main/{tab}/badges
+ * - /main/{tab}/mod_forum
+ * - ...
+ */
 @NgModule()
 export class CoreMainMenuTabRoutingModule {
 
-    /**
-     * Use this function to declare routes that will be children of all main menu tabs root routes.
-     *
-     * @param routes Routes to be children of main menu tabs.
-     * @returns Calculated module.
-     */
     static forChild(routes: ModuleRoutesConfig): ModuleWithProviders<CoreMainMenuTabRoutingModule> {
         return {
             ngModule: CoreMainMenuTabRoutingModule,

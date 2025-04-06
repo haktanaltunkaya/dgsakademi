@@ -18,12 +18,12 @@ import { BackButtonEvent } from '@ionic/core';
 import { Subscription } from 'rxjs';
 
 import { CoreEvents, CoreEventObserver } from '@singletons/events';
-import { CoreMainMenu, CoreMainMenuProvider } from '../../services/mainmenu';
+import { CoreMainMenu } from '../../services/mainmenu';
 import { CoreMainMenuDelegate, CoreMainMenuHandlerToDisplay } from '../../services/mainmenu-delegate';
 import { Router } from '@singletons';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreUtils } from '@singletons/utils';
 import { CoreAriaRoleTab, CoreAriaRoleTabFindable } from '@classes/aria-role-tab';
-import { CoreNavigationOptions, CoreNavigator } from '@services/navigator';
+import { CoreNavigator } from '@services/navigator';
 import { filter } from 'rxjs/operators';
 import { NavigationEnd } from '@angular/router';
 import { trigger, state, style, transition, animate } from '@angular/animations';
@@ -31,6 +31,18 @@ import { CoreSites } from '@services/sites';
 import { CoreDom } from '@singletons/dom';
 import { CoreLogger } from '@singletons/logger';
 import { CorePlatform } from '@services/platform';
+import { CoreWait } from '@singletons/wait';
+import { CoreMainMenuDeepLinkManager } from '@features/mainmenu/classes/deep-link-manager';
+import { CoreSiteInfoUserHomepage } from '@classes/sites/unauthenticated-site';
+import { CoreContentLinksHelper } from '@features/contentlinks/services/contentlinks-helper';
+import {
+    MAIN_MENU_MORE_PAGE_NAME,
+    MAIN_MENU_HANDLER_BADGE_UPDATED_EVENT,
+    MAIN_MENU_VISIBILITY_UPDATED_EVENT,
+} from '@features/mainmenu/constants';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreMainMenuUserButtonComponent } from '../../components/user-menu-button/user-menu-button';
+import { BackButtonPriority } from '@/core/constants';
 
 const ANIMATION_DURATION = 500;
 
@@ -55,20 +67,26 @@ const ANIMATION_DURATION = 500;
                 animate(`${ANIMATION_DURATION}ms ease-in-out`, style({ transform: 'translateY(100%)' })),
             ]),
             transition('hidden => visible', [
-                style({ transform: 'translateY(100%)',  visibility: 'visible', height: '*' }),
+                style({ transform: 'translateY(100%)', visibility: 'visible', height: '*' }),
                 animate(`${ANIMATION_DURATION}ms ease-in-out`, style({ transform: 'translateY(0)' })),
             ]),
-        ])],
-    styleUrls: ['menu.scss'],
+        ]),
+    ],
+    styleUrl: 'menu.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreMainMenuUserButtonComponent,
+    ],
 })
-export class CoreMainMenuPage implements OnInit, OnDestroy {
+export default class CoreMainMenuPage implements OnInit, OnDestroy {
 
     tabs: CoreMainMenuHandlerToDisplay[] = [];
     allHandlers?: CoreMainMenuHandlerToDisplay[];
     loaded = false;
     showTabs = false;
     tabsPlacement: 'bottom' | 'side' = 'bottom';
-    morePageName = CoreMainMenuProvider.MORE_PAGE_NAME;
+    morePageName = MAIN_MENU_MORE_PAGE_NAME;
     selectedTab?: string;
     isMainScreen = false;
     moreBadge = false;
@@ -82,9 +100,6 @@ export class CoreMainMenuPage implements OnInit, OnDestroy {
     protected backButtonFunction: (event: BackButtonEvent) => void;
     protected selectHistory: string[] = [];
     protected firstSelectedTab?: string;
-    protected urlToOpen?: string;
-    protected redirectPath?: string;
-    protected redirectOptions?: CoreNavigationOptions;
     protected logger: CoreLogger;
 
     @ViewChild('mainTabs') mainTabs?: IonTabs;
@@ -110,9 +125,8 @@ export class CoreMainMenuPage implements OnInit, OnDestroy {
      */
     async ngOnInit(): Promise<void> {
         this.showTabs = true;
-        this.urlToOpen = CoreNavigator.getRouteParam('urlToOpen');
-        this.redirectPath = CoreNavigator.getRouteParam('redirectPath');
-        this.redirectOptions = CoreNavigator.getRouteParam('redirectOptions');
+
+        this.initAfterLoginNavigations();
 
         this.isMainScreen = !this.mainTabs?.outlet.canGoBack();
         this.updateVisibility();
@@ -124,7 +138,7 @@ export class CoreMainMenuPage implements OnInit, OnDestroy {
             this.updateHandlers(previousHandlers);
         });
 
-        this.badgeUpdateObserver = CoreEvents.on(CoreMainMenuProvider.MAIN_MENU_HANDLER_BADGE_UPDATED, (data) => {
+        this.badgeUpdateObserver = CoreEvents.on(MAIN_MENU_HANDLER_BADGE_UPDATED_EVENT, (data) => {
             if (data.siteId == CoreSites.getCurrentSiteId()) {
                 this.updateMoreBadge();
             }
@@ -179,7 +193,7 @@ export class CoreMainMenuPage implements OnInit, OnDestroy {
 
             tab ? tab.hide = false : null;
             handler.hide = false;
-            handler.id = handler.id || 'core-mainmenu-' + CoreUtils.getUniqueId('CoreMainMenuPage');
+            handler.id = handler.id || `core-mainmenu-${CoreUtils.getUniqueId('CoreMainMenuPage')}`;
 
             newTabs.push(tab || handler);
         }
@@ -203,7 +217,7 @@ export class CoreMainMenuPage implements OnInit, OnDestroy {
 
         if (this.loaded && (!mainMenuTab || removedHandlersPages.includes(mainMenuTab))) {
             // No tab selected or handler no longer available, select the first one.
-            await CoreUtils.nextTick();
+            await CoreWait.nextTick();
 
             const tabPage = this.tabs[0] ? this.tabs[0].page : this.morePageName;
             const tabPageParams = this.tabs[0] ? this.tabs[0].pageParams : {};
@@ -212,14 +226,41 @@ export class CoreMainMenuPage implements OnInit, OnDestroy {
             // Use navigate instead of mainTabs.select to be able to pass page params.
             CoreNavigator.navigateToSitePath(tabPage, {
                 preferCurrentTab: false,
-                params: {
-                    urlToOpen: this.urlToOpen,
-                    redirectPath: this.redirectPath,
-                    redirectOptions: this.redirectOptions,
-                    ...tabPageParams,
-                },
+                params: tabPageParams,
             });
         }
+    }
+
+    /**
+     * Set up the code to run after the login navigation finishes.
+     */
+    protected initAfterLoginNavigations(): void {
+        // Treat custom home page and deep link (if any) when the login navigation finishes.
+        const deepLinkManager = new CoreMainMenuDeepLinkManager();
+
+        CoreSites.runAfterLoginNavigation({
+            priority: 800,
+            callback: async () => {
+                await deepLinkManager.treatLink();
+            },
+        });
+
+        CoreSites.runAfterLoginNavigation({
+            priority: 1000,
+            callback: async () => {
+                const userHomePage = CoreSites.getCurrentSite()?.getInfo()?.userhomepage;
+                if (userHomePage !== CoreSiteInfoUserHomepage.HOMEPAGE_URL) {
+                    return;
+                }
+
+                const url = CoreSites.getCurrentSite()?.getInfo()?.userhomepageurl;
+                if (!url) {
+                    return;
+                }
+
+                await CoreContentLinksHelper.handleLink(url);
+            },
+        });
     }
 
     /**
@@ -282,8 +323,7 @@ export class CoreMainMenuPage implements OnInit, OnDestroy {
      * @param event Event.
      */
     protected backButtonClicked(event: BackButtonEvent): void {
-        // Use a priority lower than 0 (navigation).
-        event.detail.register(-10, async (processNextHandler: () => void) => {
+        event.detail.register(BackButtonPriority.MAIN_MENU, async (processNextHandler: () => void) => {
             // This callback can be called at the same time as Ionic's back navigation callback.
             // Check if user is already at the root of a tab.
             const isMainMenuRoot = await this.currentRouteIsMainMenuRoot();
@@ -330,11 +370,11 @@ export class CoreMainMenuPage implements OnInit, OnDestroy {
      * Notify that the menu visibility has been updated.
      */
     protected async notifyVisibilityUpdated(): Promise<void> {
-        await CoreUtils.nextTick();
-        await CoreUtils.wait(ANIMATION_DURATION);
-        await CoreUtils.nextTick();
+        await CoreWait.nextTick();
+        await CoreWait.wait(ANIMATION_DURATION);
+        await CoreWait.nextTick();
 
-        CoreEvents.trigger(CoreMainMenuProvider.MAIN_MENU_VISIBILITY_UPDATED);
+        CoreEvents.trigger(MAIN_MENU_VISIBILITY_UPDATED_EVENT);
     }
 
 }

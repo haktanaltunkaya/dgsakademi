@@ -12,8 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { ContextLevel } from '@/core/constants';
+import { CoreSharedModule } from '@/core/shared.module';
+import { toBoolean } from '@/core/transforms/boolean';
 import { Component, OnInit, Input } from '@angular/core';
 import { FormGroup } from '@angular/forms';
+import { CoreCompileHtmlComponent } from '@features/compile/components/compile-html/compile-html';
 
 import { AuthEmailSignupProfileField } from '@features/login/services/login-helper';
 import { CoreSitePluginsCompileInitComponent } from '@features/siteplugins/classes/compile-init-component';
@@ -27,16 +31,21 @@ import { CoreUserProfileFieldDelegate } from '@features/user/services/user-profi
     selector: 'core-site-plugins-user-profile-field',
     templateUrl: 'core-siteplugins-user-profile-field.html',
     styles: [':host { display: contents; }'],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCompileHtmlComponent,
+    ],
 })
 export class CoreSitePluginsUserProfileFieldComponent extends CoreSitePluginsCompileInitComponent implements OnInit {
 
     @Input() field?: AuthEmailSignupProfileField | CoreUserProfileField; // The profile field to be rendered.
-    @Input() signup = false; // True if editing the field in signup. Defaults to false.
-    @Input() edit = false; // True if editing the field. Defaults to false.
-    @Input() disabled = false; // True if disabled. Defaults to false.
+    @Input({ transform: toBoolean }) signup = false; // True if editing the field in signup.
+    @Input({ transform: toBoolean }) edit = false; // True if editing the field.
+    @Input({ transform: toBoolean }) disabled = false; // True if disabled.
     @Input() form?: FormGroup; // Form where to add the form control. Required if edit=true or signup=true.
     @Input() registerAuth?: string; // Register auth method. E.g. 'email'.
-    @Input() contextLevel?: string; // The context level.
+    @Input() contextLevel?: ContextLevel; // The context level.
     @Input() contextInstanceId?: number; // The instance ID related to the context.
     @Input() courseId?: number; // Course ID the field belongs to (if any). It can be used to improve performance with filters.
 

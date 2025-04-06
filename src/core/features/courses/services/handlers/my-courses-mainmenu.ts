@@ -20,14 +20,13 @@ import { CoreSites } from '@services/sites';
 import { makeSingleton } from '@singletons';
 import { CoreCourses } from '../courses';
 import { CoreDashboardHomeHandler } from './dashboard-home';
+import { CORE_COURSES_MYCOURSES_PAGE_NAME } from '@features/courses/constants';
 
 /**
  * Handler to add my courses into main menu.
  */
 @Injectable({ providedIn: 'root' })
 export class CoreCoursesMyCoursesMainMenuHandlerService implements CoreMainMenuHandler {
-
-    static readonly PAGE_NAME = 'courses';
 
     name = 'CoreCoursesMyCourses';
     priority = 900;
@@ -38,8 +37,7 @@ export class CoreCoursesMyCoursesMainMenuHandlerService implements CoreMainMenuH
     async isEnabled(): Promise<boolean> {
         const site = CoreSites.getRequiredCurrentSite();
 
-        const siteId = site.getId();
-        const disabled = await CoreCourses.isMyCoursesDisabled(siteId);
+        const disabled = CoreCourses.isMyCoursesDisabledInSite(site);
 
         if (disabled) {
             return false;
@@ -48,6 +46,8 @@ export class CoreCoursesMyCoursesMainMenuHandlerService implements CoreMainMenuH
         if (site.isVersionGreaterEqualThan('4.0')) {
             return true;
         }
+
+        const siteId = site.getId();
 
         // Dashboard cannot be disabled on 3.5 or 3.6 so it will never show this tab.
         const dashboardEnabled = await CoreDashboardHomeHandler.isEnabledForSite(siteId);
@@ -60,13 +60,14 @@ export class CoreCoursesMyCoursesMainMenuHandlerService implements CoreMainMenuH
      * @inheritdoc
      */
     getDisplayData(): CoreMainMenuHandlerData {
-        const site = CoreSites.getCurrentSite();
+        const userHomePage = CoreSites.getCurrentSite()?.getInfo()?.userhomepage;
 
-        const displayMyCourses = site?.getInfo() && site?.getInfo()?.userhomepage === CoreSiteInfoUserHomepage.HOMEPAGE_MYCOURSES;
+        const displayMyCourses = userHomePage === CoreSiteInfoUserHomepage.HOMEPAGE_MYCOURSES ||
+            userHomePage === CoreSiteInfoUserHomepage.HOMEPAGE_URL;
 
         return {
             title: 'core.courses.mycourses',
-            page: CoreCoursesMyCoursesMainMenuHandlerService.PAGE_NAME,
+            page: CORE_COURSES_MYCOURSES_PAGE_NAME,
             class: 'core-courses-my-courses-handler',
             icon: 'fas-graduation-cap',
             priority: displayMyCourses ? this.priority + 200 : this.priority,

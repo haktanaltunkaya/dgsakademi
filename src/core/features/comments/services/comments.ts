@@ -17,15 +17,15 @@ import { CoreError } from '@classes/errors/error';
 import { CoreSite } from '@classes/sites/site';
 import { CoreNetwork } from '@services/network';
 import { CoreSites } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreWSError } from '@classes/errors/wserror';
 import { CoreWSExternalWarning } from '@services/ws';
 import { makeSingleton } from '@singletons';
 import { CoreEvents } from '@singletons/events';
 import { CoreCommentsOffline } from './comments-offline';
-import { CoreCommentsSyncAutoSyncData, CoreCommentsSyncProvider } from './comments-sync';
 import { CoreSiteWSPreSets } from '@classes/sites/authenticated-site';
-
-const ROOT_CACHE_KEY = 'mmComments:';
+import { ContextLevel, CoreCacheUpdateFrequency } from '@/core/constants';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreTextFormat } from '@singletons/text';
 
 declare module '@singletons/events' {
 
@@ -37,7 +37,6 @@ declare module '@singletons/events' {
     export interface CoreEventsData {
         [CoreCommentsProvider.REFRESH_COMMENTS_EVENT]: CoreCommentsRefreshCommentsEventData;
         [CoreCommentsProvider.COMMENTS_COUNT_CHANGED_EVENT]: CoreCommentsCountChangedEventData;
-        [CoreCommentsSyncProvider.AUTO_SYNCED]: CoreCommentsSyncAutoSyncData;
     }
 
 }
@@ -47,6 +46,8 @@ declare module '@singletons/events' {
  */
 @Injectable( { providedIn: 'root' })
 export class CoreCommentsProvider {
+
+    protected static readonly ROOT_CACHE_KEY = 'mmComments:';
 
     static readonly REFRESH_COMMENTS_EVENT = 'core_comments_refresh_comments';
     static readonly COMMENTS_COUNT_CHANGED_EVENT = 'core_comments_count_changed';
@@ -80,7 +81,7 @@ export class CoreCommentsProvider {
      */
     async addComment(
         content: string,
-        contextLevel: string,
+        contextLevel: ContextLevel,
         instanceId: number,
         component: string,
         itemId: number,
@@ -105,7 +106,7 @@ export class CoreCommentsProvider {
         try {
             return await this.addCommentOnline(content, contextLevel, instanceId, component, itemId, area, siteId);
         } catch (error) {
-            if (CoreUtils.isWebServiceError(error)) {
+            if (CoreWSError.isWebServiceError(error)) {
                 // It's a WebService error, the user cannot send the message so don't store it.
                 throw error;
             }
@@ -128,7 +129,7 @@ export class CoreCommentsProvider {
      */
     async addCommentOnline(
         content: string,
-        contextLevel: string,
+        contextLevel: ContextLevel,
         instanceId: number,
         component: string,
         itemId: number,
@@ -149,7 +150,7 @@ export class CoreCommentsProvider {
         const commentsResponse = await this.addCommentsOnline(comments, siteId);
 
         // A comment was added, invalidate them.
-        await CoreUtils.ignoreErrors(
+        await CorePromiseUtils.ignoreErrors(
             this.invalidateCommentsData(contextLevel, instanceId, component, itemId, area, siteId),
         );
 
@@ -181,15 +182,14 @@ export class CoreCommentsProvider {
     }
 
     /**
-     * Check if Calendar is disabled in a certain site.
+     * Check if comments are disabled in a certain site.
      *
      * @param site Site. If not defined, use current site.
      * @returns Whether it's disabled.
+     * @deprecated since 4.4. Use areCommentsEnabledInSite instead.
      */
     areCommentsDisabledInSite(site?: CoreSite): boolean {
-        site = site || CoreSites.getCurrentSite();
-
-        return !!site?.isFeatureDisabled('NoDelegate_CoreComments');
+        return !this.areCommentsEnabledInSite(site);
     }
 
     /**
@@ -197,11 +197,38 @@ export class CoreCommentsProvider {
      *
      * @param siteId Site Id. If not defined, use current site.
      * @returns Promise resolved with true if disabled, rejected or resolved with false otherwise.
+     * @deprecated since 4.4. Use areCommentsEnabled instead.
      */
     async areCommentsDisabled(siteId?: string): Promise<boolean> {
+        return !this.areCommentsEnabled(siteId);
+    }
+
+    /**
+     * Check if comments are enabled in a certain site.
+     *
+     * @param site Site. If not defined, use current site.
+     * @returns Whether it's enabled.
+     */
+    areCommentsEnabledInSite(site?: CoreSite): boolean {
+        site = site || CoreSites.getCurrentSite();
+
+        if (!site) {
+            return false;
+        }
+
+        return site.canUseAdvancedFeature('usecomments') && !site.isFeatureDisabled('NoDelegate_CoreComments');
+    }
+
+    /**
+     * Check if comments are enabled in a certain site.
+     *
+     * @param siteId Site Id. If not defined, use current site.
+     * @returns Promise resolved with true if enabled, rejected or resolved with false otherwise.
+     */
+    async areCommentsEnabled(siteId?: string): Promise<boolean> {
         const site = await CoreSites.getSite(siteId);
 
-        return this.areCommentsDisabledInSite(site);
+        return this.areCommentsEnabledInSite(site);
     }
 
     /**
@@ -268,7 +295,7 @@ export class CoreCommentsProvider {
 
             return true;
         } catch (error) {
-            if (CoreUtils.isWebServiceError(error)) {
+            if (CoreWSError.isWebServiceError(error)) {
                 // It's a WebService error, the user cannot send the comment so don't store it.
                 throw error;
             }
@@ -292,7 +319,7 @@ export class CoreCommentsProvider {
      */
     async deleteCommentsOnline(
         commentIds: number[],
-        contextLevel: string,
+        contextLevel: ContextLevel,
         instanceId: number,
         component: string,
         itemId: number,
@@ -307,7 +334,7 @@ export class CoreCommentsProvider {
 
         await site.write('core_comment_delete_comments', data);
 
-        await CoreUtils.ignoreErrors(
+        await CorePromiseUtils.ignoreErrors(
             this.invalidateCommentsData(contextLevel, instanceId, component, itemId, area, siteId),
         );
     }
@@ -323,7 +350,7 @@ export class CoreCommentsProvider {
         const site = await CoreSites.getSite(siteId);
 
         // First check if it's disabled.
-        if (this.areCommentsDisabledInSite(site)) {
+        if (!this.areCommentsEnabledInSite(site)) {
             return false;
         }
 
@@ -341,13 +368,13 @@ export class CoreCommentsProvider {
      * @returns Cache key.
      */
     protected getCommentsCacheKey(
-        contextLevel: string,
+        contextLevel: ContextLevel,
         instanceId: number,
         component: string,
         itemId: number,
         area: string = '',
     ): string {
-        return this.getCommentsPrefixCacheKey(contextLevel, instanceId) + ':' + component + ':' + itemId + ':' + area;
+        return `${this.getCommentsPrefixCacheKey(contextLevel, instanceId)}:${component}:${itemId}:${area}`;
     }
 
     /**
@@ -357,8 +384,8 @@ export class CoreCommentsProvider {
      * @param instanceId The Instance id of item associated with the context level.
      * @returns Cache key.
      */
-    protected getCommentsPrefixCacheKey(contextLevel: string, instanceId: number): string {
-        return ROOT_CACHE_KEY + 'comments:' + contextLevel + ':' + instanceId;
+    protected getCommentsPrefixCacheKey(contextLevel: ContextLevel, instanceId: number): string {
+        return `${CoreCommentsProvider.ROOT_CACHE_KEY}comments:${contextLevel}:${instanceId}`;
     }
 
     /**
@@ -374,7 +401,7 @@ export class CoreCommentsProvider {
      * @returns Promise resolved with the comments.
      */
     async getComments(
-        contextLevel: string,
+        contextLevel: ContextLevel,
         instanceId: number,
         component: string,
         itemId: number,
@@ -395,7 +422,7 @@ export class CoreCommentsProvider {
 
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getCommentsCacheKey(contextLevel, instanceId, component, itemId, area),
-            updateFrequency: CoreSite.FREQUENCY_SOMETIMES,
+            updateFrequency: CoreCacheUpdateFrequency.SOMETIMES,
         };
         const response = await site.read<CoreCommentsGetCommentsWSResponse>('core_comment_get_comments', params, preSets);
 
@@ -423,7 +450,7 @@ export class CoreCommentsProvider {
      * @returns Comments count with plus sign if needed.
      */
     async getCommentsCount(
-        contextLevel: string,
+        contextLevel: ContextLevel,
         instanceId: number,
         component: string,
         itemId: number,
@@ -459,10 +486,10 @@ export class CoreCommentsProvider {
         const count = await getCommentsPageCount(0);
 
         if (trueCount || count < CoreCommentsProvider.pageSize) {
-            return count + '';
+            return `${count}`;
         } else if (CoreCommentsProvider.pageSizeOK && count >= CoreCommentsProvider.pageSize) {
             // Page Size is ok, show + in case it reached the limit.
-            return (CoreCommentsProvider.pageSize - 1) + '+';
+            return `${CoreCommentsProvider.pageSize - 1}+`;
         }
 
         const countMore = await getCommentsPageCount(1);
@@ -470,10 +497,10 @@ export class CoreCommentsProvider {
         if (countMore > 0) {
             CoreCommentsProvider.pageSizeOK = true;
 
-            return (CoreCommentsProvider.pageSize - 1) + '+';
+            return `${CoreCommentsProvider.pageSize - 1}+`;
         }
 
-        return count + '';
+        return `${count}`;
     }
 
     /**
@@ -485,10 +512,9 @@ export class CoreCommentsProvider {
      * @param itemId Associated id.
      * @param area String comment area. Default empty.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateCommentsData(
-        contextLevel: string,
+        contextLevel: ContextLevel,
         instanceId: number,
         component: string,
         itemId: number,
@@ -497,7 +523,7 @@ export class CoreCommentsProvider {
     ): Promise<void> {
         const site = await CoreSites.getSite(siteId);
 
-        await CoreUtils.allPromises([
+        await CorePromiseUtils.allPromises([
             // This is done with starting with to avoid conflicts with previous keys that were including page.
             site.invalidateWsCacheForKeyStartingWith(this.getCommentsCacheKey(
                 contextLevel,
@@ -517,9 +543,8 @@ export class CoreCommentsProvider {
      * @param contextLevel Contextlevel system, course, user...
      * @param instanceId The Instance id of item associated with the context level.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
-    async invalidateCommentsByInstance(contextLevel: string, instanceId: number, siteId?: string): Promise<void> {
+    async invalidateCommentsByInstance(contextLevel: ContextLevel, instanceId: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
 
         await site.invalidateWsCacheForKeyStartingWith(this.getCommentsPrefixCacheKey(contextLevel, instanceId));
@@ -561,7 +586,7 @@ type CoreCommentsAddCommentsWSParams = {
 
 export type CoreCommentsCommentBasicData = {
     id?: number; // Comment ID.
-    contextlevel: string; // Contextlevel system, course, user...
+    contextlevel: ContextLevel; // Contextlevel system, course, user...
     instanceid: number; // The id of item associated with the contextlevel.
     component: string; // Component.
     content: string; // Component.
@@ -575,7 +600,7 @@ export type CoreCommentsCommentBasicData = {
 export type CoreCommentsData = {
     id: number; // Comment ID.
     content: string; // The content text formatted.
-    format: number; // Content format (1 = HTML, 0 = MOODLE, 2 = PLAIN or 4 = MARKDOWN).
+    format: CoreTextFormat; // Content format (1 = HTML, 0 = MOODLE, 2 = PLAIN or 4 = MARKDOWN).
     timecreated: number; // Time created (timestamp).
     strftimeformat: string; // Time format.
     profileurl: string; // URL profile.
@@ -602,7 +627,7 @@ type CoreCommentsDeleteCommentsWSParams = {
  * Params of core_comment_get_comments WS.
  */
 type CoreCommentsGetCommentsWSParams = {
-    contextlevel: string; // Contextlevel system, course, user...
+    contextlevel: ContextLevel; // Contextlevel system, course, user...
     instanceid: number; // The Instance id of item associated with the context level.
     component: string; // Component.
     itemid: number; // Associated id.
@@ -626,7 +651,7 @@ export type CoreCommentsGetCommentsWSResponse = {
  * Data sent by COMMENTS_COUNT_CHANGED_EVENT event.
  */
 export type CoreCommentsCountChangedEventData = {
-    contextLevel: string;
+    contextLevel: ContextLevel;
     instanceId: number;
     component: string;
     itemId: number;
@@ -638,7 +663,7 @@ export type CoreCommentsCountChangedEventData = {
  * Data sent by REFRESH_COMMENTS_EVENT event.
  */
 export type CoreCommentsRefreshCommentsEventData = {
-    contextLevel?: string;
+    contextLevel?: ContextLevel;
     instanceId?: number;
     component?: string;
     itemId?: number;

@@ -30,14 +30,21 @@ export class AddonModAssignDefaultSubmissionHandler implements AddonModAssignSub
     /**
      * @inheritdoc
      */
-    canEditOffline(): boolean | Promise<boolean> {
-        return false;
+    async canContainFiltersWhenEditing(): Promise<boolean> {
+        return true;
     }
 
     /**
      * @inheritdoc
      */
     isEmpty(): boolean {
+        return true;
+    }
+
+    /**
+     * @inheritdoc
+     */
+   isEmptyForEdit(): boolean {
         return true;
     }
 
@@ -51,21 +58,21 @@ export class AddonModAssignDefaultSubmissionHandler implements AddonModAssignSub
     /**
      * @inheritdoc
      */
-    copySubmissionData(): void {
+    copySubmissionData(): void | Promise<void> {
         // Nothing to do.
     }
 
     /**
      * @inheritdoc
      */
-    deleteOfflineData(): void {
+    deleteOfflineData(): void | Promise<void> {
         // Nothing to do.
     }
 
     /**
      * @inheritdoc
      */
-    getPluginFiles(): CoreWSFile[] {
+    getPluginFiles(): CoreWSFile[] | Promise<CoreWSFile[]> {
         return [];
     }
 
@@ -74,7 +81,7 @@ export class AddonModAssignDefaultSubmissionHandler implements AddonModAssignSub
      */
     getPluginName(plugin: AddonModAssignPlugin): string {
         // Check if there's a translated string for the plugin.
-        const translationId = 'addon.mod_assign_submission_' + plugin.type + '.pluginname';
+        const translationId = `addon.mod_assign_submission_${plugin.type}.pluginname`;
         const translation = Translate.instant(translationId);
 
         if (translationId != translation) {
@@ -93,21 +100,21 @@ export class AddonModAssignDefaultSubmissionHandler implements AddonModAssignSub
     /**
      * @inheritdoc
      */
-    getSizeForCopy(): number {
+    getSizeForCopy(): number | Promise<number> {
         return 0;
     }
 
     /**
      * @inheritdoc
      */
-    getSizeForEdit(): number {
+    getSizeForEdit(): number | Promise<number> {
         return 0;
     }
 
     /**
      * @inheritdoc
      */
-    hasDataChanged(): boolean {
+    async hasDataChanged(): Promise<boolean> {
         return false;
     }
 
@@ -121,7 +128,7 @@ export class AddonModAssignDefaultSubmissionHandler implements AddonModAssignSub
     /**
      * @inheritdoc
      */
-    isEnabledForEdit(): boolean {
+    isEnabledForEdit(): boolean | Promise<boolean> {
         return false;
     }
 
@@ -135,14 +142,14 @@ export class AddonModAssignDefaultSubmissionHandler implements AddonModAssignSub
     /**
      * @inheritdoc
      */
-    prepareSubmissionData(): void {
+    prepareSubmissionData(): void | Promise<void> {
         // Nothing to do.
     }
 
     /**
      * @inheritdoc
      */
-    prepareSyncData(): void {
+    prepareSyncData(): void | Promise<void> {
         // Nothing to do.
     }
 

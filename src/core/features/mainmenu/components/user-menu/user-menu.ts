@@ -13,26 +13,27 @@
 // limitations under the License.
 
 import { CoreConstants } from '@/core/constants';
+import { CoreSharedModule } from '@/core/shared.module';
 import { Component, OnDestroy, OnInit } from '@angular/core';
-import { CoreSite } from '@classes/sites/site';
 import { CoreSiteInfo } from '@classes/sites/unauthenticated-site';
 import { CoreFilter } from '@features/filter/services/filter';
-import { CoreLoginSitesModalComponent } from '@features/login/components/sites-modal/sites-modal';
-import { CoreLoginHelper } from '@features/login/services/login-helper';
 import { CoreUserAuthenticatedSupportConfig } from '@features/user/classes/support/authenticated-support-config';
 import { CoreUserSupport } from '@features/user/services/support';
 import { CoreUser, CoreUserProfile } from '@features/user/services/user';
 import {
     CoreUserProfileHandlerData,
     CoreUserDelegate,
-    CoreUserDelegateService,
+    CoreUserProfileHandlerType,
     CoreUserDelegateContext,
 } from '@features/user/services/user-delegate';
+import { CoreModals } from '@services/overlays/modals';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
 import { ModalController, Translate } from '@singletons';
 import { Subscription } from 'rxjs';
+import { CoreLoginHelper } from '@features/login/services/login-helper';
+import { CoreSiteLogoComponent } from '@/core/components/site-logo/site-logo';
+import { CoreAlerts } from '@services/overlays/alerts';
 
 /**
  * Component to display a user menu.
@@ -40,24 +41,28 @@ import { Subscription } from 'rxjs';
 @Component({
     selector: 'core-main-menu-user-menu',
     templateUrl: 'user-menu.html',
-    styleUrls: ['user-menu.scss'],
+    styleUrl: 'user-menu.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreSiteLogoComponent,
+    ],
 })
 export class CoreMainMenuUserMenuComponent implements OnInit, OnDestroy {
 
-    siteId?: string;
     siteInfo?: CoreSiteInfo;
-    siteName?: string;
-    siteLogo?: string;
-    siteLogoLoaded = false;
     siteUrl?: string;
     displaySiteUrl = false;
     handlers: CoreUserProfileHandlerData[] = [];
+    accountHandlers: CoreUserProfileHandlerData[] = [];
     handlersLoaded = false;
     user?: CoreUserProfile;
     displaySwitchAccount = true;
     displayContactSupport = false;
     removeAccountOnLogout = false;
 
+    protected siteId?: string;
+    protected siteName?: string;
     protected subscription!: Subscription;
 
     /**
@@ -74,64 +79,48 @@ export class CoreMainMenuUserMenuComponent implements OnInit, OnDestroy {
         this.removeAccountOnLogout = !!CoreConstants.CONFIG.removeaccountonlogout;
         this.displaySiteUrl = currentSite.shouldDisplayInformativeLinks();
 
-        this.loadSiteLogo(currentSite);
-
-        // Load the handlers.
-        if (this.siteInfo) {
-            try {
-                this.user = await CoreUser.getProfile(this.siteInfo.userid);
-            } catch {
-                this.user = {
-                    id: this.siteInfo.userid,
-                    fullname: this.siteInfo.fullname,
-                };
-            }
-
-            this.subscription = CoreUserDelegate.getProfileHandlersFor(this.user, CoreUserDelegateContext.USER_MENU)
-                .subscribe((handlers) => {
-                    if (!handlers || !this.user) {
-                        return;
-                    }
-
-                    const newHandlers = handlers
-                        .filter((handler) => handler.type === CoreUserDelegateService.TYPE_NEW_PAGE)
-                        .map((handler) => handler.data);
-
-                    // Only update handlers if they have changed, to prevent a blink effect.
-                    if (newHandlers.length !== this.handlers.length ||
-                            JSON.stringify(newHandlers) !== JSON.stringify(this.handlers)) {
-                        this.handlers = newHandlers;
-                    }
-
-                    this.handlersLoaded = CoreUserDelegate.areHandlersLoaded(this.user.id, CoreUserDelegateContext.USER_MENU);
-                });
-
-        }
-    }
-
-    /**
-     * Load site logo from current site public config.
-     *
-     * @param currentSite Current site object.
-     * @returns Promise resolved when done.
-     */
-    protected async loadSiteLogo(currentSite: CoreSite): Promise<void> {
-        if (currentSite.forcesLocalLogo()) {
-            this.siteLogo = currentSite.getLogoUrl();
-            this.siteLogoLoaded = true;
-
+        if (!this.siteInfo) {
             return;
         }
 
+        // Load the handlers.
         try {
-            const siteConfig = await currentSite.getPublicConfig();
-
-            this.siteLogo = currentSite.getLogoUrl(siteConfig);
+            this.user = await CoreUser.getProfile(this.siteInfo.userid);
         } catch {
-            // Ignore errors.
-        } finally {
-            this.siteLogoLoaded = true;
+            this.user = {
+                id: this.siteInfo.userid,
+                fullname: this.siteInfo.fullname,
+            };
         }
+
+        this.subscription = CoreUserDelegate.getProfileHandlersFor(this.user, CoreUserDelegateContext.USER_MENU)
+            .subscribe((handlers) => {
+                if (!this.user) {
+                    return;
+                }
+
+                let newHandlers = handlers
+                    .filter((handler) => handler.type === CoreUserProfileHandlerType.LIST_ITEM)
+                    .map((handler) => handler.data);
+
+                // Only update handlers if they have changed, to prevent a blink effect.
+                if (newHandlers.length !== this.handlers.length ||
+                        JSON.stringify(newHandlers) !== JSON.stringify(this.handlers)) {
+                    this.handlers = newHandlers;
+                }
+
+                newHandlers = handlers
+                    .filter((handler) => handler.type === CoreUserProfileHandlerType.LIST_ACCOUNT_ITEM)
+                    .map((handler) => handler.data);
+
+                // Only update handlers if they have changed, to prevent a blink effect.
+                if (newHandlers.length !== this.handlers.length ||
+                        JSON.stringify(newHandlers) !== JSON.stringify(this.handlers)) {
+                    this.accountHandlers = newHandlers;
+                }
+
+                this.handlersLoaded = CoreUserDelegate.areHandlersLoaded(this.user.id, CoreUserDelegateContext.USER_MENU);
+            });
     }
 
     /**
@@ -196,12 +185,6 @@ export class CoreMainMenuUserMenuComponent implements OnInit, OnDestroy {
      * @param event Click event
      */
     async logout(event: Event): Promise<void> {
-        if (CoreNavigator.currentRouteCanBlockLeave()) {
-            await CoreDomUtils.showAlert(undefined, Translate.instant('core.cannotlogoutpageblocks'));
-
-            return;
-        }
-
         if (this.removeAccountOnLogout) {
             // Ask confirm.
             const siteName = this.siteName ?
@@ -209,7 +192,7 @@ export class CoreMainMenuUserMenuComponent implements OnInit, OnDestroy {
                 '';
 
             try {
-                await CoreDomUtils.showDeleteConfirm('core.login.confirmdeletesite', { sitename: siteName });
+                await CoreAlerts.confirmDelete(Translate.instant('core.login.confirmdeletesite', { sitename: siteName }));
             } catch (error) {
                 // User cancelled, stop.
                 return;
@@ -230,18 +213,14 @@ export class CoreMainMenuUserMenuComponent implements OnInit, OnDestroy {
      * @param event Click event
      */
     async switchAccounts(event: Event): Promise<void> {
-        if (CoreNavigator.currentRouteCanBlockLeave()) {
-            await CoreDomUtils.showAlert(undefined, Translate.instant('core.cannotlogoutpageblocks'));
-
-            return;
-        }
-
         const thisModal = await ModalController.getTop();
 
         event.preventDefault();
         event.stopPropagation();
 
-        const closeAll = await CoreDomUtils.openSideModal<boolean>({
+        const { CoreLoginSitesModalComponent } = await import('@features/login/components/sites-modal/sites-modal');
+
+        const closeAll = await CoreModals.openSideModal<boolean>({
             component: CoreLoginSitesModalComponent,
             cssClass: 'core-modal-lateral core-modal-lateral-sm',
         });

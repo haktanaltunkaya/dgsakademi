@@ -1,8 +1,9 @@
-@addon_mod_forum @app @javascript
+@addon_mod_forum @app @mod @mod_forum @javascript
 Feature: Test usage of forum activity with groups in app
 
   Background:
-    Given the following "courses" exist:
+    Given the Moodle site is compatible with this feature
+    And the following "courses" exist:
       | fullname | shortname |
       | Course 1 | C1        |
     And the following "users" exist:
@@ -34,7 +35,8 @@ Feature: Test usage of forum activity with groups in app
       | forum2 | Disc vis ALL | Disc vis ALL | Disc vis ALL content | All participants |
 
   Scenario: Student can only see the right groups
-    Given I entered the forum activity "Separate groups forum" on course "Course 1" as "student1" in the app
+    Given I entered the course "Course 1" as "student1" in the app
+    And I press "Separate groups forum" in the app
     Then I should find "Disc sep G1" in the app
     And I should find "Disc sep ALL" in the app
     But I should not find "Disc sep G2" in the app
@@ -45,7 +47,7 @@ Feature: Test usage of forum activity with groups in app
     And I should not find "Group 2" in the app
 
     When I press "Group 1" in the app
-    And I press the back button in the app
+    And I go back in the app
     And I press "Visible groups forum" in the app
     And I press "Visible groups" in the app
     Then I should find "All participants" in the app
@@ -64,7 +66,8 @@ Feature: Test usage of forum activity with groups in app
     But I should not find "Disc vis G2" in the app
 
   Scenario: Teacher can see all groups
-    Given I entered the forum activity "Separate groups forum" on course "Course 1" as "teacher1" in the app
+    Given I entered the course "Course 1" as "teacher1" in the app
+    And I press "Separate groups forum" in the app
     When I press "Separate groups" in the app
     Then I should find "All participants" in the app
     And I should find "Group 1" in the app
@@ -87,7 +90,7 @@ Feature: Test usage of forum activity with groups in app
     And I should find "Disc sep ALL" in the app
     But I should not find "Disc sep G1" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Visible groups forum" in the app
     And I press "Visible groups" in the app
     Then I should find "All participants" in the app
@@ -106,7 +109,8 @@ Feature: Test usage of forum activity with groups in app
     But I should not find "Disc vis G2" in the app
 
   Scenario: Student can only add discussions in his groups
-    Given I entered the forum activity "Separate groups forum" on course "Course 1" as "student1" in the app
+    Given I entered the course "Course 1" as "student1" in the app
+    And I press "Separate groups forum" in the app
     When I press "Add discussion topic" in the app
     And I press "Advanced" in the app
     Then I should not find "Post a copy to all groups" in the app
@@ -124,7 +128,7 @@ Feature: Test usage of forum activity with groups in app
     Then I should find "Your post was successfully added" in the app
     And I should find "My happy subject" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Visible groups forum" in the app
     And I press "Visible groups" in the app
     And I press "All participants" in the app
@@ -164,8 +168,9 @@ Feature: Test usage of forum activity with groups in app
     Then I should find "My happy subject" in the app
 
   Scenario: Teacher can add discussion to any group
-    Given I entered the forum activity "Separate groups forum" on course "Course 1" as "teacher1" in the app
-    And I press "Separate groups" in the app
+    Given I entered the course "Course 1" as "teacher1" in the app
+    And I press "Separate groups forum" in the app
+    When I press "Separate groups" in the app
     And I press "All participants" in the app
     And I press "Add discussion topic" in the app
     And I press "Advanced" in the app
@@ -220,7 +225,7 @@ Feature: Test usage of forum activity with groups in app
     And I press "Group 2" in the app
     Then I should find "My third subject" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Visible groups forum" in the app
     And I press "Visible groups" in the app
     And I press "All participants" in the app
@@ -278,8 +283,9 @@ Feature: Test usage of forum activity with groups in app
     Then I should find "My third subject" in the app
 
   Scenario: Teacher can post a copy in all groups
-    Given I entered the forum activity "Separate groups forum" on course "Course 1" as "teacher1" in the app
-    And I press "Separate groups" in the app
+    Given I entered the course "Course 1" as "teacher1" in the app
+    And I press "Separate groups forum" in the app
+    When I press "Separate groups" in the app
     And I press "Group 1" in the app
     And I press "Add discussion topic" in the app
     And I press "Advanced" in the app
@@ -299,7 +305,7 @@ Feature: Test usage of forum activity with groups in app
     And I press "Group 2" in the app
     Then I should find "My happy subject" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Visible groups forum" in the app
     And I press "Visible groups" in the app
     And I press "Group 1" in the app
@@ -345,7 +351,7 @@ Feature: Test usage of forum activity with groups in app
     Then I should find "Downloaded" within "Separate groups" "ion-item" in the app
     And I should find "Downloaded" within "Visible groups" "ion-item" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I switch offline mode to "true"
     And I press "Separate groups forum" in the app
     Then I should find "Disc sep G1" in the app
@@ -355,8 +361,7 @@ Feature: Test usage of forum activity with groups in app
     Then I should find "Disc sep G1" in the app
     And I should find "Disc sep G1 content" in the app
 
-    When I press the back button in the app
-    And I press the back button in the app
+    When I go back 2 times in the app
     And I press "Visible groups forum" in the app
     Then I should find "Disc vis ALL" in the app
     And I should find "Disc vis G1" in the app

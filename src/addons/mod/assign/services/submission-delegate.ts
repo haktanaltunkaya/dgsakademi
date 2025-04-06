@@ -21,6 +21,8 @@ import { CoreWSFile } from '@services/ws';
 import { AddonModAssignSubmissionsDBRecordFormatted } from './assign-offline';
 import { CoreFormFields } from '@singletons/form';
 import type { AddonModAssignSubmissionPluginBaseComponent } from '@addons/mod/assign/classes/base-submission-plugin-component';
+import { CoreSites } from '@services/sites';
+import { ADDON_MOD_ASSIGN_FEATURE_NAME } from '../constants';
 
 /**
  * Interface that all submission handlers must implement.
@@ -41,12 +43,29 @@ export interface AddonModAssignSubmissionHandler extends CoreDelegateHandler {
      * @param submission The submission.
      * @param plugin The plugin object.
      * @returns Boolean or promise resolved with boolean: whether it can be edited in offline.
+     * @deprecated since 5.0. Use canContainFiltersWhenEditing instead.
      */
     canEditOffline?(
         assign: AddonModAssignAssign,
         submission: AddonModAssignSubmission,
         plugin: AddonModAssignPlugin,
     ): boolean | Promise<boolean>;
+
+    /**
+     * Whether the plugin can contain filters in the submission contents and the field with filters can be edited.
+     * If any of the editable field of the submission uses format_string or format_text in LMS, this function should return true.
+     * Used to determine if the app needs to fetch unfiltered data when editing the submission.
+     *
+     * @param assign The assignment.
+     * @param submission The submission.
+     * @param plugin The plugin object.
+     * @returns Whether the submission can contain filters.
+     */
+    canContainFiltersWhenEditing?(
+        assign: AddonModAssignAssign,
+        submission: AddonModAssignSubmission,
+        plugin: AddonModAssignPlugin,
+    ): Promise<boolean>;
 
     /**
      * Check if a plugin has no data.
@@ -58,6 +77,20 @@ export interface AddonModAssignSubmissionHandler extends CoreDelegateHandler {
     isEmpty?(
         assign: AddonModAssignAssign,
         plugin: AddonModAssignPlugin,
+    ): boolean;
+
+    /**
+     * Check if a plugin has no data in the edit form.
+     *
+     * @param assign The assignment.
+     * @param plugin The plugin object.
+     * @param inputData Data entered by the user for the submission.
+     * @returns Whether the plugin is empty.
+     */
+    isEmptyForEdit?(
+        assign: AddonModAssignAssign,
+        plugin: AddonModAssignPlugin,
+        inputData: CoreFormFields,
     ): boolean;
 
     /**
@@ -194,7 +227,7 @@ export interface AddonModAssignSubmissionHandler extends CoreDelegateHandler {
         submission: AddonModAssignSubmission,
         plugin: AddonModAssignPlugin,
         inputData: CoreFormFields,
-    ): boolean | Promise<boolean>;
+    ): Promise<boolean>;
 
     /**
      * Whether or not the handler is enabled for edit on a site level.
@@ -277,23 +310,42 @@ export class AddonModAssignSubmissionDelegateService extends CoreDelegate<AddonM
     constructor(
         protected defaultHandler: AddonModAssignDefaultSubmissionHandler,
     ) {
-        super('AddonModAssignSubmissionDelegate', true);
+        super('AddonModAssignSubmissionDelegate');
     }
 
     /**
-     * Whether the plugin can be edited in offline for existing submissions.
+     * @inheritdoc
+     */
+    async isEnabled(): Promise<boolean> {
+        return !(await CoreSites.isFeatureDisabled(ADDON_MOD_ASSIGN_FEATURE_NAME));
+    }
+
+    /**
+     * Whether the plugin can contain filters in the submission contents.
      *
      * @param assign The assignment.
      * @param submission The submission.
      * @param plugin The plugin object.
-     * @returns Promise resolved with boolean: whether it can be edited in offline.
+     * @returns Whether the submission can contain filters.
      */
-    async canPluginEditOffline(
+    async canPluginContainFiltersWhenEditing(
         assign: AddonModAssignAssign,
         submission: AddonModAssignSubmission,
         plugin: AddonModAssignPlugin,
     ): Promise<boolean | undefined> {
-        return this.executeFunctionOnEnabled(plugin.type, 'canEditOffline', [assign, submission, plugin]);
+        const handler = this.getHandler(plugin.type);
+
+        // eslint-disable-next-line deprecation/deprecation
+        if (handler && !handler.canContainFiltersWhenEditing && handler.canEditOffline) {
+            // Plugin implements the old callback but not the new one. Use the old one.
+            // eslint-disable-next-line deprecation/deprecation
+            const canEditOffline = await handler.canEditOffline(assign, submission, plugin);
+
+            // If cannot edit offline, assume it can contain filters.
+            return !canEditOffline;
+        }
+
+        return this.executeFunctionOnEnabled(plugin.type, 'canContainFiltersWhenEditing', [assign, submission, plugin]);
     }
 
     /**
@@ -491,6 +543,22 @@ export class AddonModAssignSubmissionDelegateService extends CoreDelegate<AddonM
      */
     isPluginEmpty(assign: AddonModAssignAssign, plugin: AddonModAssignPlugin): boolean | undefined {
         return this.executeFunctionOnEnabled(plugin.type, 'isEmpty', [assign, plugin]);
+    }
+
+    /**
+     * Check if a plugin has no data in the edit form
+     *
+     * @param assign The assignment.
+     * @param plugin The plugin object.
+     * @param inputData Data entered in the submission form.
+     * @returns Whether the plugin is empty.
+     */
+    isPluginEmptyForEdit(
+        assign: AddonModAssignAssign,
+        plugin: AddonModAssignPlugin,
+        inputData: CoreFormFields,
+    ): boolean | undefined {
+        return this.executeFunctionOnEnabled(plugin.type, 'isEmptyForEdit', [assign, plugin, inputData]);
     }
 
     /**

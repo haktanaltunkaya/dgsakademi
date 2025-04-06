@@ -20,18 +20,19 @@ import { makeSingleton, Translate } from '@singletons';
 import { CoreCommentsOffline } from './comments-offline';
 import { CoreSites } from '@services/sites';
 import { CoreNetwork } from '@services/network';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreWSError } from '@classes/errors/wserror';
 import { CoreNetworkError } from '@classes/errors/network-error';
 import { CoreCommentsDBRecord, CoreCommentsDeletedDBRecord } from './database/comments';
 import { CoreSyncResult } from '@services/sync';
+import { ContextLevel } from '@/core/constants';
+import { CORE_COMMENTS_AUTO_SYNCED } from '../constants';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 
 /**
  * Service to sync omments.
  */
 @Injectable( { providedIn: 'root' })
 export class CoreCommentsSyncProvider extends CoreSyncBaseProvider<CoreCommentsSyncResult> {
-
-    static readonly AUTO_SYNCED = 'core_comments_autom_synced';
 
     constructor() {
         super('CoreCommentsSync');
@@ -95,7 +96,7 @@ export class CoreCommentsSyncProvider extends CoreSyncBaseProvider<CoreCommentsS
 
             if (result !== undefined) {
                 // Sync successful, send event.
-                CoreEvents.trigger(CoreCommentsSyncProvider.AUTO_SYNCED, {
+                CoreEvents.trigger(CORE_COMMENTS_AUTO_SYNCED, {
                     contextLevel: comment.contextlevel,
                     instanceId: comment.instanceid,
                     componentName: comment.component,
@@ -121,7 +122,7 @@ export class CoreCommentsSyncProvider extends CoreSyncBaseProvider<CoreCommentsS
      * @returns Promise resolved when the comments are synced or if they don't need to be synced.
      */
     private async syncCommentsIfNeeded(
-        contextLevel: string,
+        contextLevel: ContextLevel,
         instanceId: number,
         component: string,
         itemId: number,
@@ -149,7 +150,7 @@ export class CoreCommentsSyncProvider extends CoreSyncBaseProvider<CoreCommentsS
      * @returns Promise resolved if sync is successful, rejected otherwise.
      */
     syncComments(
-        contextLevel: string,
+        contextLevel: ContextLevel,
         instanceId: number,
         component: string,
         itemId: number,
@@ -166,7 +167,7 @@ export class CoreCommentsSyncProvider extends CoreSyncBaseProvider<CoreCommentsS
             return currentSyncPromise;
         }
 
-        this.logger.debug('Try to sync comments ' + syncId + ' in site ' + siteId);
+        this.logger.debug(`Try to sync comments ${syncId} in site ${siteId}`);
 
         const syncPromise = this.performSyncComments(contextLevel, instanceId, component, itemId, area, siteId);
 
@@ -185,7 +186,7 @@ export class CoreCommentsSyncProvider extends CoreSyncBaseProvider<CoreCommentsS
      * @returns Promise resolved if sync is successful, rejected otherwise.
      */
     private async performSyncComments(
-        contextLevel: string,
+        contextLevel: ContextLevel,
         instanceId: number,
         component: string,
         itemId: number,
@@ -274,14 +275,14 @@ export class CoreCommentsSyncProvider extends CoreSyncBaseProvider<CoreCommentsS
             }, CoreSites.getCurrentSiteId());
 
             // Fetch the comments from server to be sure they're up to date.
-            await CoreUtils.ignoreErrors(
+            await CorePromiseUtils.ignoreErrors(
                 CoreComments.invalidateCommentsData(contextLevel, instanceId, component, itemId, area, siteId),
             );
-            await CoreUtils.ignoreErrors(
+            await CorePromiseUtils.ignoreErrors(
                 CoreComments.getComments(contextLevel, instanceId, component, itemId, area, 0, siteId),
             );
         } catch (error) {
-            if (CoreUtils.isWebServiceError(error)) {
+            if (CoreWSError.isWebServiceError(error)) {
             // It's a WebService error, this means the user cannot send comments.
                 errors.push(error.message);
             } else {
@@ -312,8 +313,14 @@ export class CoreCommentsSyncProvider extends CoreSyncBaseProvider<CoreCommentsS
      * @param area String comment area. Default empty.
      * @returns Sync ID.
      */
-    protected getSyncId(contextLevel: string, instanceId: number, component: string, itemId: number, area: string = ''): string {
-        return contextLevel + '#' + instanceId + '#' + component + '#' + itemId + '#' + area;
+    protected getSyncId(
+        contextLevel: ContextLevel,
+        instanceId: number,
+        component: string,
+        itemId: number,
+        area: string = '',
+    ): string {
+        return `${contextLevel}#${instanceId}#${component}#${itemId}#${area}`;
     }
 
 }
@@ -322,13 +329,26 @@ export const CoreCommentsSync = makeSingleton(CoreCommentsSyncProvider);
 export type CoreCommentsSyncResult = CoreSyncResult;
 
 /**
- * Data passed to AUTO_SYNCED event.
+ * Data passed to CORE_COMMENTS_AUTO_SYNCED event.
  */
 export type CoreCommentsSyncAutoSyncData = {
-    contextLevel: string;
+    contextLevel: ContextLevel;
     instanceId: number;
     componentName: string;
     itemId: number;
     area: string;
     warnings: string[];
 };
+
+declare module '@singletons/events' {
+
+    /**
+     * Augment CoreEventsData interface with events specific to this service.
+     *
+     * @see https://www.typescriptlang.org/docs/handbook/declaration-merging.html#module-augmentation
+     */
+    export interface CoreEventsData {
+        [CORE_COMMENTS_AUTO_SYNCED]: CoreCommentsSyncAutoSyncData;
+    }
+
+}

@@ -15,14 +15,12 @@
 import { APP_INITIALIZER, NgModule, Type } from '@angular/core';
 import { Routes } from '@angular/router';
 import { CoreContentLinksDelegate } from '@features/contentlinks/services/contentlinks-delegate';
-import { COURSE_PAGE_NAME } from '@features/course/course.module';
 import { CoreCourseIndexRoutingModule } from '@features/course/course-routing.module';
 import { CoreCourseOptionsDelegate } from '@features/course/services/course-options-delegate';
 import { CoreMainMenuTabRoutingModule } from '@features/mainmenu/mainmenu-tab-routing.module';
 import { CoreUserDelegate } from '@features/user/services/user-delegate';
-import { PARTICIPANTS_PAGE_NAME } from '@features/user/user.module';
-import { CoreGradesProvider } from './services/grades';
-import { CoreGradesHelperProvider, GRADES_PAGE_NAME, GRADES_PARTICIPANTS_PAGE_NAME } from './services/grades-helper';
+import { PARTICIPANTS_PAGE_NAME } from '@features/user/constants';
+import { GRADES_PAGE_NAME, GRADES_PARTICIPANTS_PAGE_NAME } from './constants';
 import { CoreGradesCourseOptionHandler } from './services/handlers/course-option';
 import { CoreGradesOverviewLinkHandler } from './services/handlers/overview-link';
 import { CoreGradesUserHandler } from './services/handlers/user';
@@ -30,28 +28,65 @@ import { CoreGradesReportLinkHandler } from './services/handlers/report-link';
 import { CoreGradesUserLinkHandler } from './services/handlers/user-link';
 import { CoreGradesCourseParticipantsOptionHandler } from '@features/grades/services/handlers/course-participants-option';
 import { conditionalRoutes } from '@/app/app-routing.module';
-import { COURSE_INDEX_PATH } from '@features/course/course-lazy.module';
 import { CoreScreen } from '@services/screen';
+import { CORE_COURSE_PAGE_NAME, CORE_COURSE_INDEX_PATH } from '@features/course/constants';
 
-export const CORE_GRADES_SERVICES: Type<unknown>[] = [
-    CoreGradesProvider,
-    CoreGradesHelperProvider,
+/**
+ * Get grades services.
+ *
+ * @returns Returns grades services.
+ */
+export async function getGradesServices(): Promise<Type<unknown>[]> {
+    const { CoreGradesProvider } = await import('@features/grades/services/grades');
+    const { CoreGradesHelperProvider } = await import('@features/grades/services/grades-helper');
+
+    return [
+        CoreGradesProvider,
+        CoreGradesHelperProvider,
+    ];
+}
+
+const mobileRoutes: Routes = [
+    {
+        path: '',
+        loadComponent: () => import('@features/grades/pages/courses/courses'),
+    },
+    {
+        path: ':courseId',
+        loadComponent: () => import('@features/grades/pages/course/course'),
+    },
+];
+
+const tabletRoutes: Routes = [
+    {
+        path: '',
+        loadComponent: () => import('@features/grades/pages/courses/courses'),
+        loadChildren: () => [
+            {
+                path: ':courseId',
+                loadComponent: () => import('@features/grades/pages/course/course'),
+            },
+        ],
+    },
 ];
 
 const mainMenuChildrenRoutes: Routes = [
     {
         path: GRADES_PAGE_NAME,
-        loadChildren: () => import('./grades-courses-lazy.module').then(m => m.CoreGradesCoursesLazyModule),
+        loadChildren: () => [
+            ...conditionalRoutes(mobileRoutes, () => CoreScreen.isMobile),
+            ...conditionalRoutes(tabletRoutes, () => CoreScreen.isTablet),
+        ],
         data: { swipeManagerSource: 'courses' },
     },
     {
-        path: `${COURSE_PAGE_NAME}/:courseId/${PARTICIPANTS_PAGE_NAME}/:userId/${GRADES_PAGE_NAME}`,
-        loadChildren: () => import('./grades-course-lazy.module').then(m => m.CoreGradesCourseLazyModule),
+        path: `${CORE_COURSE_PAGE_NAME}/:courseId/${PARTICIPANTS_PAGE_NAME}/:userId/${GRADES_PAGE_NAME}`,
+        loadComponent: () => import('@features/grades/pages/course/course'),
     },
     ...conditionalRoutes([
         {
-            path: `${COURSE_PAGE_NAME}/${COURSE_INDEX_PATH}/${GRADES_PARTICIPANTS_PAGE_NAME}/:userId`,
-            loadChildren: () => import('./grades-course-lazy.module').then(m => m.CoreGradesCourseLazyModule),
+            path: `${CORE_COURSE_PAGE_NAME}/${CORE_COURSE_INDEX_PATH}/${GRADES_PARTICIPANTS_PAGE_NAME}/:userId`,
+            loadComponent: () => import('@features/grades/pages/course/course'),
             data: { swipeManagerSource: 'participants' },
         },
     ], () => CoreScreen.isMobile),
@@ -60,11 +95,18 @@ const mainMenuChildrenRoutes: Routes = [
 const courseIndexRoutes: Routes = [
     {
         path: GRADES_PAGE_NAME,
-        loadChildren: () => import('./grades-course-lazy.module').then(m => m.CoreGradesCourseLazyModule),
+        loadComponent: () => import('@features/grades/pages/course/course'),
     },
     {
         path: GRADES_PARTICIPANTS_PAGE_NAME,
-        loadChildren: () => import('./grades-course-participants-lazy.module').then(m => m.CoreGradesCourseParticipantsLazyModule),
+        loadComponent: () => import('@features/user/pages/participants/participants'),
+        loadChildren: () => conditionalRoutes([
+            {
+                path: ':userId',
+                loadComponent: () => import('@features/grades/pages/course/course'),
+                data: { swipeManagerSource: 'participants' },
+            },
+        ], () => CoreScreen.isTablet),
     },
 ];
 

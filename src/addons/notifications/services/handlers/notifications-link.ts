@@ -18,7 +18,7 @@ import { CoreContentLinksHandlerBase } from '@features/contentlinks/classes/base
 import { CoreContentLinksAction } from '@features/contentlinks/services/contentlinks-delegate';
 import { CoreNavigator } from '@services/navigator';
 import { makeSingleton } from '@singletons';
-import { AddonNotificationsMainMenuHandlerService } from './mainmenu';
+import { ADDONS_NOTICATIONS_MAIN_PAGE_NAME } from '@addons/notifications/constants';
 
 /**
  * Handler to treat links to notifications.
@@ -35,8 +35,8 @@ export class AddonNotificationsLinkHandlerService extends CoreContentLinksHandle
      */
     getActions(): CoreContentLinksAction[] {
         return [{
-            action: (siteId: string): void => {
-                CoreNavigator.navigateToSitePath(AddonNotificationsMainMenuHandlerService.PAGE_NAME, {
+            action: async (siteId: string): Promise<void> => {
+                await CoreNavigator.navigateToSitePath(ADDONS_NOTICATIONS_MAIN_PAGE_NAME, {
                     preferCurrentTab: false,
                     siteId,
                 });

@@ -15,8 +15,7 @@
 import { Injectable, Type } from '@angular/core';
 
 import { CoreUserProfileFieldHandler, CoreUserProfileFieldHandlerData } from '@features/user/services/user-profile-field-delegate';
-import { AddonUserProfileFieldSocialComponent } from '../../component/social';
-import { CoreTextUtils } from '@services/utils/text';
+import { CoreText } from '@singletons/text';
 import { AuthEmailSignupProfileField } from '@features/login/services/login-helper';
 import { CoreUserProfileField } from '@features/user/services/user';
 import { makeSingleton } from '@singletons';
@@ -55,22 +54,21 @@ export class AddonUserProfileFieldSocialHandlerService implements CoreUserProfil
         registerAuth: string,
         formValues: CoreFormFields,
     ): Promise<CoreUserProfileFieldHandlerData | undefined> {
-        const name = 'profile_field_' + field.shortname;
+        const name = `profile_field_${field.shortname}`;
 
         return {
             type: 'social',
             name: name,
-            value: CoreTextUtils.cleanTags(<string> formValues[name]),
+            value: CoreText.cleanTags(<string> formValues[name]),
         };
     }
 
     /**
-     * Return the Component to use to display the user profile field.
-     * It's recommended to return the class of the component, but you can also return an instance of the component.
-     *
-     * @returns The component (or promise resolved with component) to use, undefined if not found.
+     * @inheritdoc
      */
-    getComponent(): Type<unknown> | Promise<Type<unknown>> {
+    async getComponent(): Promise<Type<unknown>> {
+        const { AddonUserProfileFieldSocialComponent } = await import('../../component/social');
+
         return AddonUserProfileFieldSocialComponent;
     }
 

@@ -18,7 +18,10 @@ import { CoreLang } from '@services/lang';
 import { AuthEmailSignupProfileField } from '@features/login/services/login-helper';
 import { CoreUserProfileField } from '@features/user/services/user';
 import { CoreUserProfileFieldDelegate } from '@features/user/services/user-profile-field-delegate';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreUtils } from '@singletons/utils';
+import { ContextLevel } from '@/core/constants';
+import { toBoolean } from '@/core/transforms/boolean';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Directive to render user profile field.
@@ -26,15 +29,19 @@ import { CoreUtils } from '@services/utils/utils';
 @Component({
     selector: 'core-user-profile-field',
     templateUrl: 'core-user-profile-field.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class CoreUserProfileFieldComponent implements OnInit {
 
     @Input() field?: AuthEmailSignupProfileField | CoreUserProfileField; // The profile field to be rendered.
-    @Input() signup = false; // True if editing the field in signup. Defaults to false.
-    @Input() edit = false; // True if editing the field. Defaults to false.
+    @Input({ transform: toBoolean }) signup = false; // True if editing the field in signup.
+    @Input({ transform: toBoolean }) edit = false; // True if editing the field.
     @Input() form?: FormGroup; // Form where to add the form control. Required if edit=true or signup=true.
     @Input() registerAuth?: string; // Register auth method. E.g. 'email'.
-    @Input() contextLevel?: string; // The context level.
+    @Input() contextLevel?: ContextLevel; // The context level.
     @Input() contextInstanceId?: number; // The instance ID related to the context.
     @Input() courseId?: number; // Course ID the field belongs to (if any). It can be used to improve performance with filters.
 
@@ -56,13 +63,13 @@ export class CoreUserProfileFieldComponent implements OnInit {
         }
 
         this.data.field = this.field;
-        this.data.edit = CoreUtils.isTrueOrOne(this.edit);
+        this.data.edit = this.edit;
         this.data.contextLevel = this.contextLevel;
         this.data.contextInstanceId = this.contextInstanceId;
         this.data.courseId = this.courseId;
 
         if (this.edit) {
-            this.data.signup = CoreUtils.isTrueOrOne(this.signup);
+            this.data.signup = this.signup;
             this.data.disabled = 'locked' in this.field && CoreUtils.isTrueOrOne(this.field.locked);
             this.data.form = this.form;
             this.data.registerAuth = this.registerAuth;
@@ -78,7 +85,7 @@ export type CoreUserProfileFieldComponentData = {
     disabled?: boolean;
     form?: FormGroup;
     registerAuth?: string;
-    contextLevel?: string;
+    contextLevel?: ContextLevel;
     contextInstanceId?: number;
     courseId?: number;
 };

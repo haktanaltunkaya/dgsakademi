@@ -16,10 +16,12 @@ import { Injectable } from '@angular/core';
 import { CoreCourseHelper } from '@features/course/services/course-helper';
 import { CorePushNotificationsClickHandler } from '@features/pushnotifications/services/push-delegate';
 import { CorePushNotificationsNotificationBasicData } from '@features/pushnotifications/services/pushnotifications';
-import { CoreUrlUtils } from '@services/utils/url';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreUrl } from '@singletons/url';
+import { CoreUtils } from '@singletons/utils';
 import { makeSingleton } from '@singletons';
 import { AddonModAssign } from '../assign';
+import { ADDON_MOD_ASSIGN_FEATURE_NAME, ADDON_MOD_ASSIGN_PAGE_NAME } from '../../constants';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 
 /**
  * Handler for assign push notifications clicks.
@@ -29,31 +31,26 @@ export class AddonModAssignPushClickHandlerService implements CorePushNotificati
 
     name = 'AddonModAssignPushClickHandler';
     priority = 200;
-    featureName = 'CoreCourseModuleDelegate_AddonModAssign';
+    featureName = ADDON_MOD_ASSIGN_FEATURE_NAME;
 
     /**
-     * Check if a notification click is handled by this handler.
-     *
-     * @param notification The notification to check.
-     * @returns Whether the notification click is handled by this handler
+     * @inheritdoc
      */
     async handles(notification: NotificationData): Promise<boolean> {
-        return CoreUtils.isTrueOrOne(notification.notif) && notification.moodlecomponent == 'mod_assign' &&
-                notification.name == 'assign_notification';
+        return CoreUtils.isTrueOrOne(notification.notif) &&
+            notification.moodlecomponent === ADDON_MOD_ASSIGN_PAGE_NAME &&
+                notification.name === 'assign_notification';
     }
 
     /**
-     * Handle the notification click.
-     *
-     * @param notification The notification to check.
-     * @returns Promise resolved when done.
+     * @inheritdoc
      */
     async handleClick(notification: NotificationData): Promise<void> {
-        const contextUrlParams = CoreUrlUtils.extractUrlParams(notification.contexturl);
+        const contextUrlParams = CoreUrl.extractUrlParams(notification.contexturl);
         const courseId = Number(notification.courseid);
         const moduleId = Number(contextUrlParams.id);
 
-        await CoreUtils.ignoreErrors(AddonModAssign.invalidateContent(moduleId, courseId, notification.site));
+        await CorePromiseUtils.ignoreErrors(AddonModAssign.invalidateContent(moduleId, courseId, notification.site));
         await CoreCourseHelper.navigateToModule(moduleId, {
             courseId,
             siteId: notification.site,

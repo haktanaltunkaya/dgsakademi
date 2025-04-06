@@ -24,41 +24,63 @@ import { CorePushNotificationsDelegate } from '@features/pushnotifications/servi
 import { CoreCronDelegate } from '@services/cron';
 import { CORE_SITE_SCHEMAS } from '@services/sites';
 import { AddonModQuizAccessRulesModule } from './accessrules/accessrules.module';
-import { AddonModQuizComponentsModule } from './components/components.module';
-import { AddonModQuizAccessRuleDelegateService } from './services/access-rules-delegate';
 import { SITE_SCHEMA } from './services/database/quiz';
 import { AddonModQuizGradeLinkHandler } from './services/handlers/grade-link';
 import { AddonModQuizIndexLinkHandler } from './services/handlers/index-link';
 import { AddonModQuizListLinkHandler } from './services/handlers/list-link';
-import { AddonModQuizModuleHandler, AddonModQuizModuleHandlerService } from './services/handlers/module';
+import { AddonModQuizModuleHandler } from './services/handlers/module';
 import { AddonModQuizPrefetchHandler } from './services/handlers/prefetch';
 import { AddonModQuizPushClickHandler } from './services/handlers/push-click';
 import { AddonModQuizReviewLinkHandler } from './services/handlers/review-link';
 import { AddonModQuizSyncCronHandler } from './services/handlers/sync-cron';
-import { AddonModQuizProvider } from './services/quiz';
-import { AddonModQuizHelperProvider } from './services/quiz-helper';
-import { AddonModQuizOfflineProvider } from './services/quiz-offline';
-import { AddonModQuizSyncProvider } from './services/quiz-sync';
+import { ADDON_MOD_QUIZ_COMPONENT_LEGACY, ADDON_MOD_QUIZ_PAGE_NAME } from './constants';
+import { canLeaveGuard } from '@guards/can-leave';
 
-export const ADDON_MOD_QUIZ_SERVICES: Type<unknown>[] = [
-    AddonModQuizAccessRuleDelegateService,
-    AddonModQuizProvider,
-    AddonModQuizOfflineProvider,
-    AddonModQuizHelperProvider,
-    AddonModQuizSyncProvider,
-];
+/**
+ * Get mod Quiz services.
+ *
+ * @returns Returns mod Quiz services.
+ */
+export async function getModQuizServices(): Promise<Type<unknown>[]> {
+    const { AddonModQuizProvider } = await import('@addons/mod/quiz/services/quiz');
+    const { AddonModQuizOfflineProvider } = await import('@addons/mod/quiz/services/quiz-offline');
+    const { AddonModQuizHelperProvider } = await import('@addons/mod/quiz/services/quiz-helper');
+    const { AddonModQuizSyncProvider } = await import('@addons/mod/quiz/services/quiz-sync');
+    const { AddonModQuizAccessRuleDelegateService } = await import('@addons/mod/quiz/services/access-rules-delegate');
+
+    return [
+        AddonModQuizAccessRuleDelegateService,
+        AddonModQuizProvider,
+        AddonModQuizOfflineProvider,
+        AddonModQuizHelperProvider,
+        AddonModQuizSyncProvider,
+    ];
+}
 
 const routes: Routes = [
     {
-        path: AddonModQuizModuleHandlerService.PAGE_NAME,
-        loadChildren: () => import('./quiz-lazy.module').then(m => m.AddonModQuizLazyModule),
+        path: ADDON_MOD_QUIZ_PAGE_NAME,
+        loadChildren: () => [
+            {
+                path: ':courseId/:cmId',
+                loadComponent: () => import('./pages/index/index'),
+            },
+            {
+                path: ':courseId/:cmId/player',
+                loadComponent: () => import('./pages/player/player'),
+                canDeactivate: [canLeaveGuard],
+            },
+            {
+                path: ':courseId/:cmId/review/:attemptId',
+                loadComponent: () => import('./pages/review/review'),
+            },
+        ],
     },
 ];
 
 @NgModule({
     imports: [
         CoreMainMenuTabRoutingModule.forChild(routes),
-        AddonModQuizComponentsModule,
         AddonModQuizAccessRulesModule,
     ],
     providers: [
@@ -80,7 +102,7 @@ const routes: Routes = [
                 CorePushNotificationsDelegate.registerClickHandler(AddonModQuizPushClickHandler.instance);
                 CoreCronDelegate.register(AddonModQuizSyncCronHandler.instance);
 
-                CoreCourseHelper.registerModuleReminderClick(AddonModQuizProvider.COMPONENT);
+                CoreCourseHelper.registerModuleReminderClick(ADDON_MOD_QUIZ_COMPONENT_LEGACY);
             },
         },
     ],

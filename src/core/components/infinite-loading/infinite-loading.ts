@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { toBoolean } from '@/core/transforms/boolean';
 import { Component, Input, Output, EventEmitter, OnChanges, SimpleChange, ViewChild, ElementRef } from '@angular/core';
 import { IonInfiniteScroll } from '@ionic/angular';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreWait } from '@singletons/wait';
+import { CoreBaseModule } from '@/core/base.module';
+import { CoreUpdateNonReactiveAttributesDirective } from '@directives/update-non-reactive-attributes';
 
 const THRESHOLD = .15; // % of the scroll element height that must be close to the edge to consider loading more items necessary.
 
@@ -27,17 +30,23 @@ const THRESHOLD = .15; // % of the scroll element height that must be close to t
 @Component({
     selector: 'core-infinite-loading',
     templateUrl: 'core-infinite-loading.html',
+    standalone: true,
+    imports: [
+        CoreBaseModule,
+        CoreUpdateNonReactiveAttributesDirective,
+    ],
 })
 export class CoreInfiniteLoadingComponent implements OnChanges {
 
-    @Input() enabled!: boolean;
-    @Input() error = false;
+    @Input({ required: true, transform: toBoolean }) enabled = false;
+    @Input({ transform: toBoolean }) error = false;
     @Input() position: 'top' | 'bottom' = 'bottom';
     @Output() action: EventEmitter<() => void>; // Will emit an event when triggered.
 
     @ViewChild(IonInfiniteScroll) infiniteScroll?: IonInfiniteScroll;
 
     loadingMore = false; // Hide button and avoid loading more.
+    loadingForced = false; // Whether loading is forced or happened on scroll.
     hostElement: HTMLElement;
 
     constructor(element: ElementRef<HTMLElement>) {
@@ -76,8 +85,8 @@ export class CoreInfiniteLoadingComponent implements OnChanges {
         }
 
         // Wait to allow items to render and scroll content to grow.
-        await CoreUtils.nextTick();
-        await CoreUtils.waitFor(() => scrollElement.scrollHeight > scrollElement.clientHeight, { timeout: 1000 });
+        await CoreWait.nextTick();
+        await CoreWait.waitFor(() => scrollElement.scrollHeight > scrollElement.clientHeight, { timeout: 1000 });
 
         // Calculate distance from edge.
         const infiniteHeight = this.hostElement.getBoundingClientRect().height;
@@ -96,26 +105,35 @@ export class CoreInfiniteLoadingComponent implements OnChanges {
 
     /**
      * Load More items calling the action provided.
+     *
+     * @param forced Whether loading happened on scroll or was forced.
      */
-    loadMore(): void {
+    loadMore(forced: boolean = false): void {
         if (this.loadingMore) {
             return;
         }
 
         this.loadingMore = true;
+        this.loadingForced = forced;
+
         this.action.emit(() => this.complete());
+    }
+
+    /**
+     * Fire the infinite scroll load more action if needed.
+     */
+    async fireInfiniteScrollIfNeeded(): Promise<void> {
+        this.checkScrollDistance();
     }
 
     /**
      * Complete loading.
      */
-    complete(): void {
-        if (this.position == 'top') {
-            // Wait a bit before allowing loading more, otherwise it could be re-triggered automatically when it shouldn't.
-            setTimeout(() => this.completeLoadMore(), 400);
-        } else {
-            this.completeLoadMore();
-        }
+    async complete(): Promise<void> {
+        // Wait a bit before allowing loading more, otherwise it could be re-triggered automatically when it shouldn't.
+        await CoreWait.wait(400);
+
+        await this.completeLoadMore();
     }
 
     /**
@@ -123,6 +141,8 @@ export class CoreInfiniteLoadingComponent implements OnChanges {
      */
     protected async completeLoadMore(): Promise<void> {
         this.loadingMore = false;
+        this.loadingForced = false;
+
         await this.infiniteScroll?.complete();
 
         // More items loaded. If the list doesn't fill the full height, infinite scroll isn't triggered automatically.

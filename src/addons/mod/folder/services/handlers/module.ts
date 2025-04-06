@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreConstants, ModPurpose } from '@/core/constants';
 import { Injectable, Type } from '@angular/core';
 import { CoreModuleHandlerBase } from '@features/course/classes/module-base-handler';
 import { CoreCourseModuleData } from '@features/course/services/course-helper';
 import { CoreCourseModuleHandler, CoreCourseModuleHandlerData } from '@features/course/services/module-delegate';
 import { CoreNavigator } from '@services/navigator';
-import { CoreDomUtils } from '@services/utils/dom';
+import { convertTextToHTMLElement } from '@/core/utils/create-html-element';
 import { makeSingleton } from '@singletons';
-import { AddonModFolderIndexComponent } from '../../components/index';
+import { ADDON_MOD_FOLDER_MODNAME, ADDON_MOD_FOLDER_PAGE_NAME } from '../../constants';
+import { ModFeature, ModArchetype, ModPurpose } from '@addons/mod/constants';
 
 /**
  * Handler to support folder modules.
@@ -28,23 +28,21 @@ import { AddonModFolderIndexComponent } from '../../components/index';
 @Injectable({ providedIn: 'root' })
 export class AddonModFolderModuleHandlerService extends CoreModuleHandlerBase implements CoreCourseModuleHandler {
 
-    static readonly PAGE_NAME = 'mod_folder';
-
     name = 'AddonModFolder';
-    modName = 'folder';
-    protected pageName = AddonModFolderModuleHandlerService.PAGE_NAME;
+    modName = ADDON_MOD_FOLDER_MODNAME;
+    protected pageName = ADDON_MOD_FOLDER_PAGE_NAME;
 
     supportedFeatures = {
-        [CoreConstants.FEATURE_MOD_ARCHETYPE]: CoreConstants.MOD_ARCHETYPE_RESOURCE,
-        [CoreConstants.FEATURE_GROUPS]: false,
-        [CoreConstants.FEATURE_GROUPINGS]: false,
-        [CoreConstants.FEATURE_MOD_INTRO]: true,
-        [CoreConstants.FEATURE_COMPLETION_TRACKS_VIEWS]: true,
-        [CoreConstants.FEATURE_GRADE_HAS_GRADE]: false,
-        [CoreConstants.FEATURE_GRADE_OUTCOMES]: false,
-        [CoreConstants.FEATURE_BACKUP_MOODLE2]: true,
-        [CoreConstants.FEATURE_SHOW_DESCRIPTION]: true,
-        [CoreConstants.FEATURE_MOD_PURPOSE]: ModPurpose.MOD_PURPOSE_CONTENT,
+        [ModFeature.MOD_ARCHETYPE]: ModArchetype.RESOURCE,
+        [ModFeature.GROUPS]: false,
+        [ModFeature.GROUPINGS]: false,
+        [ModFeature.MOD_INTRO]: true,
+        [ModFeature.COMPLETION_TRACKS_VIEWS]: true,
+        [ModFeature.GRADE_HAS_GRADE]: false,
+        [ModFeature.GRADE_OUTCOMES]: false,
+        [ModFeature.BACKUP_MOODLE2]: true,
+        [ModFeature.SHOW_DESCRIPTION]: true,
+        [ModFeature.MOD_PURPOSE]: ModPurpose.CONTENT,
     };
 
     /**
@@ -60,7 +58,7 @@ export class AddonModFolderModuleHandlerService extends CoreModuleHandlerBase im
 
         if (module.description) {
             // Module description can contain the folder contents if it's inline, remove it.
-            const descriptionElement = CoreDomUtils.convertToElement(module.description);
+            const descriptionElement = convertTextToHTMLElement(module.description);
 
             Array.from(descriptionElement.querySelectorAll('.foldertree, .folderbuttons, .tertiary-navigation'))
                 .forEach(element => element.remove());
@@ -74,7 +72,7 @@ export class AddonModFolderModuleHandlerService extends CoreModuleHandlerBase im
             options.params = options.params || {};
             Object.assign(options.params, { module });
 
-            const routeParams = '/' + courseId + '/' + module.id;
+            const routeParams = `/${courseId}/${module.id}`;
 
             await CoreNavigator.navigateToSitePath(this.pageName + routeParams, options);
         };
@@ -86,6 +84,8 @@ export class AddonModFolderModuleHandlerService extends CoreModuleHandlerBase im
      * @inheritdoc
      */
     async getMainComponent(): Promise<Type<unknown> | undefined> {
+        const { AddonModFolderIndexComponent } = await import('../../components/index');
+
         return AddonModFolderIndexComponent;
     }
 

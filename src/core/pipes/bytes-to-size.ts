@@ -15,13 +15,14 @@
 import { Pipe, PipeTransform } from '@angular/core';
 
 import { CoreLogger } from '@singletons/logger';
-import { CoreTextUtils } from '@services/utils/text';
+import { CoreText } from '@singletons/text';
 
 /**
  * Pipe to turn a number in bytes to a human readable size (e.g. 5,25 MB).
  */
 @Pipe({
     name: 'coreBytesToSize',
+    standalone: true,
 })
 export class CoreBytesToSizePipe implements PipeTransform {
 
@@ -49,7 +50,7 @@ export class CoreBytesToSizePipe implements PipeTransform {
             value = numberValue;
         }
 
-        return CoreTextUtils.bytesToSize(value);
+        return CoreText.bytesToSize(value);
     }
 
 }

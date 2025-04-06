@@ -13,14 +13,24 @@
 // limitations under the License.
 
 import { CoreCancellablePromise } from '@classes/cancellable-promise';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreUtils } from '@singletons/utils';
 import { CoreEventObserver } from '@singletons/events';
+import { CorePlatform } from '@services/platform';
+import { CoreWait } from './wait';
+import { convertTextToHTMLElement } from '../utils/create-html-element';
+import { CoreKeyboard } from './keyboard';
+import { CoreError } from '@classes/errors/error';
+import { IonContent } from '@ionic/angular';
+import { CoreUrl, CoreUrlPartNames } from './url';
 
 /**
  * Singleton with helper functions for dom.
  */
 export class CoreDom {
+
+    // List of input types that support keyboard.
+    protected static readonly INPUT_SUPPORT_KEYBOARD = ['date', 'datetime', 'datetime-local', 'email', 'month', 'number',
+        'password', 'search', 'tel', 'text', 'time', 'url', 'week'];
 
     static fontSizeZoom: number | null = null;
 
@@ -57,6 +67,36 @@ export class CoreDom {
     }
 
     /**
+     * Check if an element has some text or embedded content inside.
+     *
+     * @param element Element or document to check.
+     * @returns Whether has content.
+     */
+    static elementHasContent(element: Element | DocumentFragment): boolean {
+        const textContent = (element.textContent ?? '').trim().replace(/(\r\n|\n|\r)/g, '');
+        if (textContent.length > 0) {
+            return true;
+        }
+
+        return element.querySelectorAll(
+            'img, audio, video, object, iframe, canvas, svg, input, select, textarea, frame, embed',
+        ).length > 0;
+    }
+
+    /**
+     * Given some HTML code, return the HTML code inside <body> tags. If there are no body tags, return the whole HTML.
+     *
+     * @param html HTML text.
+     * @returns Body HTML.
+     */
+    static getHTMLBodyContent(html: string): string {
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const bodyContent = doc.body.innerHTML;
+
+        return bodyContent ?? html;
+    }
+
+    /**
      * Retrieve the position of a element relative to another element.
      *
      * @param element Element to get the position.
@@ -73,6 +113,22 @@ export class CoreDom {
             x: elementRectangle.x - parentRectangle.x,
             y: elementRectangle.y - parentRectangle.y,
         };
+    }
+
+    /**
+     * Check if HTML content is blank.
+     *
+     * @param content HTML content.
+     * @returns True if the string does not contain actual content: text, images, etc.
+     */
+    static htmlIsBlank(content: string): boolean {
+        if (!content) {
+            return true;
+        }
+
+        const element = convertTextToHTMLElement(content);
+
+        return !CoreDom.elementHasContent(element);
     }
 
     /**
@@ -196,7 +252,7 @@ export class CoreDom {
      */
     static onWindowResize(resizeFunction: (ev?: Event) => void, debounceDelay = 20): CoreEventObserver {
         const resizeListener = CoreUtils.debounce(async (ev?: Event) => {
-            await CoreDomUtils.waitForResizeDone();
+            await CoreWait.waitForResizeDone();
 
             resizeFunction(ev);
         }, debounceDelay);
@@ -464,7 +520,7 @@ export class CoreDom {
                     return resolve();
                 }
 
-                unsubscribe = this.watchElementInViewport(element, intersectionRatio, inViewport => {
+                unsubscribe = CoreDom.watchElementInViewport(element, intersectionRatio, inViewport => {
                     if (!inViewport) {
                         return;
                     }
@@ -518,33 +574,30 @@ export class CoreDom {
     }
 
     /**
-     * Listen to click and Enter/Space keys in an element.
-     *
-     * @param element Element to listen to events.
-     * @param callback Callback to call when clicked or the key is pressed.
-     * @deprecated since 4.1.1: Use initializeClickableElementA11y instead.
-     */
-    static onActivate(
-        element: HTMLElement & {disabled?: boolean},
-        callback: (event: MouseEvent | KeyboardEvent) => void,
-    ): void {
-        this.initializeClickableElementA11y(element, callback);
-    }
-
-    /**
      * Initializes a clickable element a11y calling the click action when pressed enter or space
      * and adding tabindex and role if needed.
      *
      * @param element Element to listen to events.
      * @param callback Callback to call when clicked or the key is pressed.
+     * @param setTabIndex Whether to set tabindex and role.
      */
     static initializeClickableElementA11y(
         element: HTMLElement & {disabled?: boolean},
         callback: (event: MouseEvent | KeyboardEvent) => void,
+        setTabIndex = true,
     ): void {
         const enabled = () => !CoreUtils.isTrueOrOne(element.dataset.disabledA11yClicks ?? 'false');
 
-        element.addEventListener('click', (event) => enabled() && callback(event));
+        element.addEventListener('click', (event) => {
+            if (!enabled()) {
+                return;
+            }
+
+            callback(event);
+
+            event.preventDefault();
+            event.stopPropagation();
+        });
 
         element.addEventListener('keydown', (event) => {
             if (!enabled()) {
@@ -563,14 +616,14 @@ export class CoreDom {
             }
 
             if (event.key === ' ' || event.key === 'Enter') {
+                callback(event);
+
                 event.preventDefault();
                 event.stopPropagation();
-
-                callback(event);
             }
         });
 
-        if (element.tagName !== 'BUTTON' && element.tagName !== 'A') {
+        if (setTabIndex && element.tagName !== 'BUTTON' && element.tagName !== 'A') {
             // Set tabindex if not previously set.
             if (element.getAttribute('tabindex') === null) {
                 element.setAttribute('tabindex', element.disabled ? '-1' : '0');
@@ -596,7 +649,7 @@ export class CoreDom {
         const value = styles.getPropertyValue(property);
 
         if (property === 'font-size') {
-            if (this.fontSizeZoom === null) {
+            if (CoreDom.fontSizeZoom === null) {
                 const baseFontSize = 20;
                 const span = document.createElement('span');
                 span.style.opacity = '0';
@@ -604,13 +657,13 @@ export class CoreDom {
 
                 document.body.append(span);
 
-                this.fontSizeZoom = baseFontSize / Number(getComputedStyle(span).fontSize.slice(0, -2));
+                CoreDom.fontSizeZoom = baseFontSize / Number(getComputedStyle(span).fontSize.slice(0, -2));
 
                 span.remove();
             }
 
-            if (this.fontSizeZoom !== 1) {
-                return `calc(${this.fontSizeZoom} * ${value})`;
+            if (CoreDom.fontSizeZoom !== 1) {
+                return `calc(${CoreDom.fontSizeZoom} * ${value})`;
             }
         }
 
@@ -665,6 +718,547 @@ export class CoreDom {
         return element;
     }
 
+    /**
+     * Search all the URLs in a CSS file content.
+     *
+     * @param code CSS code.
+     * @returns List of URLs.
+     */
+    static extractUrlsFromCSS(code: string): string[] {
+        // First of all, search all the url(...) occurrences that don't include "data:".
+        const urls: string[] = [];
+        const matches = code.match(/url\(\s*["']?(?!data:)([^)]+)\)/igm);
+
+        if (!matches) {
+            return urls;
+        }
+
+        // Extract the URL from each match.
+        matches.forEach((match) => {
+            const submatches = match.match(/url\(\s*['"]?([^'"]*)['"]?\s*\)/im);
+            if (submatches?.[1]) {
+                urls.push(submatches[1]);
+            }
+        });
+
+        return urls;
+    }
+
+    /**
+     * Prefix CSS rules.
+     *
+     * @param css CSS code.
+     * @param prefix Prefix to add to CSS rules.
+     * @param prefixIfNested Prefix to add to CSS rules if nested. It may happend we need different prefixes.
+     *          Ie: If nested is supported ::ng-deep is not needed.
+     * @returns Prefixed CSS.
+     */
+    static prefixCSS(css: string, prefix: string, prefixIfNested?: string): string {
+        if (!css) {
+            return '';
+        }
+
+        if (!prefix) {
+            return css;
+        }
+
+        // Check if browser supports CSS nesting.
+        const supportsNesting = CorePlatform.supportsCSSNesting();
+        if (supportsNesting) {
+            prefixIfNested = prefixIfNested ?? prefix;
+
+            // Wrap the CSS with the prefix.
+            return `${prefixIfNested} { ${css} }`;
+        }
+
+        // Fallback.
+        // Remove comments first.
+        let regExp = /\/\*[\s\S]*?\*\/|([^:]|^)\/\/.*$/gm;
+        css = css.replace(regExp, '');
+
+        // Add prefix.
+        regExp = /([^]*?)({[^]*?}|,)/g;
+
+        return css.replace(regExp, `${prefix} $1 $2`);
+    }
+
+    /**
+     * Formats a size to be used as width/height of an element.
+     * If the size is already valid (like '500px' or '50%') it won't be modified.
+     * Returned size will have a format like '500px'.
+     *
+     * @param size Size to format.
+     * @returns Formatted size. If size is not valid, returns an empty string.
+     */
+    static formatSizeUnits(size: string | number): string {
+        // Check for valid pixel units.
+        if (typeof size === 'string') {
+            size = size.replace(/ /g, ''); // Trim and remove all spaces.
+            if (CoreDom.hasValidSizeUnits(size) || size === 'auto' || size === 'initial' || size === 'inherit') {
+                // It seems to be a valid size.
+                return size;
+            }
+
+            // It's important to use parseInt instead of Number because Number('') is 0 instead of NaN.
+            size = parseInt(size, 10);
+        }
+
+        if (!isNaN(size)) {
+            return `${size}px`;
+        }
+
+        return '';
+    }
+
+    /**
+     * Check if a size has valid pixel units.
+     *
+     * @param size Size to check.
+     * @returns Whether the size has valid pixel units.
+     */
+    protected static hasValidSizeUnits(size: string): boolean {
+        const validUnits = ['px', '%', 'em', 'rem', 'cm', 'mm', 'in', 'pt', 'pc', 'ex', 'ch', 'vw', 'vh', 'vmin', 'vmax'];
+
+        const units = size.match(`^[0-9]*\\.?[0-9]+(${validUnits.join('|')})$`);
+
+        return !!units && units.length > 1;
+    }
+
+    /**
+     * Search the ion-header of the page.
+     * This function is usually used to find the header of a page to add buttons.
+     *
+     * @returns The header element if found.
+     */
+    static async findIonHeaderFromElement(element: HTMLElement): Promise<HTMLElement | null> {
+        await CoreDom.waitToBeInDOM(element);
+        let parentPage: HTMLElement | null = element;
+
+        while (parentPage && parentPage.parentElement) {
+            const content = parentPage.closest<HTMLIonContentElement>('ion-content');
+            if (content) {
+                // Sometimes ion-page class is not yet added by the ViewController, wait for content to render.
+                await content.componentOnReady();
+            }
+
+            parentPage = parentPage.parentElement.closest('.ion-page, .ion-page-hidden, .ion-page-invisible');
+
+            // Check if the page has a header. If it doesn't, search the next parent page.
+            let header  = parentPage?.querySelector<HTMLIonHeaderElement>(':scope > ion-header');
+
+            if (header && getComputedStyle(header).display !== 'none') {
+                return header;
+            }
+
+            // Find using content if any.
+            header = content?.parentElement?.querySelector<HTMLIonHeaderElement>(':scope > ion-header');
+
+            if (header && getComputedStyle(header).display !== 'none') {
+                return header;
+            }
+        }
+
+        // Header not found, reject.
+        throw Error('Header not found.');
+    }
+
+    /**
+     * Fix syntax errors in HTML.
+     *
+     * @param html HTML text.
+     * @returns Fixed HTML text.
+     */
+    static fixHtml(html: string): string {
+        // We can't use CoreText.processHTML because it removes elements that
+        // are not allowed as a child of <div>, like <li> or <tr>.
+        const template = document.createElement('template');
+        template.innerHTML = html;
+
+        // eslint-disable-next-line no-control-regex
+        const attrNameRegExp = /[^\x00-\x20\x7F-\x9F"'>/=]+/;
+        const fixElement = (element: Element): void => {
+            // Remove attributes with an invalid name.
+            Array.from(element.attributes).forEach((attr) => {
+                if (!attrNameRegExp.test(attr.name)) {
+                    element.removeAttributeNode(attr);
+                }
+            });
+
+            Array.from(element.children).forEach(fixElement);
+        };
+
+        Array.from(template.content.children).forEach(fixElement);
+
+        return template.innerHTML;
+    }
+
+    /**
+     * Returns the contents of a certain selection in a DOM element.
+     *
+     * @param element DOM element to search in.
+     * @param selector Selector to search.
+     * @returns Selection contents. Undefined if not found.
+     */
+    static getContentsOfElement(element: HTMLElement, selector: string): string | undefined {
+        const selected = element.querySelector(selector);
+        if (selected) {
+            return selected.innerHTML;
+        }
+    }
+
+    /**
+     * Returns the attribute value of a string element. Only the first element will be selected.
+     *
+     * @param html HTML element in string.
+     * @param attribute Attribute to get.
+     * @returns Attribute value.
+     */
+    static getHTMLElementAttribute(html: string, attribute: string): string | null {
+        return convertTextToHTMLElement(html).children[0].getAttribute(attribute);
+    }
+
+    /**
+     * Returns the computed style measure or 0 if not found or NaN.
+     *
+     * @param style Style from getComputedStyle.
+     * @param measure Measure to get.
+     * @returns Result of the measure.
+     */
+    static getComputedStyleMeasure(style: CSSStyleDeclaration, measure: keyof CSSStyleDeclaration): number {
+        return parseInt(String(style[measure]), 10) || 0;
+    }
+
+    /**
+     * Move children from one HTMLElement to another.
+     *
+     * @param oldParent The old parent.
+     * @param newParent The new parent.
+     * @param prepend If true, adds the children to the beginning of the new parent.
+     * @returns List of moved children.
+     */
+    static moveChildren(oldParent: HTMLElement, newParent: HTMLElement, prepend?: boolean): Node[] {
+        const movedChildren: Node[] = [];
+        const referenceNode = prepend ? newParent.firstChild : null;
+
+        while (oldParent.childNodes.length > 0) {
+            const child = oldParent.childNodes[0];
+            movedChildren.push(child);
+
+            newParent.insertBefore(child, referenceNode);
+        }
+
+        return movedChildren;
+    }
+
+    /**
+     * Search and remove a certain element from inside another element.
+     *
+     * @param element DOM element to search in.
+     * @param selector Selector to search.
+     */
+    static removeElement(element: HTMLElement, selector: string): void {
+        const selected = element.querySelector(selector);
+        if (selected) {
+            selected.remove();
+        }
+    }
+
+    /**
+     * Search and remove a certain element from an HTML code.
+     *
+     * @param html HTML code to change.
+     * @param selector Selector to search.
+     * @param removeAll True if it should remove all matches found, false if it should only remove the first one.
+     * @returns HTML without the element.
+     */
+    static removeElementFromHtml(html: string, selector: string, removeAll?: boolean): string {
+        const element = convertTextToHTMLElement(html);
+
+        if (removeAll) {
+            const selected = element.querySelectorAll(selector);
+            for (let i = 0; i < selected.length; i++) {
+                selected[i].remove();
+            }
+        } else {
+            const selected = element.querySelector(selector);
+            if (selected) {
+                selected.remove();
+            }
+        }
+
+        return element.innerHTML;
+    }
+
+    /**
+     * Wrap an HTMLElement with another element.
+     *
+     * @param el The element to wrap.
+     * @param wrapper Wrapper.
+     */
+    static wrapElement(el: HTMLElement, wrapper: HTMLElement): void {
+        // Insert the wrapper before the element.
+        el.parentNode?.insertBefore(wrapper, el);
+        // Now move the element into the wrapper.
+        wrapper.appendChild(el);
+    }
+
+    /**
+     * Converts HTML formatted text to DOM element(s).
+     *
+     * @param text HTML text.
+     * @returns Same text converted to HTMLCollection.
+     */
+    static toDom(text: string): HTMLCollection {
+        const element = convertTextToHTMLElement(text);
+
+        return element.children;
+    }
+
+    /**
+     * Check if an element supports input via keyboard.
+     *
+     * @param el HTML element to check.
+     * @returns Whether it supports input using keyboard.
+     */
+    static supportsInputKeyboard(el: HTMLElement): boolean {
+        const element = el as HTMLInputElement;
+        if (!element) {
+            return false;
+        }
+
+        const tagName = element.tagName.toLowerCase();
+
+        return !element.disabled &&
+            (tagName === 'textarea' || (tagName === 'input' && CoreDom.INPUT_SUPPORT_KEYBOARD.includes(element.type)));
+    }
+
+    /**
+     * Focus an element and open keyboard.
+     *
+     * @param element HTML element to focus.
+     */
+    static async focusElement(
+        element: HTMLIonInputElement | HTMLIonTextareaElement | HTMLIonSearchbarElement | HTMLIonButtonElement | HTMLElement,
+    ): Promise<void> {
+        let elementToFocus = element;
+
+        /**
+         * See focusElement function on Ionic Framework utils/helpers.ts.
+         */
+        if (elementToFocus.classList.contains('ion-focusable')) {
+            const app = elementToFocus.closest('ion-app');
+            if (app) {
+                app.setFocus([elementToFocus]);
+            }
+
+            if (document.activeElement === elementToFocus) {
+                return;
+            }
+        }
+
+        const isIonButton = element.tagName === 'ION-BUTTON';
+        if ('getInputElement' in elementToFocus) {
+            // If it's an Ionic element get the right input to use.
+            elementToFocus.componentOnReady && await elementToFocus.componentOnReady();
+            elementToFocus = await elementToFocus.getInputElement();
+        } else if (isIonButton) {
+            // For ion-button, we need to call focus on the inner button. But the activeElement will be the ion-button.
+            ('componentOnReady' in elementToFocus) && await elementToFocus.componentOnReady();
+            elementToFocus = elementToFocus.shadowRoot?.querySelector('.button-native') ?? elementToFocus;
+        }
+
+        if (!elementToFocus || !elementToFocus.focus) {
+            throw new CoreError('Element to focus cannot be focused');
+        }
+
+        let retries = 10;
+        while (retries > 0 && elementToFocus !== document.activeElement) {
+            elementToFocus.focus();
+
+            if (elementToFocus === document.activeElement || (isIonButton && element === document.activeElement)) {
+                await CoreWait.nextTick();
+                if (CorePlatform.isAndroid() && CoreDom.supportsInputKeyboard(elementToFocus)) {
+                    // On some Android versions the keyboard doesn't open automatically.
+                    CoreKeyboard.open();
+                }
+                break;
+            }
+
+            // @TODO Probably a Mutation Observer would get this working.
+            await CoreWait.wait(50);
+            retries--;
+        }
+    }
+
+    /**
+     * Returns height of the content.
+     *
+     * @param content Content where to execute the function.
+     * @returns Promise resolved with content height.
+     */
+    static async getContentHeight(content: IonContent): Promise<number> {
+        try {
+            const scrollElement = await content.getScrollElement();
+
+            return scrollElement.clientHeight || 0;
+        } catch {
+            return 0;
+        }
+    }
+
+    /**
+     * Returns scroll height of the content.
+     *
+     * @param content Content where to execute the function.
+     * @returns Promise resolved with scroll height.
+     */
+    static async getScrollHeight(content: IonContent): Promise<number> {
+        try {
+            const scrollElement = await content.getScrollElement();
+
+            return scrollElement.scrollHeight || 0;
+        } catch {
+            return 0;
+        }
+    }
+
+    /**
+     * Returns scrollTop of the content.
+     *
+     * @param content Content where to execute the function.
+     * @returns Promise resolved with scroll top.
+     */
+    static async getScrollTop(content: IonContent): Promise<number> {
+        try {
+            const scrollElement = await content.getScrollElement();
+
+            return scrollElement.scrollTop || 0;
+        } catch {
+            return 0;
+        }
+    }
+
+    /**
+     * Search for certain classes in an element contents and replace them with the specified new values.
+     *
+     * @param element DOM element.
+     * @param map Mapping of the classes to replace. Keys must be the value to replace, values must be
+     *            the new class name. Example: {'correct': 'core-question-answer-correct'}.
+     */
+    static replaceClassesInElement(element: HTMLElement, map: {[currentValue: string]: string}): void {
+        for (const key in map) {
+            const foundElements = element.querySelectorAll(`.${key}`);
+
+            for (let i = 0; i < foundElements.length; i++) {
+                const foundElement = foundElements[i];
+                foundElement.className = foundElement.className.replace(key, map[key]);
+            }
+        }
+    }
+
+    /**
+     * Given an HTML, search all links and media and tries to restore original sources using the paths object.
+     *
+     * @param html HTML code.
+     * @param paths Object linking URLs in the html code with the real URLs to use.
+     * @param anchorFn Function to call with each anchor. Optional.
+     * @returns Treated HTML code.
+     */
+    static restoreSourcesInHtml(
+        html: string,
+        paths: {[url: string]: string},
+        anchorFn?: (anchor: HTMLElement, href: string) => void,
+    ): string {
+        const element = convertTextToHTMLElement(html);
+
+        // Treat elements with src (img, audio, video, ...).
+        const media = Array.from(element.querySelectorAll<HTMLElement>('img, video, audio, source, track, iframe, embed'));
+        media.forEach((media: HTMLElement) => {
+            const currentSrc = media.getAttribute('src');
+            const newSrc = currentSrc ?
+                paths[CoreUrl.removeUrlParts(
+                    CoreUrl.decodeURIComponent(currentSrc),
+                    [CoreUrlPartNames.Query, CoreUrlPartNames.Fragment],
+                )] :
+                undefined;
+
+            if (newSrc !== undefined) {
+                media.setAttribute('src', newSrc);
+            }
+
+            // Treat video posters.
+            const currentPoster = media.getAttribute('poster');
+            if (media.tagName === 'VIDEO' && currentPoster) {
+                const newPoster = paths[CoreUrl.decodeURIComponent(currentPoster)];
+                if (newPoster !== undefined) {
+                    media.setAttribute('poster', newPoster);
+                }
+            }
+        });
+
+        // Now treat links.
+        const anchors = Array.from(element.querySelectorAll('a'));
+        anchors.forEach((anchor: HTMLElement) => {
+            const currentHref = anchor.getAttribute('href');
+            const newHref = currentHref ?
+                paths[CoreUrl.removeUrlParts(
+                    CoreUrl.decodeURIComponent(currentHref),
+                    [CoreUrlPartNames.Query, CoreUrlPartNames.Fragment],
+                )] :
+                undefined;
+
+            if (newHref !== undefined) {
+                anchor.setAttribute('href', newHref);
+
+                if (typeof anchorFn === 'function') {
+                    anchorFn(anchor, newHref);
+                }
+            }
+        });
+
+        return element.innerHTML;
+    }
+
+    /**
+     * Check if an element is outside of screen (viewport).
+     *
+     * @param scrollEl The element that must be scrolled.
+     * @param element DOM element to check.
+     * @param point The point of the element to check.
+     * @returns Whether the element is outside of the viewport.
+     */
+    static isElementOutsideOfScreen(
+        scrollEl: HTMLElement,
+        element: HTMLElement,
+        point: VerticalPoint = VerticalPoint.MID,
+    ): boolean {
+        const elementRect = element.getBoundingClientRect();
+
+        if (!elementRect) {
+            return false;
+        }
+
+        let elementPoint: number;
+        switch (point) {
+            case VerticalPoint.TOP:
+                elementPoint = elementRect.top;
+                break;
+
+            case VerticalPoint.BOTTOM:
+                elementPoint = elementRect.bottom;
+                break;
+
+            case VerticalPoint.MID:
+                elementPoint = Math.round((elementRect.bottom + elementRect.top) / 2);
+                break;
+        }
+
+        const scrollElRect = scrollEl.getBoundingClientRect();
+        const scrollTopPos = scrollElRect?.top || 0;
+
+        return elementPoint > window.innerHeight || elementPoint < scrollTopPos;
+    }
+
 }
 
 /**
@@ -691,3 +1285,12 @@ export type CoreMediaSource = {
     src: string;
     type?: string;
 };
+
+/**
+ * Vertical points for an element.
+ */
+export enum VerticalPoint {
+    TOP = 'top',
+    MID = 'mid',
+    BOTTOM = 'bottom',
+}

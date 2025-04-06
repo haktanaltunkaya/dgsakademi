@@ -21,16 +21,20 @@ import { CoreBlockComponent } from '@features/block/components/block/block';
 import { CoreBlockDelegate } from '@features/block/services/block-delegate';
 import { CoreCourseBlock } from '@features/course/services/course';
 import { CoreCoursesDashboard, CoreCoursesDashboardProvider } from '@features/courses/services/dashboard';
-import { CoreMainMenuDeepLinkManager } from '@features/mainmenu/classes/deep-link-manager';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
 import { Subscription } from 'rxjs';
 import { CoreCourses } from '../../services/courses';
 import { CoreTime } from '@singletons/time';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
 import { Translate } from '@singletons';
+import { CoreWait } from '@singletons/wait';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreSiteLogoComponent } from '../../../../components/site-logo/site-logo';
+import { CoreMainMenuUserButtonComponent } from '../../../mainmenu/components/user-menu-button/user-menu-button';
+import { CoreBlockSideBlocksButtonComponent } from '../../../block/components/side-blocks-button/side-blocks-button';
 
 /**
  * Page that shows a my courses.
@@ -38,17 +42,24 @@ import { Translate } from '@singletons';
 @Component({
     selector: 'page-core-courses-my',
     templateUrl: 'my.html',
-    styleUrls: ['my.scss'],
+    styleUrl: 'my.scss',
     providers: [{
         provide: PageLoadsManager,
         useClass: PageLoadsManager,
     }],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreSiteLogoComponent,
+        CoreMainMenuUserButtonComponent,
+        CoreBlockComponent,
+        CoreBlockSideBlocksButtonComponent,
+    ],
 })
-export class CoreCoursesMyPage implements OnInit, OnDestroy, AsyncDirective {
+export default class CoreCoursesMyPage implements OnInit, OnDestroy, AsyncDirective {
 
     @ViewChild(CoreBlockComponent) block!: CoreBlockComponent;
 
-    siteName = '';
     downloadCoursesEnabled = false;
     userId: number;
     loadedBlock?: Partial<CoreCourseBlock>;
@@ -66,8 +77,6 @@ export class CoreCoursesMyPage implements OnInit, OnDestroy, AsyncDirective {
         // Refresh the enabled flags if site is updated.
         this.updateSiteObserver = CoreEvents.on(CoreEvents.SITE_UPDATED, async () => {
             this.downloadCoursesEnabled = !CoreCourses.isDownloadCoursesDisabledInSite();
-            await this.loadSiteName();
-
         }, CoreSites.getCurrentSiteId());
 
         this.userId = CoreSites.getCurrentSiteUserId();
@@ -78,7 +87,7 @@ export class CoreCoursesMyPage implements OnInit, OnDestroy, AsyncDirective {
         });
 
         this.logView = CoreTime.once(async () => {
-            await CoreUtils.ignoreErrors(CoreCourses.logView('my'));
+            await CorePromiseUtils.ignoreErrors(CoreCourses.logView('my'));
 
             CoreAnalytics.logEvent({
                 type: CoreAnalyticsEventType.VIEW_ITEM,
@@ -96,10 +105,7 @@ export class CoreCoursesMyPage implements OnInit, OnDestroy, AsyncDirective {
     async ngOnInit(): Promise<void> {
         this.downloadCoursesEnabled = !CoreCourses.isDownloadCoursesDisabledInSite();
 
-        const deepLinkManager = new CoreMainMenuDeepLinkManager();
-        deepLinkManager.treatLink();
-
-        await this.loadSiteName();
+        CoreSites.loginNavigationFinished();
 
         this.loadContent(true);
     }
@@ -112,7 +118,7 @@ export class CoreCoursesMyPage implements OnInit, OnDestroy, AsyncDirective {
     protected async loadContent(firstLoad = false): Promise<void> {
         const loadWatcher = this.loadsManager.startPageLoad(this, !!firstLoad);
         const available = await CoreCoursesDashboard.isAvailable();
-        const disabled = await CoreCourses.isMyCoursesDisabled();
+        const disabled = CoreCourses.isMyCoursesDisabledInSite();
 
         const supportsMyParam = !!CoreSites.getCurrentSite()?.isVersionGreaterEqualThan('4.0');
 
@@ -126,10 +132,10 @@ export class CoreCoursesMyPage implements OnInit, OnDestroy, AsyncDirective {
                 );
 
                 // My overview block should always be in main blocks, but check side blocks too just in case.
-                this.loadedBlock = blocks.mainBlocks.concat(blocks.sideBlocks).find((block) => block.name == 'myoverview');
+                this.loadedBlock = blocks.mainBlocks.concat(blocks.sideBlocks).find((block) => block.name === 'myoverview');
                 this.hasSideBlocks = supportsMyParam && CoreBlockDelegate.hasSupportedBlock(blocks.sideBlocks);
 
-                await CoreUtils.nextTicks(2);
+                await CoreWait.nextTicks(2);
 
                 this.myOverviewBlock = this.block?.dynamicComponent?.instance as AddonBlockMyOverviewComponent;
 
@@ -139,7 +145,7 @@ export class CoreCoursesMyPage implements OnInit, OnDestroy, AsyncDirective {
                     this.loadFallbackBlock();
                 }
             } catch (error) {
-                CoreDomUtils.showErrorModal(error);
+                CoreAlerts.showError(error);
 
                 // Cannot get the blocks, just show the block if needed.
                 this.loadFallbackBlock();
@@ -155,14 +161,6 @@ export class CoreCoursesMyPage implements OnInit, OnDestroy, AsyncDirective {
         this.onReadyPromise.resolve();
 
         this.logView();
-    }
-
-    /**
-     * Load the site name.
-     */
-    protected async loadSiteName(): Promise<void> {
-        const site = CoreSites.getRequiredCurrentSite();
-        this.siteName = await site.getSiteName() || '';
     }
 
     /**
@@ -188,7 +186,7 @@ export class CoreCoursesMyPage implements OnInit, OnDestroy, AsyncDirective {
 
         // Invalidate the blocks.
         if (this.myOverviewBlock) {
-            promises.push(CoreUtils.ignoreErrors(this.myOverviewBlock.invalidateContent()));
+            promises.push(CorePromiseUtils.ignoreErrors(this.myOverviewBlock.invalidateContent()));
         }
 
         Promise.all(promises).finally(() => {

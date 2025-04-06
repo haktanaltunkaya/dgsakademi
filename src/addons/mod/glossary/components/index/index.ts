@@ -20,7 +20,7 @@ import { CoreRoutedItemsManagerSourcesTracker } from '@classes/items-management/
 import { CorePromisedValue } from '@classes/promised-value';
 import { CoreSplitViewComponent } from '@components/split-view/split-view';
 import { CoreCourseModuleMainActivityComponent } from '@features/course/classes/main-activity-component';
-import { CoreCourseContentsPage } from '@features/course/pages/contents/contents';
+import CoreCourseContentsPage from '@features/course/pages/contents/contents';
 import { CoreCourse } from '@features/course/services/course';
 import { CoreRatingProvider } from '@features/rating/services/rating';
 import { CoreRatingOffline } from '@features/rating/services/rating-offline';
@@ -28,8 +28,7 @@ import { CoreRatingSyncProvider } from '@features/rating/services/rating-sync';
 import { IonContent } from '@ionic/angular';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreTextUtils } from '@services/utils/text';
+import { CoreText } from '@singletons/text';
 import { Translate } from '@singletons';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
 import {
@@ -42,21 +41,28 @@ import {
     AddonModGlossaryEntry,
     AddonModGlossaryEntryWithCategory,
     AddonModGlossaryGlossary,
-    AddonModGlossaryProvider,
-    GLOSSARY_ENTRY_ADDED,
-    GLOSSARY_ENTRY_DELETED,
-    GLOSSARY_ENTRY_UPDATED,
 } from '../../services/glossary';
 import { AddonModGlossaryOfflineEntry } from '../../services/glossary-offline';
 import {
     AddonModGlossaryAutoSyncedData,
     AddonModGlossarySyncResult,
-    GLOSSARY_AUTO_SYNCED,
 } from '../../services/glossary-sync';
-import { AddonModGlossaryModuleHandlerService } from '../../services/handlers/module';
 import { AddonModGlossaryPrefetchHandler } from '../../services/handlers/prefetch';
-import { AddonModGlossaryModePickerPopoverComponent } from '../mode-picker/mode-picker';
 import { CoreTime } from '@singletons/time';
+import {
+    ADDON_MOD_GLOSSARY_COMPONENT_LEGACY,
+    ADDON_MOD_GLOSSARY_ENTRY_ADDED,
+    ADDON_MOD_GLOSSARY_ENTRY_DELETED,
+    ADDON_MOD_GLOSSARY_ENTRY_UPDATED,
+    ADDON_MOD_GLOSSARY_PAGE_NAME,
+    GLOSSARY_AUTO_SYNCED,
+} from '../../constants';
+import { CorePopovers } from '@services/overlays/popovers';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreCourseModuleNavigationComponent } from '@features/course/components/module-navigation/module-navigation';
+import { CoreCourseModuleInfoComponent } from '@features/course/components/module-info/module-info';
+import { CoreSearchBoxComponent } from '@features/search/components/search-box/search-box';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component that displays a glossary entry page.
@@ -64,14 +70,21 @@ import { CoreTime } from '@singletons/time';
 @Component({
     selector: 'addon-mod-glossary-index',
     templateUrl: 'addon-mod-glossary-index.html',
-    styleUrls: ['index.scss'],
+    styleUrl: 'index.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreSearchBoxComponent,
+        CoreCourseModuleInfoComponent,
+        CoreCourseModuleNavigationComponent,
+    ],
 })
 export class AddonModGlossaryIndexComponent extends CoreCourseModuleMainActivityComponent
     implements OnInit, AfterViewInit, OnDestroy {
 
     @ViewChild(CoreSplitViewComponent) splitView!: CoreSplitViewComponent;
 
-    component = AddonModGlossaryProvider.COMPONENT;
+    component = ADDON_MOD_GLOSSARY_COMPONENT_LEGACY;
     pluginName = 'glossary';
 
     canAdd = false;
@@ -128,7 +141,7 @@ export class AddonModGlossaryIndexComponent extends CoreCourseModuleMainActivity
         // Initialize entries manager.
         const source = CoreRoutedItemsManagerSourcesTracker.getOrCreateSource(
             AddonModGlossaryEntriesSource,
-            [this.courseId, this.module.id, this.courseContentsPage ? `${AddonModGlossaryModuleHandlerService.PAGE_NAME}/` : ''],
+            [this.courseId, this.module.id, this.courseContentsPage ? `${ADDON_MOD_GLOSSARY_PAGE_NAME}/` : ''],
         );
 
         this.promisedEntries.resolve(new AddonModGlossaryEntriesManager(source, this));
@@ -142,7 +155,7 @@ export class AddonModGlossaryIndexComponent extends CoreCourseModuleMainActivity
 
         // When an entry is added, we reload the data.
         this.observers = [
-            CoreEvents.on(GLOSSARY_ENTRY_ADDED, ({ glossaryId }) => {
+            CoreEvents.on(ADDON_MOD_GLOSSARY_ENTRY_ADDED, ({ glossaryId }) => {
                 if (this.glossary?.id !== glossaryId) {
                     return;
                 }
@@ -152,14 +165,14 @@ export class AddonModGlossaryIndexComponent extends CoreCourseModuleMainActivity
 
                 this.showLoadingAndRefresh(false);
             }),
-            CoreEvents.on(GLOSSARY_ENTRY_UPDATED, ({ glossaryId }) => {
+            CoreEvents.on(ADDON_MOD_GLOSSARY_ENTRY_UPDATED, ({ glossaryId }) => {
                 if (this.glossary?.id !== glossaryId) {
                     return;
                 }
 
                 this.showLoadingAndRefresh(false);
             }),
-            CoreEvents.on(GLOSSARY_ENTRY_DELETED, ({ glossaryId }) => {
+            CoreEvents.on(ADDON_MOD_GLOSSARY_ENTRY_DELETED, ({ glossaryId }) => {
                 if (this.glossary?.id !== glossaryId) {
                     return;
                 }
@@ -170,15 +183,25 @@ export class AddonModGlossaryIndexComponent extends CoreCourseModuleMainActivity
 
         // Listen for offline ratings saved and synced.
         this.observers.push(CoreEvents.on(CoreRatingProvider.RATING_SAVED_EVENT, (data) => {
-            if (this.glossary && data.component == 'mod_glossary' && data.ratingArea == 'entry' && data.contextLevel == 'module'
-                    && data.instanceId == this.glossary.coursemodule) {
+            if (
+                this.glossary &&
+                data.component == 'mod_glossary' &&
+                data.ratingArea == 'entry' &&
+                data.contextLevel == ContextLevel.MODULE &&
+                data.instanceId == this.glossary.coursemodule
+            ) {
                 this.hasOfflineRatings = true;
                 this.hasOffline = true;
             }
         }));
         this.observers.push(CoreEvents.on(CoreRatingSyncProvider.SYNCED_EVENT, (data) => {
-            if (this.glossary && data.component == 'mod_glossary' && data.ratingArea == 'entry' && data.contextLevel == 'module'
-                    && data.instanceId == this.glossary.coursemodule) {
+            if (
+                this.glossary &&
+                data.component == 'mod_glossary' &&
+                data.ratingArea == 'entry' &&
+                data.contextLevel == ContextLevel.MODULE &&
+                data.instanceId == this.glossary.coursemodule
+            ) {
                 this.hasOfflineRatings = false;
                 this.hasOffline = this.hasOfflineEntries;
             }
@@ -300,7 +323,7 @@ export class AddonModGlossaryIndexComponent extends CoreCourseModuleMainActivity
                 // Consider it is 'letter_all'.
                 const getDivider = (entry) => {
                     // Try to get the first letter without HTML tags.
-                    const noTags = CoreTextUtils.cleanTags(entry.concept);
+                    const noTags = CoreText.cleanTags(entry.concept);
 
                     return (noTags || entry.concept).substring(0, 1).toUpperCase();
                 };
@@ -327,7 +350,7 @@ export class AddonModGlossaryIndexComponent extends CoreCourseModuleMainActivity
             await entries.load();
         } catch (error) {
             this.loadMoreError = true;
-            CoreDomUtils.showErrorModalDefault(error, 'addon.mod_glossary.errorloadingentries', true);
+            CoreAlerts.showError(error, { default: Translate.instant('addon.mod_glossary.errorloadingentries') });
         } finally {
             infiniteComplete && infiniteComplete();
         }
@@ -342,10 +365,11 @@ export class AddonModGlossaryIndexComponent extends CoreCourseModuleMainActivity
         if (!this.glossary) {
             return;
         }
+        const { AddonModGlossaryModePickerPopoverComponent } = await import('../mode-picker/mode-picker');
 
         const entries = await this.promisedEntries;
         const previousMode = entries.getSource().fetchMode;
-        const newMode = await CoreDomUtils.openPopover<AddonModGlossaryFetchMode>({
+        const newMode = await CorePopovers.open<AddonModGlossaryFetchMode>({
             component: AddonModGlossaryModePickerPopoverComponent,
             componentProps: {
                 browseModes: this.glossary.browsemodes,
@@ -415,11 +439,7 @@ export class AddonModGlossaryIndexComponent extends CoreCourseModuleMainActivity
      * Opens new entry editor.
      */
     openNewEntry(): void {
-        CoreNavigator.navigate(
-            this.splitView.outletActivated
-                ? '../new'
-                : './entry/new',
-        );
+        CoreNavigator.navigateToSitePath(`${ADDON_MOD_GLOSSARY_PAGE_NAME}/${this.courseId}/${this.module.id}/entry/new`);
     }
 
     /**

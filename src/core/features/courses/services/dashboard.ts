@@ -23,14 +23,15 @@ import { map } from 'rxjs/operators';
 import { firstValueFrom } from 'rxjs';
 import { asyncObservable } from '@/core/utils/rxjs';
 import { CoreSiteWSPreSets, WSObservable } from '@classes/sites/authenticated-site';
-
-const ROOT_CACHE_KEY = 'CoreCoursesDashboard:';
+import { CoreCacheUpdateFrequency } from '@/core/constants';
 
 /**
  * Service that provides some features regarding course overview.
  */
 @Injectable({ providedIn: 'root' })
 export class CoreCoursesDashboardProvider {
+
+    protected static readonly ROOT_CACHE_KEY = 'CoreCoursesDashboard:';
 
     static readonly MY_PAGE_DEFAULT = '__default';
     static readonly MY_PAGE_COURSES = '__courses';
@@ -43,7 +44,7 @@ export class CoreCoursesDashboardProvider {
      * @returns Cache key.
      */
     protected getDashboardBlocksCacheKey(myPage = CoreCoursesDashboardProvider.MY_PAGE_DEFAULT, userId: number = 0): string {
-        return ROOT_CACHE_KEY + 'blocks:' + myPage + ':' + userId;
+        return `${CoreCoursesDashboardProvider.ROOT_CACHE_KEY}blocks:${myPage}:${userId}`;
     }
 
     /**
@@ -55,12 +56,12 @@ export class CoreCoursesDashboardProvider {
      * @returns Promise resolved with the list of blocks.
      * @since 3.6
      */
-    getDashboardBlocksFromWS(
+    async getDashboardBlocksFromWS(
         myPage = CoreCoursesDashboardProvider.MY_PAGE_DEFAULT,
         userId?: number,
         siteId?: string,
     ): Promise<CoreCourseBlock[]> {
-        return firstValueFrom(this.getDashboardBlocksFromWSObservable({
+        return await firstValueFrom(this.getDashboardBlocksFromWSObservable({
             myPage,
             userId,
             siteId,
@@ -90,7 +91,7 @@ export class CoreCoursesDashboardProvider {
 
             const preSets: CoreSiteWSPreSets = {
                 cacheKey: this.getDashboardBlocksCacheKey(myPage, options.userId),
-                updateFrequency: CoreSite.FREQUENCY_RARELY,
+                updateFrequency: CoreCacheUpdateFrequency.RARELY,
                 ...CoreSites.getReadingStrategyPreSets(options.readingStrategy),
             };
             if (options.userId) {
@@ -125,12 +126,12 @@ export class CoreCoursesDashboardProvider {
      * @param myPage What my page to return blocks of. Default MY_PAGE_DEFAULT.
      * @returns Promise resolved with the list of blocks.
      */
-    getDashboardBlocks(
+    async getDashboardBlocks(
         userId?: number,
         siteId?: string,
         myPage = CoreCoursesDashboardProvider.MY_PAGE_DEFAULT,
     ): Promise<CoreCoursesDashboardBlocks> {
-        return firstValueFrom(this.getDashboardBlocksObservable({
+        return await firstValueFrom(this.getDashboardBlocksObservable({
             myPage,
             userId,
             siteId,
@@ -179,7 +180,6 @@ export class CoreCoursesDashboardProvider {
      * @param myPage What my page to return blocks of. Default MY_PAGE_DEFAULT.
      * @param userId User ID. Default, current user.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateDashboardBlocks(
         myPage = CoreCoursesDashboardProvider.MY_PAGE_DEFAULT,
@@ -188,7 +188,7 @@ export class CoreCoursesDashboardProvider {
     ): Promise<void> {
         const site = await CoreSites.getSite(siteId);
 
-        return site.invalidateWsCacheForKey(this.getDashboardBlocksCacheKey(myPage, userId));
+        await site.invalidateWsCacheForKey(this.getDashboardBlocksCacheKey(myPage, userId));
     }
 
     /**

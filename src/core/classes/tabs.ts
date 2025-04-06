@@ -17,7 +17,6 @@ import {
     Input,
     Output,
     EventEmitter,
-    OnInit,
     OnChanges,
     OnDestroy,
     AfterViewInit,
@@ -28,20 +27,20 @@ import {
 import { BackButtonEvent } from '@ionic/core';
 import { Subscription } from 'rxjs';
 
-import { Translate } from '@singletons';
 import { CoreSettingsHelper } from '@features/settings/services/settings-helper';
 import { CoreAriaRoleTab, CoreAriaRoleTabFindable } from './aria-role-tab';
 import { CoreEventObserver } from '@singletons/events';
 import { CoreDom } from '@singletons/dom';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreWait } from '@singletons/wait';
 import { CoreError } from './errors/error';
 import { CorePromisedValue } from './promised-value';
 import { AsyncDirective } from './async-directive';
 import { CoreDirectivesRegistry } from '@singletons/directives-registry';
-import { CorePlatform } from '@services/platform';
 import { Swiper } from 'swiper';
 import { SwiperOptions } from 'swiper/types';
-import { IonicSlides } from '@ionic/angular';
+import { CoreSwiper } from '@singletons/swiper';
+import { toBoolean } from '../transforms/boolean';
+import { BackButtonPriority } from '../constants';
 
 /**
  * Class to abstract some common code for tabs.
@@ -49,42 +48,36 @@ import { IonicSlides } from '@ionic/angular';
 @Component({
     template: '',
 })
-export class CoreTabsBaseComponent<T extends CoreTabBase> implements OnInit, AfterViewInit, OnChanges, OnDestroy, AsyncDirective {
+export class CoreTabsBaseComponent<T extends CoreTabBase> implements AfterViewInit, OnChanges, OnDestroy, AsyncDirective {
 
     // Minimum tab's width.
     protected static readonly MIN_TAB_WIDTH = 107;
 
     @Input() selectedIndex = 0; // Index of the tab to select.
-    @Input() hideUntil = false; // Determine when should the contents be shown.
+    @Input({ transform: toBoolean }) hideUntil = false; // Determine when should the contents be shown.
     @Output() protected ionChange = new EventEmitter<T>(); // Emitted when the tab changes.
 
     protected swiper?: Swiper;
-    @ViewChild('swiperRef')
-    set swiperRef(swiperRef: ElementRef) {
+    @ViewChild('swiperRef') set swiperRef(swiperRef: ElementRef) {
         /**
          * This setTimeout waits for Ionic's async initialization to complete.
          * Otherwise, an outdated swiper reference will be used.
          */
         setTimeout(() => {
-            if (swiperRef?.nativeElement?.swiper && !this.swiper) {
-                this.swiper = swiperRef.nativeElement.swiper as Swiper;
-
-                this.swiper.changeLanguageDirection(CorePlatform.isRTL ? 'rtl' : 'ltr');
-
-                Object.keys(this.swiperOpts).forEach((key) => {
-                    if (this.swiper) {
-                        this.swiper.params[key] = this.swiperOpts[key];
-                    }
-                });
-
-                // Subscribe to changes.
-                this.swiper.on('slideChangeTransitionEnd', () => {
-                    this.slideChanged();
-                });
-
-                this.init();
+            const swiper = CoreSwiper.initSwiperIfAvailable(this.swiper, swiperRef, this.swiperOpts);
+            if (!swiper) {
+                return;
             }
-        }, 0);
+
+            this.swiper = swiper;
+
+            // Subscribe to changes.
+            this.swiper.on('slideChangeTransitionEnd', () => {
+                this.slideChanged();
+            });
+
+            this.init();
+        });
     }
 
     tabs: T[] = []; // List of tabs.
@@ -97,7 +90,6 @@ export class CoreTabsBaseComponent<T extends CoreTabBase> implements OnInit, Aft
     numTabsShown = 0;
     description = '';
     swiperOpts: SwiperOptions = {
-        modules: [IonicSlides],
         slidesPerView: 3,
         centerInsufficientSlides: true,
         threshold: 10,
@@ -125,18 +117,6 @@ export class CoreTabsBaseComponent<T extends CoreTabBase> implements OnInit, Aft
         this.tabAction = new CoreTabsRoleTab(this);
 
         CoreDirectivesRegistry.register(element.nativeElement, this);
-    }
-
-    /**
-     * @inheritdoc
-     */
-    async ngOnInit(): Promise<void> {
-        // Change the side when the language changes.
-        this.subscriptions.push(Translate.onLangChange.subscribe(() => {
-            setTimeout(() => {
-                this.swiper?.changeLanguageDirection(CorePlatform.isRTL ? 'rtl' : 'ltr');
-            });
-        }));
     }
 
     /**
@@ -179,7 +159,7 @@ export class CoreTabsBaseComponent<T extends CoreTabBase> implements OnInit, Aft
      * @param event Event.
      */
     protected backButtonClicked(event: BackButtonEvent): void {
-        event.detail.register(40, (processNextHandler: () => void) => {
+        event.detail.register(BackButtonPriority.CORE_TABS, (processNextHandler: () => void) => {
             if (this.selectHistory.length > 1) {
                 // The previous page in history is not the last one, we need the previous one.
                 const previousTabId = this.selectHistory[this.selectHistory.length - 2];
@@ -240,9 +220,9 @@ export class CoreTabsBaseComponent<T extends CoreTabBase> implements OnInit, Aft
         this.slideChanged();
 
         this.swiper.update();
-        await CoreUtils.nextTick();
+        await CoreWait.nextTick();
 
-        if (!this.hasSliddenToInitial && this.selectedIndex && this.selectedIndex >= this.swiper.slidesPerViewDynamic()) {
+        if (!this.hasSliddenToInitial && this.selectedIndex >= this.swiper.slidesPerViewDynamic()) {
             this.hasSliddenToInitial = true;
             this.shouldSlideToInitial = true;
 
@@ -254,7 +234,7 @@ export class CoreTabsBaseComponent<T extends CoreTabBase> implements OnInit, Aft
             }, 400);
 
             return;
-        } else if (this.selectedIndex) {
+        } else {
             this.hasSliddenToInitial = true;
         }
 
@@ -298,15 +278,17 @@ export class CoreTabsBaseComponent<T extends CoreTabBase> implements OnInit, Aft
         }
 
         try {
-            const selectedTab = this.calculateInitialTab();
-            if (!selectedTab) {
-                // No enabled tabs, return.
-                throw new CoreError('No enabled tabs.');
-            }
+            if (!this.firstSelectedTab) {
+                const selectedTab = this.calculateInitialTab();
+                if (!selectedTab) {
+                    // No enabled tabs, return.
+                    throw new CoreError('No enabled tabs.');
+                }
 
-            this.firstSelectedTab = selectedTab.id;
-            if (this.firstSelectedTab !== undefined) {
-                this.selectTab(this.firstSelectedTab);
+                this.firstSelectedTab = selectedTab.id;
+                if (this.firstSelectedTab !== undefined) {
+                    this.selectTab(this.firstSelectedTab);
+                }
             }
 
             // Check which arrows should be shown.
@@ -322,21 +304,21 @@ export class CoreTabsBaseComponent<T extends CoreTabBase> implements OnInit, Aft
      * @returns Initial tab, undefined if no valid tab found.
      */
     protected calculateInitialTab(): T | undefined {
-        const selectedTab: T | undefined = this.tabs[this.selectedIndex || 0] || undefined;
+        const selectedTab: T | undefined = this.tabs[this.selectedIndex] || undefined;
 
-        if (selectedTab && selectedTab.enabled) {
+        if (selectedTab?.enabled) {
             return selectedTab;
         }
 
         // The tab is not enabled or not shown. Get the first tab that is enabled.
-        return this.tabs.find((tab) => tab.enabled) || undefined;
+        return this.tabs.find((tab) => tab.enabled);
     }
 
     /**
      * Method executed when the slides are changed.
      */
     slideChanged(): void {
-        if (!this.swiper) {
+        if (!this.swiper || this.swiper.destroyed) {
             return;
         }
 
@@ -361,12 +343,12 @@ export class CoreTabsBaseComponent<T extends CoreTabBase> implements OnInit, Aft
      * Calculate the number of slides that can fit on the screen.
      */
     protected async calculateMaxSlides(): Promise<void> {
-        if (!this.swiper) {
+        if (!this.swiper || this.swiper.destroyed) {
             return;
         }
 
         this.maxSlides = 3;
-        await CoreUtils.nextTick();
+        await CoreWait.nextTick();
 
         if (!this.swiper.width) {
             return;
@@ -477,7 +459,7 @@ export class CoreTabsBaseComponent<T extends CoreTabBase> implements OnInit, Aft
             return;
         }
 
-        if (this.selected && this.swiper) {
+        if (this.selected && this.swiper && !this.swiper.destroyed) {
             // Check if we need to slide to the tab because it's not visible.
             const firstVisibleTab = this.swiper.activeIndex;
             const lastVisibleTab = firstVisibleTab + this.swiper.slidesPerViewDynamic() - 1;
@@ -509,6 +491,7 @@ export class CoreTabsBaseComponent<T extends CoreTabBase> implements OnInit, Aft
         this.selectHistory.push(tab.id ?? '');
         this.selected = tab.id;
         this.selectedIndex = tabIndex;
+        this.swiper?.slideTo(this.selectedIndex, 0);
 
         this.ionChange.emit(tab);
     }

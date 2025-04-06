@@ -18,7 +18,7 @@ import { CoreContentLinksHandlerBase } from '@features/contentlinks/classes/base
 import { CoreContentLinksAction } from '@features/contentlinks/services/contentlinks-delegate';
 import { CoreNavigator } from '@services/navigator';
 import { makeSingleton } from '@singletons';
-import { AddonModForumModuleHandlerService } from './module';
+import { ADDON_MOD_FORUM_FEATURE_NAME, ADDON_MOD_FORUM_PAGE_NAME } from '../../constants';
 
 /**
  * Handler to treat links to forum review.
@@ -27,7 +27,7 @@ import { AddonModForumModuleHandlerService } from './module';
 export class AddonModForumDiscussionLinkHandlerService extends CoreContentLinksHandlerBase {
 
     name = 'AddonModForumDiscussionLinkHandler';
-    featureName = 'CoreCourseModuleDelegate_AddonModForum';
+    featureName = ADDON_MOD_FORUM_FEATURE_NAME;
     pattern = /\/mod\/forum\/discuss\.php.*([&?]d=\d+)/;
 
     /**
@@ -36,7 +36,7 @@ export class AddonModForumDiscussionLinkHandlerService extends CoreContentLinksH
     getActions(
         siteIds: string[],
         url: string,
-        params: Params,
+        params: Record<string, string>,
         courseId?: number,
         data?: { instance?: string; cmid?: string; postid?: string },
     ): CoreContentLinksAction[] | Promise<CoreContentLinksAction[]> {
@@ -46,10 +46,10 @@ export class AddonModForumDiscussionLinkHandlerService extends CoreContentLinksH
         // However canreply will be false.
 
         return [{
-            action: (siteId): void => {
+            action: async (siteId): Promise<void> => {
                 const discussionId = parseInt(params.d, 10);
                 const cmId = data?.cmid && Number(data.cmid);
-                courseId = courseId || (params.courseid && Number(params.courseid)) || (params.cid && Number(params.cid));
+                courseId = Number(courseId || params.courseid || params.cid);
 
                 const pageParams: Params = {
                     forumId: data?.instance && parseInt(data.instance, 10),
@@ -65,19 +65,12 @@ export class AddonModForumDiscussionLinkHandlerService extends CoreContentLinksH
                     pageParams.parent = parseInt(params.parent);
                 }
 
-                CoreNavigator.navigateToSitePath(
-                    `${AddonModForumModuleHandlerService.PAGE_NAME}/discussion/${discussionId}`,
+                await CoreNavigator.navigateToSitePath(
+                    `${ADDON_MOD_FORUM_PAGE_NAME}/discussion/${discussionId}`,
                     { siteId, params: pageParams },
                 );
             },
         }];
-    }
-
-    /**
-     * @inheritdoc
-     */
-    async isEnabled(): Promise<boolean> {
-        return true;
     }
 
 }

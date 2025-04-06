@@ -15,12 +15,13 @@
 import { Directive, Input, ElementRef, Optional } from '@angular/core';
 import { CoreSiteWSPreSets } from '@classes/sites/authenticated-site';
 import { CoreNavigator } from '@services/navigator';
-import { CoreUtils } from '@services/utils/utils';
 import { Md5 } from 'ts-md5';
 
 import { CoreSitePluginsCallWSOnClickBaseDirective } from '../classes/call-ws-click-directive';
 import { CoreSitePluginsPluginContentComponent } from '../components/plugin-content/plugin-content';
 import { CoreSitePlugins } from '../services/siteplugins';
+import { toBoolean } from '@/core/transforms/boolean';
+import { ContextLevel } from '@/core/constants';
 
 /**
  * Directive to call a WS when the element is clicked and load a new content passing the WS result as args. This new content
@@ -52,6 +53,7 @@ import { CoreSitePlugins } from '../services/siteplugins';
  */
 @Directive({
     selector: '[core-site-plugins-call-ws-new-content]',
+    standalone: true,
 })
 export class CoreSitePluginsCallWSNewContentDirective extends CoreSitePluginsCallWSOnClickBaseDirective {
 
@@ -59,14 +61,17 @@ export class CoreSitePluginsCallWSNewContentDirective extends CoreSitePluginsCal
     @Input() method?: string; // The method to get the new content. If not provided, use the same method as current page.
     @Input() args?: Record<string, unknown>; // The params to get the new content.
     @Input() title?: string; // The title to display with the new content. Only if samePage=false.
-    @Input() samePage?: boolean | string; // Whether to display the content in same page or open a new one. Defaults to new page.
+    @Input({ transform: toBoolean }) samePage = false; // Whether to display the content in same page or open a new one.
     @Input() useOtherData?: string[] | unknown; // Whether to include other data in the args.
     @Input() form?: string; // ID or name to identify a form. The form data will be retrieved and sent to the WS.
     // JS variables to pass to the new page so they can be used in the template or JS.
     // If true is supplied instead of an object, all initial variables from current page will be copied.
     @Input() jsData?: Record<string, unknown> | boolean;
     @Input() newContentPreSets?: CoreSiteWSPreSets; // The preSets for the WS call of the new content.
-    @Input() ptrEnabled?: boolean | string; // Whether PTR should be enabled in the new page. Defaults to true.
+    @Input() contextLevel?: ContextLevel; // The context level to filter the title in new page. If not set, try to reuse current.
+    @Input() contextInstanceId?: number; // The instance ID related to the context.
+    @Input() courseId?: number; // Course ID the text belongs to. It can be used to improve performance with filters.
+    @Input({ transform: toBoolean }) ptrEnabled = true; // Whether PTR should be enabled in the new page.
 
     constructor(
         element: ElementRef,
@@ -93,13 +98,13 @@ export class CoreSitePluginsCallWSNewContentDirective extends CoreSitePluginsCal
             jsData = this.parentContent?.data || {};
         }
 
-        if (CoreUtils.isTrueOrOne(this.samePage)) {
+        if (this.samePage) {
             // Update the parent content (if it exists).
             this.parentContent?.updateContent(args, this.component, this.method, jsData, this.newContentPreSets);
         } else {
             const component = this.component || this.parentContent?.component;
             const method = this.method || this.parentContent?.method;
-            const hash = <string> Md5.hashAsciiStr(JSON.stringify(args));
+            const hash = Md5.hashAsciiStr(JSON.stringify(args));
 
             CoreNavigator.navigateToSitePath(`siteplugins/content/${component}/${method}/${hash}`, {
                 params: {
@@ -109,6 +114,9 @@ export class CoreSitePluginsCallWSNewContentDirective extends CoreSitePluginsCal
                     jsData,
                     preSets: this.newContentPreSets,
                     ptrEnabled: this.ptrEnabled,
+                    contextLevel: this.contextLevel ?? this.parentContent?.contextLevel,
+                    contextInstanceId: this.contextInstanceId ?? this.parentContent?.contextInstanceId,
+                    courseId: this.courseId ?? this.parentContent?.courseId ?? args.courseid,
                 },
             });
         }

@@ -14,11 +14,10 @@
 
 import { Component, Optional, OnInit, OnDestroy, Output, EventEmitter } from '@angular/core';
 import { IonContent } from '@ionic/angular';
-
-import { CoreConstants } from '@/core/constants';
+import { DownloadStatus } from '@/core/constants';
 import { CoreSite } from '@classes/sites/site';
 import { CoreCourseModuleMainActivityComponent } from '@features/course/classes/main-activity-component';
-import { CoreCourseContentsPage } from '@features/course/pages/contents/contents';
+import CoreCourseContentsPage from '@features/course/pages/contents/contents';
 import { CoreH5PDisplayOptions } from '@features/h5p/classes/core';
 import { CoreH5PHelper } from '@features/h5p/classes/helper';
 import { CoreH5P } from '@features/h5p/services/h5p';
@@ -28,28 +27,41 @@ import { CoreNetwork } from '@services/network';
 import { CoreFilepool } from '@services/filepool';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSites, CoreSitesReadingStrategy } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
 import { CoreWSFile } from '@services/ws';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
 import {
     AddonModH5PActivity,
     AddonModH5PActivityAccessInfo,
     AddonModH5PActivityData,
-    AddonModH5PActivityProvider,
     AddonModH5PActivityXAPIPostStateData,
     AddonModH5PActivityXAPIStateData,
     AddonModH5PActivityXAPIStatementsData,
-    MOD_H5PACTIVITY_STATE_ID,
 } from '../../services/h5pactivity';
 import {
     AddonModH5PActivitySync,
-    AddonModH5PActivitySyncProvider,
     AddonModH5PActivitySyncResult,
 } from '../../services/h5pactivity-sync';
 import { CoreFileHelper } from '@services/file-helper';
-import { AddonModH5PActivityModuleHandlerService } from '../../services/handlers/module';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreText } from '@singletons/text';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import {
+    ADDON_MOD_H5PACTIVITY_AUTO_SYNCED,
+    ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY,
+    ADDON_MOD_H5PACTIVITY_PAGE_NAME,
+    ADDON_MOD_H5PACTIVITY_STATE_ID,
+    ADDON_MOD_H5PACTIVITY_TRACK_COMPONENT,
+} from '../../constants';
+import { CoreH5PMissingDependenciesError } from '@features/h5p/classes/errors/missing-dependencies-error';
+import { CoreToasts, ToastDuration } from '@services/overlays/toasts';
+import { Subscription } from 'rxjs';
+import { NgZone, Translate } from '@singletons';
+import { CoreError } from '@classes/errors/error';
+import { CoreErrorHelper } from '@services/error-helper';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreCourseModuleNavigationComponent } from '@features/course/components/module-navigation/module-navigation';
+import { CoreCourseModuleInfoComponent } from '@features/course/components/module-info/module-info';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreH5PIframeComponent } from '@features/h5p/components/h5p-iframe/h5p-iframe';
 
 /**
  * Component that displays an H5P activity entry page.
@@ -57,12 +69,19 @@ import { CoreUtils } from '@services/utils/utils';
 @Component({
     selector: 'addon-mod-h5pactivity-index',
     templateUrl: 'addon-mod-h5pactivity-index.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCourseModuleInfoComponent,
+        CoreCourseModuleNavigationComponent,
+        CoreH5PIframeComponent,
+    ],
 })
 export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActivityComponent implements OnInit, OnDestroy {
 
     @Output() onActivityFinish = new EventEmitter<boolean>();
 
-    component = AddonModH5PActivityProvider.COMPONENT;
+    component = ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY;
     pluginName = 'h5pactivity';
 
     h5pActivity?: AddonModH5PActivityData; // The H5P activity object.
@@ -86,15 +105,20 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
     isOpeningPage = false;
     canViewAllAttempts = false;
     saveStateEnabled = false;
+    hasMissingDependencies = false;
     saveFreq?: number;
     contentState?: string;
+    isOnline: boolean;
+    triedToPlay = false;
 
     protected fetchContentDefaultError = 'addon.mod_h5pactivity.errorgetactivity';
-    protected syncEventName = AddonModH5PActivitySyncProvider.AUTO_SYNCED;
+    protected syncEventName = ADDON_MOD_H5PACTIVITY_AUTO_SYNCED;
     protected site: CoreSite;
     protected observer?: CoreEventObserver;
     protected messageListenerFunction: (event: MessageEvent) => Promise<void>;
     protected checkCompletionAfterLog = false; // It's called later, when the user plays the package.
+    protected onlineObserver: Subscription;
+    protected offlineErrorAlert: HTMLIonAlertElement | null = null;
 
     constructor(
         protected content?: IonContent,
@@ -108,6 +132,47 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
         // Listen for messages from the iframe.
         this.messageListenerFunction = (event) => this.onIframeMessage(event);
         window.addEventListener('message', this.messageListenerFunction);
+
+        this.isOnline = CoreNetwork.isOnline();
+        this.onlineObserver = CoreNetwork.onChange().subscribe(() => {
+            // Execute the callback in the Angular zone, so change detection doesn't stop working.
+            NgZone.run(() => {
+                this.networkChanged();
+            });
+        });
+    }
+
+    /**
+     * React to a network status change.
+     */
+    protected async networkChanged(): Promise<void> {
+        const wasOnline = this.isOnline;
+        this.isOnline = CoreNetwork.isOnline();
+
+        if (this.isOnline && this.offlineErrorAlert) {
+            // Back online, dismiss the offline error alert.
+            this.offlineErrorAlert.dismiss();
+            this.offlineErrorAlert = null;
+        }
+
+        if (this.playing && !this.fileUrl && !this.isOnline && wasOnline && this.trackComponent) {
+            // User lost connection while playing an online package with tracking. Show an error.
+            this.offlineErrorAlert = await CoreAlerts.showError(
+                new CoreError(Translate.instant('core.course.changesofflinemaybelost'), {
+                    title: Translate.instant('core.youreoffline'),
+                }),
+            );
+
+            return;
+        }
+
+        if (this.isOnline && this.triedToPlay) {
+            // User couldn't play the package because he was offline, but he reconnected. Try again.
+            this.triedToPlay = false;
+            this.play();
+
+            return;
+        }
     }
 
     /**
@@ -147,7 +212,7 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
 
         await this.loadContentState(); // Loading the state requires the access info.
 
-        this.trackComponent = this.accessInfo?.cansubmit ? AddonModH5PActivityProvider.TRACK_COMPONENT : '';
+        this.trackComponent = this.accessInfo?.cansubmit ? ADDON_MOD_H5PACTIVITY_TRACK_COMPONENT : '';
         this.canViewAllAttempts = !!this.h5pActivity.enabletracking && !!this.accessInfo?.canreviewattempts &&
                 AddonModH5PActivity.canGetUsersAttemptsInSite();
 
@@ -161,14 +226,18 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
             );
         }
 
-        if (!this.siteCanDownload || this.state == CoreConstants.DOWNLOADED) {
+        if (!this.siteCanDownload || this.state === DownloadStatus.DOWNLOADED || this.hasMissingDependencies) {
             // Cannot download the file or already downloaded, play the package directly.
             this.play();
 
-        } else if ((this.state == CoreConstants.NOT_DOWNLOADED || this.state == CoreConstants.OUTDATED) && CoreNetwork.isOnline() &&
-                    this.deployedFile?.filesize && CoreFilepool.shouldDownload(this.deployedFile.filesize)) {
-            // Package is small, download it automatically. Don't block this function for this.
-            this.downloadAutomatically();
+        } else if (
+            (this.state == DownloadStatus.DOWNLOADABLE_NOT_DOWNLOADED || this.state == DownloadStatus.OUTDATED) &&
+            CoreNetwork.isOnline() &&
+            this.deployedFile?.filesize &&
+            CoreFilepool.shouldDownload(this.deployedFile.filesize)
+        ) {
+            // Package is small, download and play it automatically. Don't block this function for this.
+            this.downloadAndPlay();
         }
     }
 
@@ -212,12 +281,18 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
             return;
         }
 
-        this.deployedFile = await AddonModH5PActivity.getDeployedFile(this.h5pActivity, {
+        const deployedFile = await AddonModH5PActivity.getDeployedFile(this.h5pActivity, {
             displayOptions: this.displayOptions,
             siteId: this.siteId,
         });
 
-        this.fileUrl = CoreFileHelper.getFileUrl(this.deployedFile);
+        this.hasMissingDependencies = await AddonModH5PActivity.hasMissingDependencies(this.module.id, deployedFile);
+        if (this.hasMissingDependencies) {
+            return;
+        }
+
+        this.deployedFile = deployedFile;
+        this.fileUrl = CoreFileHelper.getFileUrl(deployedFile);
 
         // Listen for changes in the state.
         const eventName = await CoreFilepool.getFileEventNameByUrl(this.site.getId(), this.fileUrl);
@@ -237,6 +312,7 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
     protected async loadContentState(): Promise<void> {
         if (!this.h5pActivity || !this.accessInfo || !AddonModH5PActivity.isSaveStateEnabled(this.h5pActivity, this.accessInfo)) {
             this.saveStateEnabled = false;
+            this.contentState = undefined;
 
             return;
         }
@@ -245,21 +321,23 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
         this.saveFreq = this.h5pActivity.savestatefreq;
 
         const contentState = await CoreXAPI.getState(
-            AddonModH5PActivityProvider.TRACK_COMPONENT,
+            ADDON_MOD_H5PACTIVITY_TRACK_COMPONENT,
             this.h5pActivity.context,
-            MOD_H5PACTIVITY_STATE_ID,
+            ADDON_MOD_H5PACTIVITY_STATE_ID,
             {
-                appComponent: AddonModH5PActivityProvider.COMPONENT,
+                appComponent: ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY,
                 appComponentId: this.h5pActivity.coursemodule,
                 readingStrategy: CoreSitesReadingStrategy.PREFER_NETWORK,
             },
         );
 
         if (contentState === null) {
+            this.contentState = undefined;
+
             return;
         }
 
-        const contentStateObj = CoreTextUtils.parseJSON<{h5p: string}>(contentState, { h5p: '{}' });
+        const contentStateObj = CoreText.parseJSON<{h5p: string}>(contentState, { h5p: '{}' });
 
         // The H5P state doesn't always use JSON, so an h5p property was added to jsonize it.
         this.contentState = contentStateObj.h5p ?? '{}';
@@ -295,13 +373,13 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
      * Displays some data based on the state of the main file.
      */
     protected async showFileState(): Promise<void> {
-        if (this.state == CoreConstants.OUTDATED) {
+        if (this.state === DownloadStatus.OUTDATED) {
             this.stateMessage = 'addon.mod_h5pactivity.filestateoutdated';
             this.needsDownload = true;
-        } else if (this.state == CoreConstants.NOT_DOWNLOADED) {
+        } else if (this.state === DownloadStatus.DOWNLOADABLE_NOT_DOWNLOADED) {
             this.stateMessage = 'addon.mod_h5pactivity.filestatenotdownloaded';
             this.needsDownload = true;
-        } else if (this.state == CoreConstants.DOWNLOADING) {
+        } else if (this.state === DownloadStatus.DOWNLOADING) {
             this.stateMessage = '';
 
             if (!this.downloading) {
@@ -320,9 +398,8 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
      * Download the file and play it.
      *
      * @param event Click event.
-     * @returns Promise resolved when done.
      */
-    async downloadAndPlay(event?: MouseEvent): Promise<void> {
+    async downloadAndPlayManually(event?: MouseEvent): Promise<void> {
         event?.preventDefault();
         event?.stopPropagation();
 
@@ -331,37 +408,25 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
         }
 
         if (!CoreNetwork.isOnline()) {
-            CoreDomUtils.showErrorModal('core.networkerrormsg', true);
+            CoreAlerts.showError(Translate.instant('core.networkerrormsg'));
 
             return;
         }
 
         try {
             // Confirm the download if needed.
-            await CoreDomUtils.confirmDownloadSize({ size: this.deployedFile.filesize || 0, total: true });
-
-            await this.downloadDeployedFile();
-
-            if (!this.isDestroyed) {
-                this.play();
-            }
-
+            await CoreAlerts.confirmDownloadSize({ size: this.deployedFile.filesize || 0, total: true });
         } catch (error) {
-            if (CoreDomUtils.isCanceledError(error) || this.isDestroyed) {
-                // User cancelled or view destroyed, stop.
-                return;
-            }
-
-            CoreDomUtils.showErrorModalDefault(error, 'core.errordownloading', true);
+            return;
         }
+
+        await this.downloadAndPlay();
     }
 
     /**
-     * Download the file automatically.
-     *
-     * @returns Promise resolved when done.
+     * Download the file and play it.
      */
-    protected async downloadAutomatically(): Promise<void> {
+    protected async downloadAndPlay(): Promise<void> {
         try {
             await this.downloadDeployedFile();
 
@@ -369,7 +434,26 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
                 this.play();
             }
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'core.errordownloading', true);
+            if (CoreErrorHelper.isCanceledError(error) || this.isDestroyed) {
+                // User cancelled or view destroyed, stop.
+                return;
+            }
+
+            if (CoreErrorHelper.isNetworkError(error)) {
+                CoreAlerts.showError(error, { default: Translate.instant('core.errordownloading') });
+
+                return;
+            }
+
+            // Cannot download the file, use online player.
+            this.hasMissingDependencies = error instanceof CoreH5PMissingDependenciesError;
+            this.fileUrl = undefined;
+            this.play();
+
+            CoreToasts.show({
+                message: Translate.instant('core.course.activityrequiresconnection'),
+                duration: ToastDuration.LONG,
+            });
         }
     }
 
@@ -438,6 +522,16 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
             return;
         }
 
+        if (!this.fileUrl && !this.isOnline) {
+            this.triedToPlay = true;
+
+            CoreAlerts.showError(new CoreError(Translate.instant('core.connectandtryagain'), {
+                title: Translate.instant('core.course.activitynotavailableoffline'),
+            }));
+
+            return;
+        }
+
         this.playing = true;
 
         // Mark the activity as viewed.
@@ -446,6 +540,11 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
         this.checkCompletion();
 
         this.analyticsLogEvent('mod_h5pactivity_view_h5pactivity');
+
+        if (!this.fileUrl && this.trackComponent) {
+            // User is playing the package in online, invalidate attempts to fetch latest data.
+            AddonModH5PActivity.invalidateUserAttempts(this.h5pActivity.id, CoreSites.getCurrentSiteUserId());
+        }
     }
 
     /**
@@ -456,8 +555,13 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
         const userId = CoreSites.getCurrentSiteUserId();
 
         try {
+            if (!this.fileUrl && this.trackComponent && this.h5pActivity) {
+                // User is playing the package in online, invalidate attempts to fetch latest data.
+                await AddonModH5PActivity.invalidateUserAttempts(this.h5pActivity.id, CoreSites.getCurrentSiteUserId());
+            }
+
             await CoreNavigator.navigateToSitePath(
-                `${AddonModH5PActivityModuleHandlerService.PAGE_NAME}/${this.courseId}/${this.module.id}/userattempts/${userId}`,
+                `${ADDON_MOD_H5PACTIVITY_PAGE_NAME}/${this.courseId}/${this.module.id}/userattempts/${userId}`,
             );
         } finally {
             this.isOpeningPage = false;
@@ -472,7 +576,7 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
 
         try {
             await CoreNavigator.navigateToSitePath(
-                `${AddonModH5PActivityModuleHandlerService.PAGE_NAME}/${this.courseId}/${this.module.id}/users`,
+                `${ADDON_MOD_H5PACTIVITY_PAGE_NAME}/${this.courseId}/${this.module.id}/users`,
             );
         } finally {
             this.isOpeningPage = false;
@@ -596,7 +700,7 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
                 }
             }
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Error sending tracking data.');
+            CoreAlerts.showError(error, { default: 'Error sending tracking data.' });
         }
     }
 
@@ -656,7 +760,7 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
 
             this.hasOffline = !sent;
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Error sending tracking data.');
+            CoreAlerts.showError(error, { default: 'Error sending tracking data.' });
         }
     }
 
@@ -677,7 +781,7 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
                 },
             );
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Error sending tracking data.');
+            CoreAlerts.showError(error, { default: 'Error sending tracking data.' });
         }
     }
 
@@ -689,7 +793,7 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
             return;
         }
 
-        await CoreUtils.ignoreErrors(CoreXAPIOffline.deleteStates(AddonModH5PActivityProvider.TRACK_COMPONENT, {
+        await CorePromiseUtils.ignoreErrors(CoreXAPIOffline.deleteStates(ADDON_MOD_H5PACTIVITY_TRACK_COMPONENT, {
             itemId: this.h5pActivity.context,
         }));
     }
@@ -722,6 +826,7 @@ export class AddonModH5PActivityIndexComponent extends CoreCourseModuleMainActiv
         super.ngOnDestroy();
 
         this.observer?.off();
+        this.onlineObserver.unsubscribe();
 
         // Wait a bit to make sure all messages have been received.
         setTimeout(() => {

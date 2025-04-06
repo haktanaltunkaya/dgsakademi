@@ -84,7 +84,6 @@ $core-dd-question-colors: #FFFFFF, #B0C4DE, #DCDCDC, #D8BFD8, #87CEFA, #DAA520, 
 $core-text-hightlight-background-color: lighten($blue, 40%) !default;
 
 $core-fixed-url: false !default;
-$core-dashboard-logo: false !default;
 $core-always-show-main-menu: false !default;
 $core-format-text-never-shorten: false !default;
 
@@ -92,6 +91,7 @@ $core-hide-courseimage-on-course: false !default;
 $core-hide-progress-on-course: false !default;
 $core-hide-progress-on-section-selector: false !default;
 
+$core-course-hide-progress-on-list-items: false !default;
 $core-course-hide-thumb-on-cards: false !default;
 $core-course-thumb-on-cards-background: null !default;
 $core-course-hide-progress-on-cards: false !default;
@@ -115,14 +115,33 @@ $core-user-hide-siteinfo: $core-more-hide-siteinfo !default;
 $core-user-hide-sitename: $core-more-hide-sitename !default;
 $core-user-hide-siteurl: $core-more-hide-siteurl !default;
 
-// Activity icon background colors.
-$activity-icon-colors: (
+// Activity icon background colors. Only used on 4.0-4.3. @deprecatedonmoodle since 4.4.
+$activity-icon-background-colors: (
     administration: #5d63f6,
     assessment: #eb66a2,
     collaboration: #f7634d,
     communication: #11a676,
     content: #399be2,
     interface: #a378ff
+) !default;
+
+// Moodle 4.4 onwards.
+$activity-icon-colors: (
+    administration: #da58ef,
+    assessment: #f90086,
+    collaboration: #5b40ff,
+    communication: #eb6200,
+    content: #0099ad,
+    interactivecontent: #8d3d1b
+) !default;
+
+$activity-icon-color-filters: (
+    administration: brightness(0%) invert(45%) sepia(46%) saturate(3819%) hue-rotate(260deg) brightness(101%) contrast(87%),
+    assessment: brightness(0%) invert(36%) sepia(98%) saturate(6969%) hue-rotate(315deg) brightness(90%) contrast(119%),
+    collaboration: brightness(0%) invert(25%) sepia(54%) saturate(6226%) hue-rotate(245deg) brightness(100%) contrast(102%),
+    communication: brightness(0%) invert(48%) sepia(74%) saturate(4887%) hue-rotate(11deg) brightness(102%) contrast(101%),
+    content: brightness(0%) invert(49%) sepia(52%) saturate(4675%) hue-rotate(156deg) brightness(89%) contrast(102%),
+    interactivecontent: brightness(0%) invert(25%) sepia(63%) saturate(1152%) hue-rotate(344deg) brightness(94%) contrast(91%)
 ) !default;
 
 $calendar-event-category-category: #8e24aa !default;

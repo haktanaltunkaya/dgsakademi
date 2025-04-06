@@ -30,24 +30,18 @@ export class AddonBadgesMyBadgesLinkHandlerService extends CoreContentLinksHandl
     pattern = /\/badges\/mybadges\.php/;
 
     /**
-     * Get the list of actions for a link (url).
-     *
-     * @returns List of (or promise resolved with list of) actions.
+     * @inheritdoc
      */
     getActions(): CoreContentLinksAction[] {
         return [{
-            action: (siteId: string): void => {
-                CoreNavigator.navigateToSitePath('/badges', { siteId });
+            action: async (siteId: string): Promise<void> => {
+                await CoreNavigator.navigateToSitePath('/badges', { siteId });
             },
         }];
     }
 
     /**
-     * Check if the handler is enabled for a certain site (site + user) and a URL.
-     * If not defined, defaults to true.
-     *
-     * @param siteId The site ID.
-     * @returns Whether the handler is enabled for the URL and site.
+     * @inheritdoc
      */
     async isEnabled(siteId: string): Promise<boolean> {
         return AddonBadges.isPluginEnabled(siteId);

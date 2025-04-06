@@ -26,18 +26,18 @@
 
     <core-search-box *ngIf="searchEnabled" (onSubmit)="search($event)" (onClear)="clearSearch()"
         [placeholder]="'core.courses.search' | translate" [searchLabel]="'core.courses.search' | translate" [autoFocus]="searchMode"
-        searchArea="CoreCoursesSearch" />
+        searchArea="CoreCoursesSearch" [lengthCheck]="1" />
 
-    <core-loading [hideUntil]="loaded">
+    <core-loading [hideUntil]="loaded" [message]="loadingMessage" placeholderType="column" placeholderHeight="108px">
         <ng-container *ngIf="searchMode && searchTotal > 0">
             <ion-item-divider>
                 <ion-label>
-                    <h2>{{ 'core.courses.totalcoursesearchresults' | translate:{$a: searchTotal} }}</h2>
+                    <h2 role="status">{{ 'core.courses.totalcoursesearchresults' | translate:{$a: searchTotal} }}</h2>
                 </ion-label>
             </ion-item-divider>
         </ng-container>
 
-        <ion-list class="list-item-limited-width">
+        <ion-list class="list-item-limited-width core-course-list">
             <core-courses-course-list-item *ngFor="let course of courses" [course]="course" [showDownload]="downloadEnabled" />
         </ion-list>
 
@@ -45,7 +45,7 @@
 
 
         <core-empty-box *ngIf="searchMode && !courses.length" icon="fas-magnifying-glass"
-            [message]="'core.courses.nosearchresults' | translate" />
+            [message]="'core.courses.nosearchresults' | translate" role="alert" />
 
         <core-empty-box *ngIf="!searchMode && !courses.length" icon="fas-graduation-cap" [message]="'core.courses.nocourses' | translate" />
 

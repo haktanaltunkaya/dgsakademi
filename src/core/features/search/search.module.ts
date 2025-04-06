@@ -17,32 +17,54 @@ import { Routes } from '@angular/router';
 import { CoreMainMenuRoutingModule } from '@features/mainmenu/mainmenu-routing.module';
 import { CoreMainMenuTabRoutingModule } from '@features/mainmenu/mainmenu-tab-routing.module';
 import { CoreMainMenuDelegate } from '@features/mainmenu/services/mainmenu-delegate';
-import { CoreSearchGlobalSearchService } from '@features/search/services/global-search';
 import { CoreSearchMainMenuHandler, CORE_SEARCH_PAGE_NAME } from '@features/search/services/handlers/mainmenu';
 
 import { CORE_SITE_SCHEMAS } from '@services/sites';
 
-import { CoreSearchComponentsModule } from './components/components.module';
 import { SITE_SCHEMA } from './services/search-history-db';
-import { CoreSearchHistoryProvider } from './services/search-history.service';
 import { CoreContentLinksDelegate } from '@features/contentlinks/services/contentlinks-delegate';
 import { CoreSearchGlobalSearchLinkHandler } from '@features/search/services/handlers/global-search-link';
 
-export const CORE_SEARCH_SERVICES: Type<unknown>[] = [
-    CoreSearchHistoryProvider,
-    CoreSearchGlobalSearchService,
-];
+/**
+ * Get search services.
+ *
+ * @returns Returns search services.
+ */
+export async function getSearchServices(): Promise<Type<unknown>[]> {
+    const { CoreSearchHistoryProvider } = await import('@features/search/services/search-history.service');
+    const { CoreSearchGlobalSearchService } = await import('@features/search/services/global-search');
+
+    return [
+        CoreSearchHistoryProvider,
+        CoreSearchGlobalSearchService,
+    ];
+}
+
+/**
+ * Get directives and components for site plugins.
+ *
+ * @returns Returns directives and components.
+ */
+export async function getSearchExportedDirectives(): Promise<Type<unknown>[]> {
+    const { CoreSearchBoxComponent } = await import('@features/search/components/search-box/search-box');
+    const { CoreSearchGlobalSearchResultComponent } =
+        await import('@features/search/components/global-search-result/global-search-result');
+
+    return [
+        CoreSearchBoxComponent,
+        CoreSearchGlobalSearchResultComponent,
+    ];
+}
 
 const mainMenuChildrenRoutes: Routes = [
     {
         path: CORE_SEARCH_PAGE_NAME,
-        loadChildren: () => import('./search-lazy.module').then(m => m.CoreSearchLazyModule),
+        loadChildren: () => import('./search-lazy.module'),
     },
 ];
 
 @NgModule({
     imports: [
-        CoreSearchComponentsModule,
         CoreMainMenuTabRoutingModule.forChild(mainMenuChildrenRoutes),
         CoreMainMenuRoutingModule.forChild({ children: mainMenuChildrenRoutes }),
     ],

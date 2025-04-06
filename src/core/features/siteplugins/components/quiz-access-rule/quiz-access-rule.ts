@@ -18,6 +18,9 @@ import { FormGroup } from '@angular/forms';
 import { AddonModQuizAccessRuleDelegate } from '@addons/mod/quiz/services/access-rules-delegate';
 import { AddonModQuizAttemptWSData, AddonModQuizQuizWSData } from '@addons/mod/quiz/services/quiz';
 import { CoreSitePluginsCompileInitComponent } from '@features/siteplugins/classes/compile-init-component';
+import { toBoolean } from '@/core/transforms/boolean';
+import { CoreCompileHtmlComponent } from '@features/compile/components/compile-html/compile-html';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component that displays a quiz access rule created using a site plugin.
@@ -26,20 +29,25 @@ import { CoreSitePluginsCompileInitComponent } from '@features/siteplugins/class
     selector: 'core-site-plugins-quiz-access-rule',
     templateUrl: 'core-siteplugins-quiz-access-rule.html',
     styles: [':host { display: contents; }'],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCompileHtmlComponent,
+    ],
 })
 export class CoreSitePluginsQuizAccessRuleComponent extends CoreSitePluginsCompileInitComponent implements OnInit {
 
     @Input() rule?: string; // The name of the rule.
     @Input() quiz?: AddonModQuizQuizWSData; // The quiz the rule belongs to.
     @Input() attempt?: AddonModQuizAttemptWSData; // The attempt being started/continued.
-    @Input() prefetch?: boolean; // Whether the user is prefetching the quiz.
+    @Input({ transform: toBoolean }) prefetch = false; // Whether the user is prefetching the quiz.
     @Input() siteId?: string; // Site ID.
     @Input() form?: FormGroup; // Form where to add the form control.
 
     /**
      * @inheritdoc
      */
-    ngOnInit(): void {
+    async ngOnInit(): Promise<void> {
         // Pass the input and output data to the component.
         this.jsData.rule = this.rule;
         this.jsData.quiz = this.quiz;

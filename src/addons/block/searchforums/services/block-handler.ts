@@ -14,12 +14,12 @@
 
 import { Injectable } from '@angular/core';
 import { CoreBlockHandlerData } from '@features/block/services/block-delegate';
-import { CoreBlockOnlyTitleComponent } from '@features/block/components/only-title-block/only-title-block';
 import { CoreBlockBaseHandler } from '@features/block/classes/base-block-handler';
 import { makeSingleton } from '@singletons';
-import { FORUM_SEARCH_PAGE_NAME } from '@addons/mod/forum/forum.module';
+import { ADDON_MOD_FORUM_SEARCH_PAGE_NAME } from '@addons/mod/forum/constants';
 import { CoreCourseBlock } from '@features/course/services/course';
 import { CoreSearchGlobalSearch } from '@features/search/services/global-search';
+import { ContextLevel } from '@/core/constants';
 
 /**
  * Block handler.
@@ -34,31 +34,35 @@ export class AddonBlockSearchForumsHandlerService extends CoreBlockBaseHandler {
      * @inheritdoc
      */
     async isEnabled(): Promise<boolean> {
-        const enabled = await CoreSearchGlobalSearch.isEnabled();
-
-        if (!enabled) {
-            return false;
-        }
-
-        const forumSearchAreas = ['mod_forum-activity', 'mod_forum-post'];
-        const searchAreas = await CoreSearchGlobalSearch.getSearchAreas();
-
-        return searchAreas.some(({ id }) => forumSearchAreas.includes(id));
+        return CoreSearchGlobalSearch.isEnabled();
     }
 
     /**
      * @inheritdoc
      */
-    getDisplayData(block: CoreCourseBlock, contextLevel: string, instanceId: number): CoreBlockHandlerData | undefined {
-        if (contextLevel !== 'course') {
+    async getDisplayData(
+        block: CoreCourseBlock,
+        contextLevel: ContextLevel,
+        instanceId: number,
+    ): Promise<undefined | CoreBlockHandlerData> {
+        if (contextLevel !== ContextLevel.COURSE) {
             return;
         }
+
+        const forumSearchAreas = ['mod_forum-activity', 'mod_forum-post'];
+        const searchAreas = await CoreSearchGlobalSearch.getSearchAreas();
+
+        if (!searchAreas.some(({ id }) => forumSearchAreas.includes(id))) {
+            return;
+        }
+
+        const { CoreBlockOnlyTitleComponent } = await import('@features/block/components/only-title-block/only-title-block');
 
         return {
             title: 'addon.block_searchforums.pluginname',
             class: 'addon-block-search-forums',
             component: CoreBlockOnlyTitleComponent,
-            link: FORUM_SEARCH_PAGE_NAME,
+            link: ADDON_MOD_FORUM_SEARCH_PAGE_NAME,
             linkParams: { courseId: instanceId },
         };
     }

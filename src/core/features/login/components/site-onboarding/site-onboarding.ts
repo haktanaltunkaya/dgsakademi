@@ -15,9 +15,11 @@
 import { Component } from '@angular/core';
 
 import { CoreConfig } from '@services/config';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreOpener } from '@singletons/opener';
 import { GET_STARTED_URL, ONBOARDING_DONE } from '@features/login/constants';
 import { ModalController } from '@singletons';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreConstants } from '@/core/constants';
 
 /**
  * Component that displays onboarding help regarding the CoreLoginSitePage.
@@ -26,10 +28,15 @@ import { ModalController } from '@singletons';
     selector: 'core-login-site-onboarding',
     templateUrl: 'site-onboarding.html',
     styleUrls: ['site-onboarding.scss', '../../login.scss'],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class CoreLoginSiteOnboardingComponent {
 
     step = 0;
+    appName = CoreConstants.CONFIG.appname;
 
     /**
      * Go to next step.
@@ -79,7 +86,7 @@ export class CoreLoginSiteOnboardingComponent {
 
         this.saveOnboardingDone();
 
-        CoreUtils.openInBrowser(GET_STARTED_URL, { showBrowserWarning: false });
+        CoreOpener.openInBrowser(GET_STARTED_URL, { showBrowserWarning: false });
 
         ModalController.dismiss();
     }

@@ -19,8 +19,9 @@ import {
     CoreCourseOptionsHandlerData,
 } from '@features/course/services/course-options-delegate';
 import { CoreCourses, CoreCourseUserAdminOrNavOptionIndexed } from '@features/courses/services/courses';
+import { GRADES_PARTICIPANTS_PAGE_NAME } from '@features/grades/constants';
 import { CoreGrades } from '@features/grades/services/grades';
-import { CoreGradesHelper, GRADES_PARTICIPANTS_PAGE_NAME } from '@features/grades/services/grades-helper';
+import { CoreGradesHelper } from '@features/grades/services/grades-helper';
 import { makeSingleton } from '@singletons';
 
 /**
@@ -38,7 +39,7 @@ export class CoreGradesCourseParticipantsOptionHandlerService implements CoreCou
     async invalidateEnabledForCourse(courseId: number, navOptions?: CoreCourseUserAdminOrNavOptionIndexed): Promise<void> {
         await CoreGrades.invalidateCourseGradesPermissionsData(courseId);
 
-        if (navOptions && navOptions.grades !== undefined) {
+        if (navOptions?.grades !== undefined) {
             // No need to invalidate user courses.
             return;
         }

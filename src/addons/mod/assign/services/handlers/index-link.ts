@@ -14,7 +14,9 @@
 
 import { Injectable } from '@angular/core';
 import { CoreContentLinksModuleIndexHandler } from '@features/contentlinks/classes/module-index-handler';
+import { CoreNavigationOptions } from '@services/navigator';
 import { makeSingleton } from '@singletons';
+import { ADDON_MOD_ASSIGN_COMPONENT, ADDON_MOD_ASSIGN_MODNAME } from '../../constants';
 
 /**
  * Handler to treat links to assign index page.
@@ -25,7 +27,18 @@ export class AddonModAssignIndexLinkHandlerService extends CoreContentLinksModul
     name = 'AddonModAssignIndexLinkHandler';
 
     constructor() {
-        super('AddonModAssign', 'assign');
+        super(ADDON_MOD_ASSIGN_COMPONENT, ADDON_MOD_ASSIGN_MODNAME);
+    }
+
+    /**
+     * @inheritdoc
+     */
+    getModNavOptions(url: string, params: Record<string, string>): CoreNavigationOptions {
+        if (!params.action) {
+            return {};
+        }
+
+        return { params: { action: params.action } };
     }
 
 }

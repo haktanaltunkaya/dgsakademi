@@ -6,10 +6,6 @@
         color: var(--core-star-color);
     }
 
-    .core-discussionusername {
-        font-size: 1.2em;
-    }
-
     .core-groupname {
         display: flex;
         align-items: center;
@@ -74,4 +70,10 @@
         border-top: 1px solid var(--spacer-color);
     }
 
+    .ripple-parent {
+        position: relative;
+        ion-ripple-effect {
+            z-index: 1;
+        }
+    }
 }

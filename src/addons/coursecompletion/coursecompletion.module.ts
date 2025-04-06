@@ -19,19 +19,27 @@ import { CoreCourseIndexRoutingModule } from '@features/course/course-routing.mo
 import { CoreCourseOptionsDelegate } from '@features/course/services/course-options-delegate';
 import { CoreMainMenuTabRoutingModule } from '@features/mainmenu/mainmenu-tab-routing.module';
 import { CoreUserDelegate } from '@features/user/services/user-delegate';
-import { AddonCourseCompletionProvider } from './services/coursecompletion';
 import { AddonCourseCompletionStatusLinkHandler } from './services/handlers/completionstatus-link';
 import { AddonCourseCompletionCourseOptionHandler } from './services/handlers/course-option';
 import { AddonCourseCompletionUserHandler } from './services/handlers/user';
 
-export const ADDON_COURSECOMPLETION_SERVICES: Type<unknown>[] = [
-    AddonCourseCompletionProvider,
-];
+/**
+ * Get course completion services.
+ *
+ * @returns Course completion services.
+ */
+export async function getCourseCompletionServices(): Promise<Type<unknown>[]> {
+    const { AddonCourseCompletionProvider } = await import('@addons/coursecompletion/services/coursecompletion');
+
+    return [
+        AddonCourseCompletionProvider,
+    ];
+}
 
 const routes: Routes = [
     {
         path: 'coursecompletion',
-        loadChildren: () => import('./coursecompletion-lazy.module').then(m => m.AddonCourseCompletionLazyModule),
+        loadComponent: () => import('./pages/report/report'),
     },
 ];
 

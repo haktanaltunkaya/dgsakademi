@@ -1,4 +1,4 @@
-@addon_mod_bigbluebuttonbn @app @javascript @lms_from4.0
+@addon_mod_bigbluebuttonbn @app @mod @mod_bigbluebuttonbn @javascript
 Feature: Test usage of BBB activity with groups in app
 
   Background:

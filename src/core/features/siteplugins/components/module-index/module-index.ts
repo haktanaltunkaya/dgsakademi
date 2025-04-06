@@ -12,14 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Component, OnInit, OnDestroy, Input, ViewChild, HostBinding } from '@angular/core';
+import { Component, OnInit, OnDestroy, Input, ViewChild, HostBinding, Optional } from '@angular/core';
 
 import { CoreSiteWSPreSets } from '@classes/sites/authenticated-site';
-import {
-    CoreCourseModuleSummaryResult,
-    CoreCourseModuleSummaryComponent,
-} from '@features/course/components/module-summary/module-summary';
-import { CoreCourse } from '@features/course/services/course';
+import { CoreCourseModuleSummaryResult } from '@features/course/components/module-summary/module-summary';
+import CoreCourseContentsPage from '@features/course/pages/contents/contents';
+import { CoreCourseModuleHelper } from '@features/course/services/course-module-helper';
 import { CoreCourseModuleData } from '@features/course/services/course-helper';
 import {
     CoreCourseModuleDelegate,
@@ -30,9 +28,12 @@ import {
     CoreSitePluginsContent,
     CoreSitePluginsCourseModuleHandlerData,
 } from '@features/siteplugins/services/siteplugins';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreModals } from '@services/overlays/modals';
+import { CoreUtils } from '@singletons/utils';
 import { CoreSitePluginsPluginContentComponent, CoreSitePluginsPluginContentLoadedData } from '../plugin-content/plugin-content';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreCourseModuleInfoComponent } from '../../../course/components/module-info/module-info';
+import { CoreCourseModuleNavigationComponent } from '@features/course/components/module-navigation/module-navigation';
 
 /**
  * Component that displays the index of a module site plugin.
@@ -41,11 +42,18 @@ import { CoreSitePluginsPluginContentComponent, CoreSitePluginsPluginContentLoad
     selector: 'core-site-plugins-module-index',
     templateUrl: 'core-siteplugins-module-index.html',
     styles: [':host { display: contents; }'],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreSitePluginsPluginContentComponent,
+        CoreCourseModuleInfoComponent,
+        CoreCourseModuleNavigationComponent,
+    ],
 })
 export class CoreSitePluginsModuleIndexComponent implements OnInit, OnDestroy, CoreCourseModuleMainComponent {
 
-    @Input() module!: CoreCourseModuleData; // The module.
-    @Input() courseId!: number; // Course ID the module belongs to.
+    @Input({ required: true }) module!: CoreCourseModuleData; // The module.
+    @Input({ required: true }) courseId!: number; // Course ID the module belongs to.
     @Input() pageTitle?: string; // Current page title. It can be used by the "new-content" directives.
 
     @ViewChild(CoreSitePluginsPluginContentComponent) content?: CoreSitePluginsPluginContentComponent;
@@ -73,6 +81,8 @@ export class CoreSitePluginsModuleIndexComponent implements OnInit, OnDestroy, C
     isDestroyed = false;
 
     jsData?: Record<string, unknown>; // Data to pass to the component.
+
+    constructor(@Optional() public courseContentsPage?: CoreCourseContentsPage) {}
 
     /**
      * @inheritdoc
@@ -136,7 +146,7 @@ export class CoreSitePluginsModuleIndexComponent implements OnInit, OnDestroy, C
     contentLoaded(data: CoreSitePluginsPluginContentLoadedData): void {
         this.addDefaultModuleInfo = !data.content.includes('<core-course-module-info');
         if (data.success) {
-            CoreCourse.storeModuleViewed(this.courseId, this.module.id, {
+            CoreCourseModuleHelper.storeModuleViewed(this.courseId, this.module.id, {
                 sectionId: this.module.section,
             });
         }
@@ -157,7 +167,9 @@ export class CoreSitePluginsModuleIndexComponent implements OnInit, OnDestroy, C
             return;
         }
 
-        const data = await CoreDomUtils.openSideModal<CoreCourseModuleSummaryResult>({
+        const { CoreCourseModuleSummaryComponent } = await import('@features/course/components/module-summary/module-summary');
+
+        const data = await CoreModals.openSideModal<CoreCourseModuleSummaryResult>({
             component: CoreCourseModuleSummaryComponent,
             componentProps: {
                 moduleId: this.module.id,

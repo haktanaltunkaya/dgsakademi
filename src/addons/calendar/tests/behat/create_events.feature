@@ -1,4 +1,4 @@
-@addon_calendar @app @javascript
+@addon_calendar @app @core @core_calendar @javascript
 Feature: Test creation of calendar events in app
   In order to take advantage of all the calendar features while using the mobile app
   As a student
@@ -6,7 +6,7 @@ Feature: Test creation of calendar events in app
 
   Background:
     Given the following config values are set as admin:
-      | nofixday | 1 |
+      | nofixday  | 1 |
       | nofixhour | 1 |
     And the following "users" exist:
       | username | firstname  | lastname  | email                |
@@ -23,7 +23,7 @@ Feature: Test creation of calendar events in app
   # This test is flaky due to timestamp.
   Scenario: Create user event as student from monthly view
     Given I entered the app as "student1"
-    When I press "More" in the app
+    When I press the more menu button in the app
     And I press "Calendar" in the app
     And I press "New event" in the app
     # Flaky step, sometimes it fails due to minute change when checking.
@@ -42,7 +42,7 @@ Feature: Test creation of calendar events in app
     And I set the field "Description" to "This is User Event 01 description." in the app
     And I set the field "Location" to "Barcelona" in the app
     And I press "Save" in the app
-    Then I should find "Calendar events" in the app
+    Then I should find "Calendar" in the app
 
     # Verify that event was created right.
     When I open the calendar for "4" "2025" in the app
@@ -65,5 +65,8 @@ Feature: Test creation of calendar events in app
     And I press "Barcelona" in the app
     And I press "OK" in the app
     Then the app should have opened a browser tab with url "google.com"
+    And the following events should have been logged for "student1" in the app:
+      | name                               | other                    |
+      | \core\event\calendar_event_created | {"name":"User Event 01"} |
 
   # @todo Add more Scenarios to test teacher, different values, and creating events from other views (e.g. day view).

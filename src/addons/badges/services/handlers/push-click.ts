@@ -14,12 +14,14 @@
 
 import { Injectable } from '@angular/core';
 
-import { CoreUtils } from '@services/utils/utils';
+import { CoreUtils } from '@singletons/utils';
 import { CorePushNotificationsClickHandler } from '@features/pushnotifications/services/push-delegate';
 import { AddonBadges } from '../badges';
 import { makeSingleton } from '@singletons';
 import { CorePushNotificationsNotificationBasicData } from '@features/pushnotifications/services/pushnotifications';
 import { CoreNavigator } from '@services/navigator';
+import { AddonBadgesHelper } from '../badges-helper';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 
 /**
  * Handler for badges push notifications clicks.
@@ -32,16 +34,17 @@ export class AddonBadgesPushClickHandlerService implements CorePushNotifications
     featureName = 'CoreUserDelegate_AddonBadges';
 
     /**
-     * Check if a notification click is handled by this handler.
-     *
-     * @param notification The notification to check.
-     * @returns Whether the notification click is handled by this handler
+     * @inheritdoc
      */
     async handles(notification: CorePushNotificationsNotificationBasicData): Promise<boolean> {
         const data = notification.customdata || {};
 
         if (CoreUtils.isTrueOrOne(notification.notif) && notification.moodlecomponent == 'moodle' &&
                 (notification.name == 'badgerecipientnotice' || (notification.name == 'badgecreatornotice' && data.hash))) {
+            if (notification.customdata?.hash) {
+                return await AddonBadgesHelper.canOpenBadge(String(notification.customdata?.hash), notification.site);
+            }
+
             return AddonBadges.isPluginEnabled(notification.site);
         }
 
@@ -49,17 +52,14 @@ export class AddonBadgesPushClickHandlerService implements CorePushNotifications
     }
 
     /**
-     * Handle the notification click.
-     *
-     * @param notification The notification to check.
-     * @returns Promise resolved when done.
+     * @inheritdoc
      */
     async handleClick(notification: CorePushNotificationsNotificationBasicData): Promise<void> {
         const data = notification.customdata || {};
 
         if (data.hash) {
             // We have the hash, open the badge directly.
-            await CoreNavigator.navigateToSitePath(`/badges/${data.hash}`, {
+            await CoreNavigator.navigateToSitePath(`/badge/${data.hash}`, {
                 siteId: notification.site,
             });
 
@@ -67,7 +67,7 @@ export class AddonBadgesPushClickHandlerService implements CorePushNotifications
         }
 
         // No hash, open the list of user badges.
-        await CoreUtils.ignoreErrors(
+        await CorePromiseUtils.ignoreErrors(
             AddonBadges.invalidateUserBadges(
                 0,
                 Number(notification.usertoid),

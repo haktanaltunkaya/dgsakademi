@@ -20,6 +20,7 @@ require_once(__DIR__ . '/../../../../lib/behat/behat_base.php');
 require_once(__DIR__ . '/behat_app_helper.php');
 
 use Behat\Behat\Hook\Scope\ScenarioScope;
+use Behat\Behat\Hook\Scope\AfterStepScope;
 use Behat\Gherkin\Node\TableNode;
 use Behat\Mink\Exception\DriverException;
 use Behat\Mink\Exception\ExpectationException;
@@ -44,7 +45,10 @@ class behat_app extends behat_app_helper {
         ],
     ];
 
-    protected $featurepath = '';
+    protected $featurepath;
+    protected $coveragepath;
+    protected $scenarioslug;
+    protected $scenariolaststep;
 
     /**
      * @BeforeScenario
@@ -56,7 +60,35 @@ class behat_app extends behat_app_helper {
             return;
         }
 
+        $steps = $scope->getScenario()->getSteps();
+
+        $this->scenarioslug = $this->get_scenario_slug($scope);
+        $this->scenariolaststep = $steps[count($steps) - 1];
         $this->featurepath = dirname($feature->getFile());
+        $this->coveragepath = get_config('local_moodleappbehat', 'coverage_path') ?: ($this->featurepath . DIRECTORY_SEPARATOR . 'coverage' . DIRECTORY_SEPARATOR);
+    }
+
+    /**
+     * @AfterStep
+     */
+    public function after_step(AfterStepScope $scope) {
+        $step = $scope->getStep();
+
+        if ($step !== $this->scenariolaststep || empty($this->coveragepath)) {
+            return;
+        }
+
+        if (!is_dir($this->coveragepath)) {
+            if (!@mkdir($this->coveragepath, 0777, true)) {
+                throw new Exception("Cannot create {$this->coveragepath} directory.");
+            }
+        }
+
+        $coverage = $this->runtime_js('getCoverage()');
+
+        if (!is_null($coverage)) {
+            file_put_contents($this->coveragepath . $this->scenarioslug . '.json', $coverage);
+        }
     }
 
     /**
@@ -69,7 +101,7 @@ class behat_app extends behat_app_helper {
      * @throws dml_exception Problem with Moodle setup
      * @throws ExpectationException Problem with resizing window
      */
-    public function i_enter_the_app(string $username = null) {
+    public function i_enter_the_app(?string $username = null) {
         $this->i_launch_the_app();
 
         if (!is_null($username)) {
@@ -251,11 +283,15 @@ class behat_app extends behat_app_helper {
      * @When I wait for the BigBlueButton room to start
      */
     public function i_wait_bbb_room_to_start() {
-        $windowNames = $this->getSession()->getWindowNames();
+        $windowNames = $this->get_window_names();
 
         $this->getSession()->switchToWindow(array_pop($windowNames));
         $this->spin(function($context) {
-            $joinmodal = $context->getSession()->getPage()->find('css', 'div[role="dialog"][aria-label="How would you like to join the audio?"]');
+            $joinmodal = $context->getSession()->getPage()->find('css', implode(', ', [
+                'div[role="dialog"][aria-label="How would you like to join the audio?"]',
+                'div[role="dialog"][aria-label="There was an issue with your audio devices"]',
+            ]));
+
 
             if ($joinmodal) {
                 return true;
@@ -435,7 +471,7 @@ class behat_app extends behat_app_helper {
     /**
      * Presses standard buttons in the app.
      *
-     * @When /^I press the (back|more menu|page menu|user menu|main menu) button in the app$/
+     * @When /^I press the (back|more menu|page menu|user menu) button in the app$/
      * @param string $button Button type
      * @throws DriverException If the button push doesn't work
      */
@@ -445,6 +481,51 @@ class behat_app extends behat_app_helper {
 
             if ($result !== 'OK') {
                 throw new DriverException('Error pressing standard button - ' . $result);
+            }
+
+            return true;
+        });
+
+        $this->wait_for_pending_js();
+    }
+
+    /**
+     * Presses go back repeatedly in the app.
+     *
+     * @When /^I go back( (\d+) times)? in the app$/
+     * @param int $times
+     * @throws DriverException If the navigation doesn't work
+     */
+    public function i_go_back_x_times_in_the_app(?string $unused = null, ?int $times = 1) {
+        if ($times < 1) {
+            return;
+        }
+
+        $this->spin(function() use ($times) {
+            $result = $this->runtime_js("goBackTimes($times)");
+
+            if ($result !== 'OK') {
+                throw new DriverException('Error navigating back - ' . $result);
+            }
+
+            return true;
+        });
+
+        $this->wait_for_pending_js();
+    }
+
+    /**
+     * Presses go back repeatedly until the app is in the main menu.
+     *
+     * @When /^I go back to the root page in the app$/
+     * @throws DriverException If the navigation doesn't work
+     */
+    public function i_go_back_to_root_in_the_app() {
+        $this->spin(function() {
+            $result = $this->runtime_js("goBackToRoot()");
+
+            if ($result !== 'OK') {
+                throw new DriverException('Error navigating to root - ' . $result);
             }
 
             return true;
@@ -527,6 +608,7 @@ class behat_app extends behat_app_helper {
         $data = $data->getColumnsHash()[0];
         $title = array_keys($data)[0];
         $data = (object) $data;
+        $username = $data->user ?? '';
 
         switch ($title) {
             case 'discussion':
@@ -568,7 +650,7 @@ class behat_app extends behat_app_helper {
                 throw new DriverException('Invalid custom link title - ' . $title);
         }
 
-        $this->open_moodleapp_custom_url($pageurl);
+        $this->open_moodleapp_custom_url($pageurl, '', $username);
     }
 
     /**
@@ -599,7 +681,10 @@ class behat_app extends behat_app_helper {
      */
     public function the_app_has_the_following_config(TableNode $data) {
         foreach ($data->getRows() as $configrow) {
-            $this->appconfig[$configrow[0]] = json_decode($configrow[1]);
+            $name = $configrow[0];
+            $value = $this->replace_wwwroot($configrow[1]);
+
+            $this->appconfig[$name] = json_decode($value);
         }
     }
 
@@ -904,7 +989,7 @@ class behat_app extends behat_app_helper {
      */
     public function the_app_should_have_opened_a_browser_tab(bool $not = false, ?string $urlpattern = null) {
         $this->spin(function() use ($not, $urlpattern) {
-            $windowNames = $this->getSession()->getWindowNames();
+            $windowNames = $this->get_window_names();
             $openedbrowsertab = count($windowNames) === 2;
 
             if ((!$not && !$openedbrowsertab) || ($not && $openedbrowsertab && is_null($urlpattern))) {
@@ -969,6 +1054,40 @@ class behat_app extends behat_app_helper {
     }
 
     /**
+     * Check that an event has been logged.
+     *
+     * @Then /^the following events should( not)? have been logged for (".+"|the system) in the app:$/
+     */
+    public function the_event_should_have_been_logged(bool $not, string $username, TableNode $data) {
+        $userid = $this->get_event_userid($username);
+
+        foreach ($data->getColumnsHash() as $event) {
+            $eventname = $event['name'];
+            $logs = $this->get_event_logs($userid, $event);
+
+            if (!$not && empty($logs)) {
+                throw new ExpectationException("Logs for event '$eventname' not found", $this->getSession()->getDriver());
+            }
+
+            if ($not && !empty($logs) && empty($event['other'])) {
+                throw new ExpectationException("Logs for event '$eventname' found, but shouldn't have", $this->getSession()->getDriver());
+            }
+
+            if (!empty($event['other'])) {
+                $log = $this->find_event_log_with_other($logs, json_decode($event['other'], true));
+
+                if (!$not && is_null($log)) {
+                    throw new ExpectationException("Other data for event '$eventname' does not match", $this->getSession()->getDriver());
+                }
+
+                if ($not && !is_null($log)) {
+                    throw new ExpectationException("Logs for event '$eventname' found, but shouldn't have", $this->getSession()->getDriver());
+                }
+            }
+        }
+    }
+
+    /**
      * Switches to a newly-opened browser tab.
      *
      * This assumes the app opened a new tab.
@@ -977,7 +1096,7 @@ class behat_app extends behat_app_helper {
      * @throws DriverException If there aren't exactly 2 tabs open
      */
     public function i_switch_to_the_browser_tab_opened_by_the_app() {
-        $windowNames = $this->getSession()->getWindowNames();
+        $windowNames = $this->get_window_names();
         if (count($windowNames) !== 2) {
             throw new DriverException('Expected to see 2 tabs open, not ' . count($windowNames));
         }
@@ -1025,7 +1144,7 @@ class behat_app extends behat_app_helper {
      * @throws DriverException If there aren't exactly 2 tabs open
      */
     public function i_close_the_browser_tab_opened_by_the_app() {
-        $names = $this->getSession()->getWindowNames();
+        $names = $this->get_window_names();
         if (count($names) !== 2) {
             throw new DriverException('Expected to see 2 tabs open, not ' . count($names));
         }
@@ -1082,7 +1201,7 @@ class behat_app extends behat_app_helper {
     public function i_open_a_browser_tab_with_url(string $url) {
         $this->execute_script("window.open('$url', '_system');");
 
-        $windowNames = $this->getSession()->getWindowNames();
+        $windowNames = $this->get_window_names();
         $this->getSession()->switchToWindow($windowNames[1]);
     }
 
@@ -1209,6 +1328,15 @@ class behat_app extends behat_app_helper {
      */
     public function i_change_viewport_size_in_the_app(int $width, int $height) {
         $this->resize_app_window($width, $height);
+    }
+
+    /**
+     * Wait until Toast disappears.
+     *
+     * @When I wait toast to dismiss in the app
+     */
+    public function i_wait_toast_to_dismiss_in_the_app() {
+        $this->runtime_js('waitToastDismiss()');
     }
 
 }

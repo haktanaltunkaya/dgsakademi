@@ -13,13 +13,14 @@
 // limitations under the License.
 
 import { CoreFormatTextDirective } from '@directives/format-text';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
 import { CoreDirectivesRegistry } from '@singletons/directives-registry';
 import { CoreCoordinates, CoreDom } from '@singletons/dom';
 import { CoreEventObserver } from '@singletons/events';
 import { CoreLogger } from '@singletons/logger';
 import { AddonModQuizDdwtosQuestionData } from '../component/ddwtos';
+import { CoreWait } from '@singletons/wait';
+import { CoreLinkDirective } from '@directives/link';
+import { ElementRef } from '@angular/core';
 
 /**
  * Class to make a question of ddwtos type work.
@@ -62,12 +63,19 @@ export class AddonQtypeDdwtosQuestion {
 
         drag.classList.remove('draghome');
         drag.classList.add('drag');
-        drag.classList.add('no' + this.nextDragItemNo);
+        drag.classList.add(`no${this.nextDragItemNo}`);
         this.nextDragItemNo++;
         drag.setAttribute('tabindex', '0');
 
         drag.style.visibility = 'visible';
         drag.style.position = 'absolute';
+
+        Array.from(drag.querySelectorAll('a')).forEach((anchor) => {
+            // Cloning the item doesn't clone its directives. Add core-link to the anchors.
+            const linkDir = new CoreLinkDirective(new ElementRef(anchor));
+            linkDir.capture = true;
+            linkDir.ngOnInit();
+        });
 
         const container = this.container.querySelector(this.selectors.dragContainer());
         container?.appendChild(drag);
@@ -145,7 +153,7 @@ export class AddonQtypeDdwtosQuestion {
      */
     getClassnameNumericSuffix(node: HTMLElement | null, prefix: string): number | undefined {
         if (node?.classList.length) {
-            const patt1 = new RegExp('^' + prefix + '([0-9])+$');
+            const patt1 = new RegExp(`^${prefix}([0-9])+$`);
             const patt2 = new RegExp('([0-9])+$');
 
             for (let index = 0; index < node.classList.length; index++) {
@@ -157,7 +165,7 @@ export class AddonQtypeDdwtosQuestion {
             }
         }
 
-        this.logger.warn('Prefix "' + prefix + '" not found in class names.');
+        this.logger.warn(`Prefix "${prefix}" not found in class names.`);
     }
 
     /**
@@ -226,7 +234,7 @@ export class AddonQtypeDdwtosQuestion {
         this.placed = {};
         for (const placeNo in this.inputIds) {
             const inputId = this.inputIds[placeNo];
-            const inputNode = this.container.querySelector('input#' + inputId);
+            const inputNode = this.container.querySelector(`input#${inputId}`);
             const choiceNo = Number(inputNode?.getAttribute('value'));
 
             if (choiceNo !== 0 && !isNaN(choiceNo)) {
@@ -294,7 +302,7 @@ export class AddonQtypeDdwtosQuestion {
         });
 
         // If home answer zone is clicked, return drag home.
-        const home = this.container.querySelector<HTMLElement>(this.selectors.topNode() + ' .answercontainer');
+        const home = this.container.querySelector<HTMLElement>(`${this.selectors.topNode()} .answercontainer`);
 
         home?.addEventListener('click', () => {
             const drag = this.selected;
@@ -325,8 +333,8 @@ export class AddonQtypeDdwtosQuestion {
      * @param height Height to set.
      */
     protected padToWidthHeight(node: HTMLElement, width: number, height: number): void {
-        node.style.width = width + 'px';
-        node.style.height = height + 'px';
+        node.style.width = `${width}px`;
+        node.style.height = `${height}px`;
         // Originally lineHeight was set as height to center the text but it comes on too height lines on multiline elements.
     }
 
@@ -343,7 +351,7 @@ export class AddonQtypeDdwtosQuestion {
 
         const placeNo = this.getPlace(drop) ?? -1;
         const inputId = this.inputIds[placeNo - 1];
-        const inputNode = this.container.querySelector('input#' + inputId);
+        const inputNode = this.container.querySelector(`input#${inputId}`);
 
         // Set the value of the drag element in the input of the drop zone.
         if (drag !== null) {
@@ -404,8 +412,8 @@ export class AddonQtypeDdwtosQuestion {
         drag.classList.toggle('unplaced', !placeNo);
 
         if (position) {
-            drag.style.left = position.x + 'px';
-            drag.style.top = position.y + 'px';
+            drag.style.left = `${position.x}px`;
+            drag.style.top = `${position.y}px`;
         }
     }
 
@@ -480,10 +488,6 @@ export class AddonQtypeDdwtosQuestion {
             return;
         }
 
-        groupItems.forEach((item) => {
-            item.innerHTML = CoreTextUtils.decodeHTML(item.innerHTML);
-        });
-
         // Wait to render in order to calculate size.
         if (groupItems[0].parentElement) {
             // Wait for parent to be visible. We cannot wait for group items because they have visibility hidden.
@@ -491,7 +495,7 @@ export class AddonQtypeDdwtosQuestion {
         } else {
             // Group items should always have a parent, add a fallback just in case.
             await CoreDom.waitToBeInDOM(groupItems[0]);
-            await CoreUtils.nextTicks(5);
+            await CoreWait.nextTicks(5);
         }
 
         // Find max height and width.
@@ -526,59 +530,59 @@ export class AddonQtypeDdwtosQuestionCSSSelectors {
     }
 
     dragContainer(): string {
-        return this.topNode() + ' div.drags';
+        return `${this.topNode()} div.drags`;
     }
 
     drags(): string {
-        return this.dragContainer() + ' span.drag';
+        return `${this.dragContainer()} span.drag`;
     }
 
     drag(no: number): string {
-        return this.drags() + `.no${no}`;
+        return `${this.drags()}.no${no}`;
     }
 
     dragsInGroup(groupNo: number): string {
-        return this.drags() + `.group${groupNo}`;
+        return `${this.drags()}.group${groupNo}`;
     }
 
     unplacedDragsInGroup(groupNo: number): string {
-        return this.dragsInGroup(groupNo) + '.unplaced';
+        return `${this.dragsInGroup(groupNo)}.unplaced`;
     }
 
     dragsForChoiceInGroup(choiceNo: number, groupNo: number): string {
-        return this.dragsInGroup(groupNo) + `.choice${choiceNo}`;
+        return `${this.dragsInGroup(groupNo)}.choice${choiceNo}`;
     }
 
     unplacedDragsForChoiceInGroup(choiceNo: number, groupNo: number): string {
-        return this.unplacedDragsInGroup(groupNo) + `.choice${choiceNo}`;
+        return `${this.unplacedDragsInGroup(groupNo)}.choice${choiceNo}`;
     }
 
     drops(): string {
-        return this.topNode() + ' span.drop';
+        return `${this.topNode()} span.drop`;
     }
 
     dropForPlace(placeNo: number): string {
-        return this.drops() + `.place${placeNo}`;
+        return `${this.drops()}.place${placeNo}`;
     }
 
     dropsInGroup(groupNo: number): string {
-        return this.drops() + `.group${groupNo}`;
+        return `${this.drops()}.group${groupNo}`;
     }
 
     dragHomes(): string {
-        return this.topNode() + ' span.draghome';
+        return `${this.topNode()} span.draghome`;
     }
 
     dragHomesGroup(groupNo: number): string {
-        return this.topNode() + ` .draggrouphomes${groupNo} span.draghome`;
+        return `${this.topNode()} .draggrouphomes${groupNo} span.draghome`;
     }
 
     dragHome(groupNo: number, choiceNo: number): string {
-        return this.topNode() + ` .draggrouphomes${groupNo} span.draghome.choice${choiceNo}`;
+        return `${this.topNode()} .draggrouphomes${groupNo} span.draghome.choice${choiceNo}`;
     }
 
     dropsGroup(groupNo: number): string {
-        return this.topNode() + ` span.drop.group${groupNo}`;
+        return `${this.topNode()} span.drop.group${groupNo}`;
     }
 
 }

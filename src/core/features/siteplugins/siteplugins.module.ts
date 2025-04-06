@@ -12,49 +12,112 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { APP_INITIALIZER, NgModule } from '@angular/core';
+import { APP_INITIALIZER, NgModule, Type } from '@angular/core';
 import { Routes } from '@angular/router';
 
 import { CoreCourseIndexRoutingModule } from '@features/course/course-routing.module';
 import { CoreMainMenuTabRoutingModule } from '@features/mainmenu/mainmenu-tab-routing.module';
 import { CoreMainMenuHomeRoutingModule } from '@features/mainmenu/mainmenu-home-routing.module';
 import { CoreSitePreferencesRoutingModule } from '@features/settings/settings-site-routing.module';
-import { CoreSitePluginsComponentsModule } from './components/components.module';
-import { CoreSitePluginsHelper } from './services/siteplugins-helper';
-import { CoreSharedModule } from '@/core/shared.module';
-import { CoreSitePluginsPluginPage } from '@features/siteplugins/pages/plugin/plugin';
 import { canLeaveGuard } from '@guards/can-leave';
-import { CoreSitePluginsCourseOptionPage } from '@features/siteplugins/pages/course-option/course-option';
-import { CoreSitePluginsModuleIndexPage } from '@features/siteplugins/pages/module-index/module-index';
+import { CORE_SITE_PLUGINS_PATH } from './constants';
+
+/**
+ * Get site plugins directives modules.
+ *
+ * @returns Site plugins exported directives.
+ */
+export async function getSitePluginsExportedDirectives(): Promise<unknown[]> {
+    const { CoreSitePluginsCallWSDirective } = await import('./directives/call-ws');
+    const { CoreSitePluginsCallWSNewContentDirective } = await import('./directives/call-ws-new-content');
+    const { CoreSitePluginsCallWSOnLoadDirective } = await import('./directives/call-ws-on-load');
+    const { CoreSitePluginsNewContentDirective } = await import('./directives/new-content');
+
+    return [
+        CoreSitePluginsCallWSDirective,
+        CoreSitePluginsCallWSNewContentDirective,
+        CoreSitePluginsCallWSOnLoadDirective,
+        CoreSitePluginsNewContentDirective,
+    ];
+}
+
+/**
+ * Get shared files services.
+ *
+ * @returns Returns shared files services.
+ */
+export async function getSitePluginsServices(): Promise<Type<unknown>[]> {
+    const { CoreSitePluginsProvider } = await import('@features/siteplugins/services/siteplugins');
+
+    return [
+        CoreSitePluginsProvider,
+    ];
+}
+
+/**
+ * Get site plugins exported objects.
+ *
+ * @returns Site plugins exported objects.
+ */
+export async function getSitePluginsExportedObjects(): Promise<Record<string, unknown>> {
+    const { CoreSitePluginsModuleIndexComponent } = await import ('@features/siteplugins/components/module-index/module-index');
+    const { CoreSitePluginsBlockComponent } = await import ('@features/siteplugins/components/block/block');
+    const { CoreSitePluginsCourseFormatComponent } = await import ('@features/siteplugins/components/course-format/course-format');
+    const { CoreSitePluginsQuestionComponent } = await import ('@features/siteplugins/components/question/question');
+    const { CoreSitePluginsQuestionBehaviourComponent }
+        = await import ('@features/siteplugins/components/question-behaviour/question-behaviour');
+    const { CoreSitePluginsUserProfileFieldComponent }
+        = await import ('@features/siteplugins/components/user-profile-field/user-profile-field');
+    const { CoreSitePluginsQuizAccessRuleComponent }
+        = await import ('@features/siteplugins/components/quiz-access-rule/quiz-access-rule');
+    const { CoreSitePluginsAssignFeedbackComponent }
+        = await import ('@features/siteplugins/components/assign-feedback/assign-feedback');
+    const { CoreSitePluginsAssignSubmissionComponent }
+        = await import ('@features/siteplugins/components/assign-submission/assign-submission');
+
+    /* eslint-disable @typescript-eslint/naming-convention */
+    return {
+        CoreSitePluginsModuleIndexComponent,
+        CoreSitePluginsBlockComponent,
+        CoreSitePluginsCourseFormatComponent,
+        CoreSitePluginsQuestionComponent,
+        CoreSitePluginsQuestionBehaviourComponent,
+        CoreSitePluginsUserProfileFieldComponent,
+        CoreSitePluginsQuizAccessRuleComponent,
+        CoreSitePluginsAssignFeedbackComponent,
+        CoreSitePluginsAssignSubmissionComponent,
+    };
+    /* eslint-enable @typescript-eslint/naming-convention */
+}
 
 const routes: Routes = [
     {
-        path: 'siteplugins/content/:component/:method/:hash',
-        component: CoreSitePluginsPluginPage,
+        path: `${CORE_SITE_PLUGINS_PATH}/content/:component/:method/:hash`,
+        loadComponent: () => import('@features/siteplugins/pages/plugin/plugin'),
         canDeactivate: [canLeaveGuard],
     },
 ];
 
 const homeRoutes: Routes = [
     {
-        path: 'siteplugins/homecontent/:component/:method',
-        component: CoreSitePluginsPluginPage,
+        path: `${CORE_SITE_PLUGINS_PATH}/homecontent/:component/:method`,
+        loadComponent: () => import('@features/siteplugins/pages/plugin/plugin'),
         canDeactivate: [canLeaveGuard],
     },
 ];
 
 const courseIndexRoutes: Routes = [
     {
-        path: 'siteplugins/:handlerUniqueName',
-        component: CoreSitePluginsCourseOptionPage,
+        path: `${CORE_SITE_PLUGINS_PATH}/:handlerUniqueName`,
+        loadComponent: () => import('@features/siteplugins/pages/course-option/course-option'),
         canDeactivate: [canLeaveGuard],
     },
 ];
 
 const moduleRoutes: Routes = [
     {
-        path: 'siteplugins/module/:courseId/:cmId',
-        component: CoreSitePluginsModuleIndexPage,
+        path: `${CORE_SITE_PLUGINS_PATH}/module/:courseId/:cmId`,
+        loadComponent: () => import('@features/siteplugins/pages/module-index/module-index'),
         canDeactivate: [canLeaveGuard],
     },
 ];
@@ -65,20 +128,15 @@ const moduleRoutes: Routes = [
         CoreCourseIndexRoutingModule.forChild({ children: courseIndexRoutes }),
         CoreMainMenuHomeRoutingModule.forChild({ children: homeRoutes }),
         CoreSitePreferencesRoutingModule.forChild(routes),
-        CoreSitePluginsComponentsModule,
-        CoreSharedModule,
-    ],
-    declarations: [
-        CoreSitePluginsPluginPage,
-        CoreSitePluginsCourseOptionPage,
-        CoreSitePluginsModuleIndexPage,
     ],
     providers: [
         {
             provide: APP_INITIALIZER,
             multi: true,
-            useValue: () => {
-                CoreSitePluginsHelper.initialize();
+            useValue: async () => {
+                const { CoreSitePluginsInit } = await import('./services/siteplugins-init');
+
+                CoreSitePluginsInit.init();
             },
         },
     ],

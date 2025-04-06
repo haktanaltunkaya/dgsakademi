@@ -12,20 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreConstants } from '@/core/constants';
-import { Component, Input, OnInit, Optional } from '@angular/core';
+import { DownloadStatus } from '@/core/constants';
+import { Component, Input, OnDestroy, OnInit, Optional } from '@angular/core';
 import { CoreError } from '@classes/errors/error';
 import { CoreCourseModuleMainActivityComponent } from '@features/course/classes/main-activity-component';
-import { CoreCourseContentsPage } from '@features/course/pages/contents/contents';
+import CoreCourseContentsPage from '@features/course/pages/contents/contents';
 import { CoreCourse } from '@features/course/services/course';
 import { IonContent } from '@ionic/angular';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSync } from '@services/sync';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
-import { Translate } from '@singletons';
+import { CoreObject } from '@singletons/object';
+import { NgZone, Translate } from '@singletons';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
-import { AddonModScormModuleHandlerService } from '../../services/handlers/module';
 import { AddonModScormPrefetchHandler } from '../../services/handlers/prefetch';
 import {
     AddonModScorm,
@@ -33,16 +31,32 @@ import {
     AddonModScormGetScormAccessInformationWSResponse,
     AddonModScormAttemptGrade,
     AddonModScormOrganization,
-    AddonModScormProvider,
     AddonModScormScorm,
 } from '../../services/scorm';
 import { AddonModScormHelper, AddonModScormTOCScoWithIcon } from '../../services/scorm-helper';
 import {
     AddonModScormAutoSyncEventData,
     AddonModScormSync,
-    AddonModScormSyncProvider,
     AddonModScormSyncResult,
 } from '../../services/scorm-sync';
+import {
+    ADDON_MOD_SCORM_COMPONENT_LEGACY,
+    AddonModScormForceAttempt,
+    AddonModScormMode,
+    AddonModScormSkipView,
+    ADDON_MOD_SCORM_DATA_SENT_EVENT,
+    ADDON_MOD_SCORM_DATA_AUTO_SYNCED,
+    ADDON_MOD_SCORM_PAGE_NAME,
+    ADDON_MOD_SCORM_COMPONENT,
+} from '../../constants';
+import { CoreWait } from '@singletons/wait';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreNetwork } from '@services/network';
+import { Subscription } from 'rxjs';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreCourseModuleNavigationComponent } from '@features/course/components/module-navigation/module-navigation';
+import { CoreCourseModuleInfoComponent } from '@features/course/components/module-info/module-info';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component that displays a SCORM entry page.
@@ -50,13 +64,19 @@ import {
 @Component({
     selector: 'addon-mod-scorm-index',
     templateUrl: 'addon-mod-scorm-index.html',
-    styleUrls: ['index.scss'],
+    styleUrl: 'index.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCourseModuleInfoComponent,
+        CoreCourseModuleNavigationComponent,
+    ],
 })
-export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityComponent implements OnInit {
+export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityComponent implements OnInit, OnDestroy {
 
     @Input() autoPlayData?: AddonModScormAutoPlayData; // Data to use to play the SCORM automatically.
 
-    component = AddonModScormProvider.COMPONENT;
+    component = ADDON_MOD_SCORM_COMPONENT_LEGACY;
     pluginName = 'scorm';
 
     scorm?: AddonModScormScorm; // The SCORM object.
@@ -65,7 +85,6 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
     }; // Selected organization.
 
     startNewAttempt = false;
-    errorMessage?: string; // Error message.
     syncTime?: string; // Last sync time.
     hasOffline = false; // Whether the SCORM has offline data.
     attemptToContinue?: number; // The attempt to continue or review.
@@ -88,21 +107,32 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
     onlineAttempts: AttemptGrade[] = []; // Grades for online attempts.
     offlineAttempts: AttemptGrade[] = []; // Grades for offline attempts.
     gradesExpanded = false;
+    isOnline: boolean;
 
     protected fetchContentDefaultError = 'addon.mod_scorm.errorgetscorm'; // Default error to show when loading contents.
-    protected syncEventName = AddonModScormSyncProvider.AUTO_SYNCED;
+    protected syncEventName = ADDON_MOD_SCORM_DATA_AUTO_SYNCED;
     protected attempts?: AddonModScormAttemptCountResult; // Data about online and offline attempts.
     protected lastAttempt?: number; // Last attempt.
     protected lastIsOffline = false; // Whether the last attempt is offline.
     protected hasPlayed = false; // Whether the user has opened the player page.
     protected dataSentObserver?: CoreEventObserver; // To detect data sent to server.
     protected dataSent = false; // Whether some data was sent to server while playing the SCORM.
+    protected useOnlinePlayer = false; // Whether the SCORM needs to be played using an online player.
+    protected onlineObserver: Subscription;
 
     constructor(
         protected content?: IonContent,
         @Optional() courseContentsPage?: CoreCourseContentsPage,
     ) {
         super('AddonModScormIndexComponent', content, courseContentsPage);
+
+        this.isOnline = CoreNetwork.isOnline();
+        this.onlineObserver = CoreNetwork.onChange().subscribe(() => {
+            // Execute the callback in the Angular zone, so change detection doesn't stop working.
+            NgZone.run(() => {
+                this.isOnline = CoreNetwork.isOnline();
+            });
+        });
     }
 
     /**
@@ -173,19 +203,19 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
 
         this.dataRetrieved.emit(this.scorm);
         this.description = this.scorm.intro || this.description;
-        this.errorMessage = AddonModScorm.isScormUnsupported(this.scorm);
+        this.useOnlinePlayer = AddonModScorm.useOnlinePlayer(this.scorm);
 
         if (this.scorm.warningMessage) {
             return; // SCORM is closed or not open yet, we can't get more data.
         }
 
-        if (sync) {
+        if (sync && !this.useOnlinePlayer) {
             // Try to synchronize the SCORM.
-            await CoreUtils.ignoreErrors(this.syncActivity(showErrors));
+            await CorePromiseUtils.ignoreErrors(this.syncActivity(showErrors));
         }
 
         const [syncTime, accessInfo] = await Promise.all([
-            AddonModScormSync.getReadableSyncTime(this.scorm.id),
+            this.useOnlinePlayer ? undefined : AddonModScormSync.getReadableSyncTime(this.scorm.id),
             AddonModScorm.getAccessInformation(this.scorm.id, { cmId: this.module.id }),
             this.fetchAttemptData(this.scorm),
         ]);
@@ -195,14 +225,14 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
 
         // Check whether to launch the SCORM immediately.
         if (this.skip === undefined) {
-            this.skip = !this.hasOffline && !this.errorMessage && (!this.scorm.lastattemptlock || this.attemptsLeft > 0) &&
+            this.skip = !this.hasOffline && (!this.scorm.lastattemptlock || this.attemptsLeft > 0) &&
                 (
                     !!this.autoPlayData
                     ||
                     (
                         this.accessInfo.canskipview && !this.accessInfo.canviewreport &&
-                        (this.scorm.skipview ?? 0) >= AddonModScormProvider.SKIPVIEW_FIRST &&
-                        (this.scorm.skipview === AddonModScormProvider.SKIPVIEW_ALWAYS || this.lastAttempt === 0)
+                        (this.scorm.skipview ?? 0) >= AddonModScormSkipView.FIRST &&
+                        (this.scorm.skipview === AddonModScormSkipView.ALWAYS || this.lastAttempt === 0)
                     )
                 );
         }
@@ -241,7 +271,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
         this.gradeMethodReadable = AddonModScorm.getScormGradeMethod(scorm);
         this.attemptsLeft = AddonModScorm.countAttemptsLeft(scorm, this.attempts.lastAttempt.num);
 
-        if (scorm.forcenewattempt === AddonModScormProvider.SCORM_FORCEATTEMPT_ALWAYS ||
+        if (scorm.forcenewattempt === AddonModScormForceAttempt.ALWAYS ||
                 (scorm.forcenewattempt && !this.incomplete)) {
             this.startNewAttempt = true;
         }
@@ -260,7 +290,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
      * @returns Promise resolved when done.
      */
     protected async loadPackageSize(scorm: AddonModScormScorm): Promise<void> {
-        if (scorm.packagesize || this.errorMessage) {
+        if (scorm.packagesize || this.useOnlinePlayer) {
             return;
         }
 
@@ -332,8 +362,8 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
         this.grade = AddonModScorm.calculateScormGrade(scorm, onlineAttempts);
 
         // Add the attempts to the SCORM in array format in ASC order, and format the grades.
-        this.onlineAttempts = CoreUtils.objectToArray(onlineAttempts);
-        this.offlineAttempts = CoreUtils.objectToArray(offlineAttempts);
+        this.onlineAttempts = CoreObject.toArray(onlineAttempts);
+        this.offlineAttempts = CoreObject.toArray(offlineAttempts);
         this.onlineAttempts.sort((a, b) => a.num - b.num);
         this.offlineAttempts.sort((a, b) => a.num - b.num);
 
@@ -356,7 +386,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
             return; // Shouldn't happen.
         }
 
-        await CoreUtils.ignoreErrors(AddonModScorm.logView(this.scorm.id));
+        await CorePromiseUtils.ignoreErrors(AddonModScorm.logView(this.scorm.id));
 
         this.analyticsLogEvent('mod_scorm_view_scorm');
     }
@@ -443,7 +473,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
         try {
             await this.loadOrganizationToc(this.scorm, this.currentOrganization.identifier);
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, this.fetchContentDefaultError, true);
+            CoreAlerts.showError(error, { default: Translate.instant(this.fetchContentDefaultError) });
         }
     }
 
@@ -490,15 +520,24 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
         event?.preventDefault();
         event?.stopPropagation();
 
+        if (this.useOnlinePlayer) {
+            // No need to download the package, just open it.
+            if (this.isOnline) {
+                this.openScorm(scoId, preview);
+            }
+
+            return;
+        }
+
         if (this.downloading || !this.scorm) {
             // Scope is being downloaded, abort.
             return;
         }
 
-        const isOutdated = this.currentStatus === CoreConstants.OUTDATED;
+        const isOutdated = this.currentStatus === DownloadStatus.OUTDATED;
         const scorm = this.scorm;
 
-        if (!isOutdated && this.currentStatus !== CoreConstants.NOT_DOWNLOADED) {
+        if (!isOutdated && this.currentStatus !== DownloadStatus.DOWNLOADABLE_NOT_DOWNLOADED) {
             // Already downloaded, open it.
             this.openScorm(scoId, preview);
 
@@ -509,7 +548,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
         await AddonModScormHelper.confirmDownload(scorm, isOutdated);
         // Invalidate WS data if SCORM is outdated.
         if (isOutdated) {
-            await CoreUtils.ignoreErrors(AddonModScorm.invalidateAllScormData(scorm.id));
+            await CorePromiseUtils.ignoreErrors(AddonModScorm.invalidateAllScormData(scorm.id));
         }
 
         try {
@@ -520,10 +559,9 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
             }
         } catch (error) {
             if (!this.isDestroyed) {
-                CoreDomUtils.showErrorModalDefault(
-                    error,
-                    Translate.instant('addon.mod_scorm.errordownloadscorm', { name: scorm.name }),
-                );
+                CoreAlerts.showError(error, {
+                    default: Translate.instant('addon.mod_scorm.errordownloadscorm', { name: scorm.name }),
+                });
             }
         }
     }
@@ -550,7 +588,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
         // Detect if anything was sent to server.
         this.dataSentObserver?.off();
 
-        this.dataSentObserver = CoreEvents.on(AddonModScormProvider.DATA_SENT_EVENT, (data) => {
+        this.dataSentObserver = CoreEvents.on(ADDON_MOD_SCORM_DATA_SENT_EVENT, (data) => {
             if (data.scormId === this.scorm?.id) {
                 this.dataSent = true;
 
@@ -561,11 +599,13 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
             }
         }, this.siteId);
 
+        const pageRoute = this.useOnlinePlayer ? 'online-player' : 'player';
+
         CoreNavigator.navigateToSitePath(
-            `${AddonModScormModuleHandlerService.PAGE_NAME}/${this.courseId}/${this.module.id}/player`,
+            `${ADDON_MOD_SCORM_PAGE_NAME}/${this.courseId}/${this.module.id}/${pageRoute}`,
             {
                 params: {
-                    mode: autoPlayData?.mode ?? (preview ? AddonModScormProvider.MODEBROWSE : AddonModScormProvider.MODENORMAL),
+                    mode: autoPlayData?.mode ?? (preview ? AddonModScormMode.BROWSE : AddonModScormMode.NORMAL),
                     moduleUrl: this.module.url,
                     newAttempt: autoPlayData?.newAttempt ?? this.startNewAttempt,
                     organizationId: autoPlayData?.organizationId ?? this.currentOrganization.identifier,
@@ -578,16 +618,21 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
     /**
      * @inheritdoc
      */
-    protected async showStatus(status: string): Promise<void> {
+    protected async showStatus(status: DownloadStatus): Promise<void> {
+        if (this.useOnlinePlayer) {
+            this.statusMessage = '';
 
-        if (status === CoreConstants.OUTDATED && this.scorm) {
+            return;
+        }
+
+        if (status === DownloadStatus.OUTDATED && this.scorm) {
             // Only show the outdated message if the file should be downloaded.
             const download = await AddonModScorm.shouldDownloadMainFile(this.scorm, true);
 
             this.statusMessage = download ? 'addon.mod_scorm.scormstatusoutdated' : '';
-        } else if (status === CoreConstants.NOT_DOWNLOADED) {
+        } else if (status === DownloadStatus.DOWNLOADABLE_NOT_DOWNLOADED) {
             this.statusMessage = 'addon.mod_scorm.scormstatusnotdownloaded';
-        } else if (status === CoreConstants.DOWNLOADING) {
+        } else if (status === DownloadStatus.DOWNLOADING) {
             if (!this.downloading) {
                 // It's being downloaded right now but the view isn't tracking it. "Restore" the download.
                 this.downloadScormPackage();
@@ -608,9 +653,9 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
             throw new CoreError('Cannot sync without a scorm.');
         }
 
-        if (CoreSync.isBlocked(AddonModScormProvider.COMPONENT, this.scorm.id) && retries < 5) {
+        if (CoreSync.isBlocked(ADDON_MOD_SCORM_COMPONENT, this.scorm.id) && retries < 5) {
             // Sync is currently blocked, this can happen when SCORM player is left. Retry in a bit.
-            await CoreUtils.wait(400);
+            await CoreWait.wait(400);
 
             return this.sync(retries + 1);
         }
@@ -619,12 +664,19 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
 
         if (!result.updated && this.dataSent) {
             // The user sent data to server, but not in the sync process. Check if we need to fetch data.
-            await CoreUtils.ignoreErrors(
-                AddonModScormSync.prefetchAfterUpdate(AddonModScormPrefetchHandler.instance, this.module, this.courseId),
+            await CorePromiseUtils.ignoreErrors(
+                AddonModScormSync.prefetchModuleAfterUpdate(this.module, this.courseId),
             );
         }
 
         return result;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    ngOnDestroy(): void {
+        this.onlineObserver.unsubscribe();
     }
 
 }

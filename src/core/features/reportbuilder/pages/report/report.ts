@@ -13,19 +13,26 @@
 // limitations under the License.
 
 import { Component, OnInit } from '@angular/core';
-import { CoreReportBuilderReportSummaryComponent } from '@features/reportbuilder/components/report-summary/report-summary';
 import { CoreReportBuilderReportDetail } from '@features/reportbuilder/services/reportbuilder';
+import { CoreModals } from '@services/overlays/modals';
 import { CoreNavigator } from '@services/navigator';
-import { CoreDomUtils } from '@services/utils/dom';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreReportBuilderReportDetailComponent } from '../../components/report-detail/report-detail';
 
 @Component({
     selector: 'core-report-builder-report',
     templateUrl: './report.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreReportBuilderReportDetailComponent,
+    ],
 })
-export class CoreReportBuilderReportPage implements OnInit {
+export default class CoreReportBuilderReportPage implements OnInit {
 
     reportId!: string;
     reportDetail?: CoreReportBuilderReportDetail;
+
     /**
      * @inheritdoc
      */
@@ -42,8 +49,14 @@ export class CoreReportBuilderReportPage implements OnInit {
         this.reportDetail = reportDetail;
     }
 
-    openInfo(): void {
-        CoreDomUtils.openSideModal<void>({
+    /**
+     * Open the report info modal.
+     */
+    async openInfo(): Promise<void> {
+        const { CoreReportBuilderReportSummaryComponent } =
+            await import('@features/reportbuilder/components/report-summary/report-summary');
+
+        CoreModals.openSideModal<void>({
             component: CoreReportBuilderReportSummaryComponent,
             componentProps: { reportDetail: this.reportDetail },
         });

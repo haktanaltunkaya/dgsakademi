@@ -1,4 +1,4 @@
-@addon_mod_quiz @app @javascript @lms_from4.4
+@addon_mod_quiz @app @mod @mod_quiz @javascript @lms_from4.4
 Feature: Attempt a quiz in app
   As a student
   In order to demonstrate what I know
@@ -27,10 +27,14 @@ Feature: Attempt a quiz in app
       | questioncategory | qtype       | name  | questiontext                |
       | Test questions   | truefalse   | TF1   | Text of the first question  |
       | Test questions   | truefalse   | TF2   | Text of the second question |
+    Given the following "mod_quiz > grade items" exist:
+      | quiz   | name      |
+      | Quiz 1 | Logic     |
+      | Quiz 1 | Cognition |
     And quiz "Quiz 1" contains the following questions:
-      | question | page |
-      | TF1      | 1    |
-      | TF2      | 2    |
+      | question | page | grade item |
+      | TF1      | 1    | Logic      |
+      | TF2      | 2    | Cognition  |
     And the following "activities" exist:
       | activity   | name   | intro              | course | idnumber |
       | quiz       | Quiz 2 | Quiz 2 description | C1     | quiz2    |
@@ -71,7 +75,7 @@ Feature: Attempt a quiz in app
       | TF13     | 11   |
 
     # TODO rewrite using generators.
-    And I am on the "Course 1" "core_question > course question bank" page logged in as teacher1
+    And I am on the "Quiz 2" "mod_quiz > question bank" page logged in as teacher1
     And I add a "Embedded answers (Cloze)" question filling the form with:
       | Question name        | multianswer                                     |
       | Question text        | {1:SHORTANSWER:=Berlin} is the capital of Germany.  |
@@ -125,14 +129,36 @@ Feature: Attempt a quiz in app
     When I press "Submit all and finish" in the app
     And I press "Submit" near "Once you submit" in the app
     Then I should find "Review" in the app
-    And I should find "Started on" in the app
-    And I should find "State" in the app
-    And I should find "Completed on" in the app
-    And I should find "Time taken" in the app
-    And I should find "Marks" in the app
-    And I should find "Grade" in the app
+    And I should find "Started" in the app
+    And I should find "Completed" in the app
+    And I should find "Duration" in the app
+    And I should find "Finished" within "Status" "ion-item" in the app
+    And I should find "0 out of 1" within "Logic" "ion-item" in the app
+    And I should find "0 out of 1" within "Cognition" "ion-item" in the app
+    And I should find "0/2" within "Marks" "ion-item" in the app
+    And I should find "0 out of 100" within "Grade" "ion-item" in the app
     And I should find "Question 1" in the app
     And I should find "Question 2" in the app
+    And the following events should have been logged for "student1" in the app:
+      | name                                   | activity | activityname | course   | other        |
+      | \mod_quiz\event\course_module_viewed   | quiz     | Quiz 1       | Course 1 |              |
+      | \mod_quiz\event\attempt_started        | quiz     | Quiz 1       | Course 1 |              |
+      | \mod_quiz\event\attempt_viewed         | quiz     | Quiz 1       | Course 1 | {"page":"0"} |
+      | \mod_quiz\event\attempt_viewed         | quiz     | Quiz 1       | Course 1 | {"page":"1"} |
+      | \mod_quiz\event\attempt_updated        | quiz     | Quiz 1       | Course 1 | {"page":"0"} |
+      | \mod_quiz\event\attempt_updated        | quiz     | Quiz 1       | Course 1 | {"page":"1"} |
+      | \mod_quiz\event\attempt_reviewed       | quiz     | Quiz 1       | Course 1 |              |
+      | \mod_quiz\event\attempt_summary_viewed | quiz     | Quiz 1       | Course 1 |              |
+
+    When I go back in the app
+    And I press "Attempt 1" in the app
+    Then I should find "1" within "Attempt" "ion-item" in the app
+    And I should find "Finished" within "Status" "ion-item" in the app
+    And I should find "0 out of 1" within "Logic" "ion-item" in the app
+    And I should find "0 out of 1" within "Cognition" "ion-item" in the app
+    And I should find "0/2" within "Marks" "ion-item" in the app
+    And I should find "0 out of 100" within "Grade" "ion-item" in the app
+    And I should be able to press "Review" in the app
 
   Scenario: Attempt a quiz (all question types)
     Given I entered the quiz activity "Quiz 2" on course "Course 1" as "student1" in the app
@@ -141,12 +167,16 @@ Feature: Attempt a quiz in app
     And I press "Three" in the app
     And I set the field "Answer" to "Berlin" in the app
     And I press "Next" in the app
+    And I wait loading to finish in the app
     And I set the field "Answer" to "testing" in the app
     And I press "Next" in the app
+    And I wait loading to finish in the app
     And I set the field "Answer" to "5" in the app
     And I press "Next" in the app
+    And I wait loading to finish in the app
     And I set the field "Answer" to "Testing an essay" in the app
     And I press "Next" "ion-button" in the app
+    And I wait loading to finish in the app
     And I press "quick" ".drag" in the app
     And I click on ".place1.drop" "css"
     And I press "fox" ".drag" in the app
@@ -154,26 +184,33 @@ Feature: Attempt a quiz in app
     And I press "lazy" ".drag" in the app
     And I click on ".place3.drop" "css"
     And I press "Next" in the app
+    And I wait loading to finish in the app
     And I press "True" in the app
     And I press "Next" in the app
+    And I wait loading to finish in the app
     And I set the field "frog" to "amphibian" in the app
     And I set the field "newt" to "insect" in the app
     And I set the field "cat" to "mammal" in the app
     And I press "Next" in the app
+    And I wait loading to finish in the app
     Then I should find "Text of the eighth question" in the app
 
     When I press "Next" in the app
+    And I wait loading to finish in the app
     And I set the field "Blank 1" to "cat" in the app
     And I set the field "Blank 2" to "mat" in the app
     And I press "Next" in the app
+    And I wait loading to finish in the app
     And I press "abyssal" ".drag" in the app
     And I click on ".place6.dropzone" "css"
     And I press "trench" ".drag" in the app
     And I click on ".place3.dropzone" "css"
     And I press "Next" in the app
+    And I wait loading to finish in the app
     And I press "Railway station" ".marker" in the app
     And I click on "img.dropbackground" "css"
     And I press "Submit" in the app
+    And I wait loading to finish in the app
     Then I should find "Answer saved" in the app
     And I should find "Incomplete answer" within "10" "ion-item" in the app
     But I should not find "Not yet answered" in the app
@@ -198,8 +235,10 @@ Feature: Attempt a quiz in app
 
     When I press "True" in the app
     And I press "Next" in the app
+    And I wait loading to finish in the app
     And I press "False" in the app
     And I press "Submit" in the app
+    And I wait loading to finish in the app
     And I press "Submit all and finish" in the app
     Then I should find "Once you submit" in the app
     But I should not find "Questions without a response" in the app
@@ -207,16 +246,14 @@ Feature: Attempt a quiz in app
     When I press "Submit" in the app
     Then I should find "Review" in the app
 
-    When I replace "/.*/" within "page-addon-mod-quiz-review core-loading > ion-card ion-item:nth-child(1) p:nth-child(2)" with "[Started on date]"
-    And I replace "/.*/" within "page-addon-mod-quiz-review core-loading > ion-card ion-item:nth-child(3) p:nth-child(2)" with "[Completed on date]"
+    When I replace "/.*/" within "page-addon-mod-quiz-review core-loading > ion-card ion-item:nth-child(2) p:nth-child(2)" with "[Started date]"
+    And I replace "/.*/" within "page-addon-mod-quiz-review core-loading > ion-card ion-item:nth-child(3) p:nth-child(2)" with "[Completed date]"
+    And I replace "/.*/" within "page-addon-mod-quiz-review core-loading > ion-card ion-item:nth-child(4) p:nth-child(2)" with "[Duration]"
     Then the UI should match the snapshot
 
-    Given I entered the quiz activity "Quiz 1" on course "Course 1" as "teacher1" in the app
-    When I press "Information" in the app
-    And I press "Open in browser" in the app
-    And I switch to the browser tab opened by the app
-    And I log in as "teacher1"
-    And I follow "Attempts: 1"
+    Given I open a browser tab with url "$WWWROOT"
+    And I am on the "quiz1" Activity page logged in as teacher1
+    When I follow "Attempts: 1"
     And I follow "Review attempt"
     Then I should see "Finished"
     And I should see "1.00/2.00"

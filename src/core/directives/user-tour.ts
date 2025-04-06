@@ -22,10 +22,11 @@ import { CoreDom } from '@singletons/dom';
  */
 @Directive({
     selector: '[userTour]',
+    standalone: true,
 })
 export class CoreUserTourDirective implements OnInit, OnDestroy {
 
-    @Input() userTour!: CoreUserTourDirectiveOptions;
+    @Input({ required: true }) userTour!: CoreUserTourDirectiveOptions;
 
     private tour?: CoreUserToursUserTour | null;
     private element: HTMLElement;

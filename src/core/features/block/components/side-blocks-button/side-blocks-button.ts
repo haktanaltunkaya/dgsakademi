@@ -16,10 +16,11 @@ import { Component, ElementRef, Input, OnDestroy, OnInit } from '@angular/core';
 import { CoreCancellablePromise } from '@classes/cancellable-promise';
 import { CoreUserTourDirectiveOptions } from '@directives/user-tour';
 import { CoreUserToursAlignment, CoreUserToursSide } from '@features/usertours/services/user-tours';
-import { CoreDomUtils } from '@services/utils/dom';
+import { CoreModals } from '@services/overlays/modals';
 import { CoreDom } from '@singletons/dom';
 import { CoreBlockSideBlocksTourComponent } from '../side-blocks-tour/side-blocks-tour';
-import { CoreBlockSideBlocksComponent } from '../side-blocks/side-blocks';
+import { ContextLevel } from '@/core/constants';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component that displays a button to open blocks.
@@ -27,12 +28,16 @@ import { CoreBlockSideBlocksComponent } from '../side-blocks/side-blocks';
 @Component({
     selector: 'core-block-side-blocks-button',
     templateUrl: 'side-blocks-button.html',
-    styleUrls: ['side-blocks-button.scss'],
+    styleUrl: 'side-blocks-button.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class CoreBlockSideBlocksButtonComponent implements OnInit, OnDestroy {
 
-    @Input() contextLevel!: string;
-    @Input() instanceId!: number;
+    @Input({ required: true }) contextLevel!: ContextLevel;
+    @Input({ required: true }) instanceId!: number;
     @Input() myDashboardPage?: string;
 
     userTour: CoreUserTourDirectiveOptions = {
@@ -66,8 +71,10 @@ export class CoreBlockSideBlocksButtonComponent implements OnInit, OnDestroy {
     /**
      * Open side blocks.
      */
-    openBlocks(): void {
-        CoreDomUtils.openSideModal({
+    async openBlocks(): Promise<void> {
+        const { CoreBlockSideBlocksComponent } = await import('@features/block/components/side-blocks/side-blocks');
+
+        CoreModals.openSideModal({
             component: CoreBlockSideBlocksComponent,
             componentProps: {
                 contextLevel: this.contextLevel,

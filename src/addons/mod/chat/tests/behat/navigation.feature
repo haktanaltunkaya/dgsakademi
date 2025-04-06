@@ -1,8 +1,9 @@
-@addon_mod_chat @app @javascript
+@addon_mod_chat @app @mod @mod_chat @javascript @lms_upto4.5
 Feature: Test chat navigation
 
   Background:
-    Given the following "courses" exist:
+    Given the Moodle site is compatible with this feature
+    And the following "courses" exist:
       | fullname | shortname |
       | Course 1 | C1        |
     And the following "users" exist:
@@ -13,6 +14,7 @@ Feature: Test chat navigation
       | user     | course | role     |
       | student1 | C1     | student  |
       | student2 | C1     | student  |
+    And I enable "chat" "mod" plugin
     And the following "activities" exist:
       | activity   | name            | intro       | course | idnumber | groupmode |
       | chat       | Test chat name  | Test chat   | C1     | chat     | 0         |
@@ -24,7 +26,7 @@ Feature: Test chat navigation
     And I press "Send" in the app
     Then I should find "Test message" in the app
     # Confirm leave the page
-    And I press the back button in the app
+    And I go back in the app
     And I press "OK" in the app
 
   Scenario: Tablet navigation on chat

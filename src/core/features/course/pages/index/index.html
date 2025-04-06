@@ -10,11 +10,19 @@
         </ion-title>
 
         <ion-buttons slot="end">
-            <ion-button fill="clear" (click)="openCourseSummary()" [attr.aria-label]="'core.course.coursesummary' | translate">
-                <ion-icon name="fas-circle-info" slot="icon-only" aria-hidden="true" />
-            </ion-button>
-            <!-- Add an empty context menu so tab pages can add items, otherwise the menu disappears in some cases. -->
-            <core-context-menu />
+            @if (course?.format !== 'singleactivity') {
+                <ion-button fill="clear" (click)="openCourseSummary()" [ariaLabel]="'core.course.coursesummary' | translate">
+                    <ion-icon name="fas-circle-info" slot="icon-only" aria-hidden="true" />
+                </ion-button>
+
+                <!-- Add an empty context menu so tab pages can add items, otherwise the menu disappears in some cases. -->
+                <core-context-menu />
+            } @else {
+                <core-context-menu>
+                    <core-context-menu-item [priority]="1" [content]="'core.course.coursesummary' | translate"
+                        (action)="openCourseSummary()" iconAction="fas-graduation-cap" />
+                </core-context-menu>
+            }
         </ion-buttons>
     </ion-toolbar>
 </ion-header>
@@ -25,7 +33,7 @@
                 <ion-icon name="fas-graduation-cap" class="course-icon" aria-hidden="true" />
             </div>
             <ion-avatar *ngIf="course.courseimage" slot="start" class="core-course-thumb">
-                <img [src]="course.courseimage" core-external-content alt="" />
+                <img [url]="course.courseimage" core-external-content alt="" />
             </ion-avatar>
         </ng-container>
 

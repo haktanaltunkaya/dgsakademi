@@ -1,7 +1,7 @@
 :host {
     core-mod-icon {
-        background: transparent;
-        margin: 0;
-        --filter: var(--module-icon-filter);
+        --margin-vertical: 0px;
+        --margin-end: 12px;
+        --module-icon-size: 24px;
     }
 }

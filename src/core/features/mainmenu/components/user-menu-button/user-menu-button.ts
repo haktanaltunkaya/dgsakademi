@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, Input, OnInit, Optional } from '@angular/core';
 import { CoreSiteInfo } from '@classes/sites/unauthenticated-site';
 import { CoreUserTourDirectiveOptions } from '@directives/user-tour';
 import { CoreUserToursAlignment, CoreUserToursSide } from '@features/usertours/services/user-tours';
 import { IonRouterOutlet } from '@ionic/angular';
 import { CoreScreen } from '@services/screen';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
+import { CoreModals } from '@services/overlays/modals';
 import { CoreMainMenuUserMenuTourComponent } from '../user-menu-tour/user-menu-tour';
-import { CoreMainMenuUserMenuComponent } from '../user-menu/user-menu';
+import CoreMainMenuPage from '@features/mainmenu/pages/menu/menu';
+import { toBoolean } from '@/core/transforms/boolean';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component to display an avatar on the header to open user menu.
@@ -31,11 +33,15 @@ import { CoreMainMenuUserMenuComponent } from '../user-menu/user-menu';
 @Component({
     selector: 'core-user-menu-button',
     templateUrl: 'user-menu-button.html',
-    styleUrls: ['user-menu-button.scss'],
+    styleUrl: 'user-menu-button.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class CoreMainMenuUserButtonComponent implements OnInit {
 
-    @Input() alwaysShow = false;
+    @Input({ transform: toBoolean }) alwaysShow = false;
     siteInfo?: CoreSiteInfo;
     isMainScreen = false;
     userTour: CoreUserTourDirectiveOptions = {
@@ -45,10 +51,8 @@ export class CoreMainMenuUserButtonComponent implements OnInit {
         side: CoreScreen.isMobile ? CoreUserToursSide.Start : CoreUserToursSide.End,
     };
 
-    constructor(protected routerOutlet: IonRouterOutlet) {
-        const currentSite = CoreSites.getRequiredCurrentSite();
-
-        this.siteInfo = currentSite.getInfo();
+    constructor(protected routerOutlet: IonRouterOutlet, @Optional() protected menuPage: CoreMainMenuPage | null) {
+        this.siteInfo = CoreSites.getCurrentSite()?.getInfo();
     }
 
     /**
@@ -63,11 +67,13 @@ export class CoreMainMenuUserButtonComponent implements OnInit {
      *
      * @param event Click event.
      */
-    openUserMenu(event: Event): void {
+    async openUserMenu(event: Event): Promise<void> {
         event.preventDefault();
         event.stopPropagation();
 
-        CoreDomUtils.openSideModal<void>({
+        const { CoreMainMenuUserMenuComponent } = await import('../user-menu/user-menu');
+
+        CoreModals.openSideModal<void>({
             component: CoreMainMenuUserMenuComponent,
         });
     }

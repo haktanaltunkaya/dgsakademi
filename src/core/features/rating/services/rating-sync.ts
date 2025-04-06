@@ -18,8 +18,8 @@ import { CoreSyncBaseProvider } from '@classes/base-sync';
 import { CoreNetworkError } from '@classes/errors/network-error';
 import { CoreNetwork } from '@services/network';
 import { CoreSites } from '@services/sites';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreErrorHelper } from '@services/error-helper';
+import { CoreWSError } from '@classes/errors/wserror';
 import { makeSingleton } from '@singletons';
 import { CoreEvents } from '@singletons/events';
 import { CoreRating } from './rating';
@@ -222,12 +222,12 @@ export class CoreRatingSyncProvider extends CoreSyncBaseProvider<CoreRatingSyncI
                     siteId,
                 );
             } catch (error) {
-                if (!CoreUtils.isWebServiceError(error)) {
+                if (!CoreWSError.isWebServiceError(error)) {
                     // Couldn't connect to server, reject.
                     throw error;
                 }
 
-                const warning = CoreTextUtils.getErrorMessageFromError(error);
+                const warning = CoreErrorHelper.getErrorMessageFromError(error);
 
                 if (warning) {
                     result.warnings.push(warning);

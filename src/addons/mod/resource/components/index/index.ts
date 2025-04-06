@@ -12,29 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreConstants } from '@/core/constants';
+import { DownloadStatus } from '@/core/constants';
 import { Component, OnDestroy, OnInit, Optional } from '@angular/core';
 import { CoreError } from '@classes/errors/error';
 import { CoreCourseModuleMainResourceComponent } from '@features/course/classes/main-resource-component';
-import { CoreCourseContentsPage } from '@features/course/pages/contents/contents';
+import CoreCourseContentsPage from '@features/course/pages/contents/contents';
 import { CoreCourse } from '@features/course/services/course';
 import { CoreCourseModulePrefetchDelegate } from '@features/course/services/module-prefetch-delegate';
 import { CoreNetwork } from '@services/network';
 import { CoreFileHelper } from '@services/file-helper';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreMimetypeUtils } from '@services/utils/mimetype';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils, OpenFileAction } from '@services/utils/utils';
+import { CoreMimetype } from '@singletons/mimetype';
+import { CoreText } from '@singletons/text';
 import { NgZone, Translate } from '@singletons';
 import { Subscription } from 'rxjs';
 import {
     AddonModResource,
     AddonModResourceCustomData,
-    AddonModResourceProvider,
 } from '../../services/resource';
 import { AddonModResourceHelper } from '../../services/resource-helper';
 import { CorePlatform } from '@services/platform';
+import { ADDON_MOD_RESOURCE_COMPONENT_LEGACY } from '../../constants';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { OpenFileAction } from '@singletons/opener';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreCourseModuleNavigationComponent } from '@features/course/components/module-navigation/module-navigation';
+import { CoreCourseModuleInfoComponent } from '@features/course/components/module-info/module-info';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component that displays a resource.
@@ -42,11 +46,17 @@ import { CorePlatform } from '@services/platform';
 @Component({
     selector: 'addon-mod-resource-index',
     templateUrl: 'addon-mod-resource-index.html',
-    styleUrls: ['index.scss'],
+    styleUrl: 'index.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCourseModuleInfoComponent,
+        CoreCourseModuleNavigationComponent,
+    ],
 })
 export class AddonModResourceIndexComponent extends CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy {
 
-    component = AddonModResourceProvider.COMPONENT;
+    component = ADDON_MOD_RESOURCE_COMPONENT_LEGACY;
     pluginName = 'resource';
 
     mode = '';
@@ -66,7 +76,7 @@ export class AddonModResourceIndexComponent extends CoreCourseModuleMainResource
     timecreated = -1;
     timemodified = -1;
     isExternalFile = false;
-    outdatedStatus = CoreConstants.OUTDATED;
+    outdatedStatus = DownloadStatus.OUTDATED;
 
     protected onlineObserver?: Subscription;
 
@@ -118,7 +128,7 @@ export class AddonModResourceIndexComponent extends CoreCourseModuleMainResource
         const resource = await AddonModResource.getResourceData(this.courseId, this.module.id);
         this.description = resource.intro || '';
         const options: AddonModResourceCustomData =
-            resource.displayoptions ? CoreTextUtils.unserialize(resource.displayoptions) : {};
+            resource.displayoptions ? CoreText.unserialize(resource.displayoptions) : {};
 
         this.displayDescription = options.printintro === undefined || !!options.printintro;
         this.dataRetrieved.emit(resource);
@@ -172,18 +182,18 @@ export class AddonModResourceIndexComponent extends CoreCourseModuleMainResource
 
             if ('contentsinfo' in this.module && this.module.contentsinfo) {
                 mimetype = this.module.contentsinfo.mimetypes[0];
-                this.readableSize = CoreTextUtils.bytesToSize(this.module.contentsinfo.filessize, 1);
+                this.readableSize = CoreText.bytesToSize(this.module.contentsinfo.filessize, 1);
                 this.timemodified = this.module.contentsinfo.lastmodified * 1000;
             } else {
-                mimetype = await CoreUtils.getMimeTypeFromUrl(CoreFileHelper.getFileUrl(contents[0]));
-                this.readableSize = CoreTextUtils.bytesToSize(contents[0].filesize, 1);
+                mimetype = await CoreMimetype.getMimeTypeFromUrl(CoreFileHelper.getFileUrl(contents[0]));
+                this.readableSize = CoreText.bytesToSize(contents[0].filesize, 1);
                 this.timemodified = contents[0].timemodified * 1000;
             }
 
             this.timecreated = contents[0].timecreated * 1000;
             this.isExternalFile = !!contents[0].isexternalfile;
-            this.type = CoreMimetypeUtils.getMimetypeDescription(mimetype);
-            this.isStreamedFile = CoreMimetypeUtils.isStreamedMimetype(mimetype);
+            this.type = CoreMimetype.getMimetypeDescription(mimetype);
+            this.isStreamedFile = CoreMimetype.isStreamedMimetype(mimetype);
         }
     }
 
@@ -191,7 +201,7 @@ export class AddonModResourceIndexComponent extends CoreCourseModuleMainResource
      * @inheritdoc
      */
     protected async logActivity(): Promise<void> {
-        await CoreUtils.ignoreErrors(AddonModResource.logView(this.module.instance));
+        await CorePromiseUtils.ignoreErrors(AddonModResource.logView(this.module.instance));
 
         this.analyticsLogEvent('mod_resource_view_resource');
     }
@@ -211,12 +221,11 @@ export class AddonModResourceIndexComponent extends CoreCourseModuleMainResource
             downloadable = await AddonModResourceHelper.isMainFileDownloadable(this.module);
 
             if (downloadable) {
-                if (this.currentStatus === CoreConstants.OUTDATED && !this.isOnline && !this.isExternalFile) {
+                if (this.currentStatus === DownloadStatus.OUTDATED && !this.isOnline && !this.isExternalFile) {
                     // Warn the user that the file isn't updated.
-                    const alert = await CoreDomUtils.showAlert(
-                        undefined,
-                        Translate.instant('addon.mod_resource.resourcestatusoutdatedconfirm'),
-                    );
+                    const alert = await CoreAlerts.show({
+                        message: Translate.instant('addon.mod_resource.resourcestatusoutdatedconfirm'),
+                    });
 
                     await alert.onWillDismiss();
                 }

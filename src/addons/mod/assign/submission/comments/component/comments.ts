@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { ContextLevel } from '@/core/constants';
 import { AddonModAssignSubmissionPluginBaseComponent } from '@addons/mod/assign/classes/base-submission-plugin-component';
 import { Component, ViewChild } from '@angular/core';
 import { CoreCommentsCommentsComponent } from '@features/comments/components/comments/comments';
 import { CoreComments } from '@features/comments/services/comments';
+import { CoreSharedModule } from '@/core/shared.module';
+import { ADDON_MOD_ASSIGN_COMMENTS_AREA, ADDON_MOD_ASSIGN_COMMENTS_COMPONENT_NAME } from '../constants';
 
 /**
  * Component to render a comments submission plugin.
@@ -23,6 +26,11 @@ import { CoreComments } from '@features/comments/services/comments';
 @Component({
     selector: 'addon-mod-assign-submission-comments',
     templateUrl: 'addon-mod-assign-submission-comments.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCommentsCommentsComponent,
+    ],
 })
 export class AddonModAssignSubmissionCommentsComponent extends AddonModAssignSubmissionPluginBaseComponent {
 
@@ -33,7 +41,7 @@ export class AddonModAssignSubmissionCommentsComponent extends AddonModAssignSub
     constructor() {
         super();
 
-        this.commentsEnabled = !CoreComments.areCommentsDisabledInSite();
+        this.commentsEnabled = CoreComments.areCommentsEnabledInSite();
     }
 
     /**
@@ -43,11 +51,11 @@ export class AddonModAssignSubmissionCommentsComponent extends AddonModAssignSub
      */
     invalidate(): Promise<void> {
         return CoreComments.invalidateCommentsData(
-            'module',
+            ContextLevel.MODULE,
             this.assign.cmid,
-            'assignsubmission_comments',
+            ADDON_MOD_ASSIGN_COMMENTS_COMPONENT_NAME,
             this.submission.id,
-            'submission_comments',
+            ADDON_MOD_ASSIGN_COMMENTS_AREA,
         );
     }
 

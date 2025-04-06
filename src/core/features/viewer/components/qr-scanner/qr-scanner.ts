@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { CoreSharedModule } from '@/core/shared.module';
 import { Component, Input, OnDestroy, OnInit } from '@angular/core';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreErrorHelper } from '@services/error-helper';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreQRScan } from '@services/qrscan';
 import { ModalController, Translate } from '@singletons';
 
 /**
@@ -23,6 +25,10 @@ import { ModalController, Translate } from '@singletons';
 @Component({
     selector: 'core-viewer-qr-scanner',
     templateUrl: 'qr-scanner.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class CoreViewerQRScannerComponent implements OnInit, OnDestroy {
 
@@ -36,17 +42,17 @@ export class CoreViewerQRScannerComponent implements OnInit, OnDestroy {
 
         try {
 
-            let text = await CoreUtils.startScanQR();
+            let text = await CoreQRScan.startScanQR();
 
             // Text captured, return it.
-            text = typeof text == 'string' ? text.trim() : '';
+            text = typeof text === 'string' ? text.trim() : '';
 
             this.closeModal(text);
         } catch (error) {
-            if (!CoreDomUtils.isCanceledError(error)) {
+            if (!CoreErrorHelper.isCanceledError(error)) {
                 // Show error and stop scanning.
-                CoreDomUtils.showErrorModalDefault(error, 'An error occurred.');
-                CoreUtils.stopScanQR();
+                CoreAlerts.showError(error, { default: 'An error occurred.' });
+                CoreQRScan.stopScanQR();
             }
 
             this.closeModal();
@@ -57,7 +63,7 @@ export class CoreViewerQRScannerComponent implements OnInit, OnDestroy {
      * Cancel scanning.
      */
     cancel(): void {
-        CoreUtils.stopScanQR();
+        CoreQRScan.stopScanQR();
     }
 
     /**
@@ -74,7 +80,7 @@ export class CoreViewerQRScannerComponent implements OnInit, OnDestroy {
      */
     ngOnDestroy(): void {
         // If this code is reached and scan hasn't been stopped yet it means the user clicked the back button, cancel.
-        CoreUtils.stopScanQR();
+        CoreQRScan.stopScanQR();
     }
 
 }

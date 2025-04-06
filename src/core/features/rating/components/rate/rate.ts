@@ -23,9 +23,12 @@ import {
 } from '@features/rating/services/rating';
 import { CoreRatingOffline } from '@features/rating/services/rating-offline';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils, ToastDuration } from '@services/utils/dom';
+import { CoreToasts, ToastDuration } from '@services/overlays/toasts';
 import { Translate } from '@singletons';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component that displays the user rating select.
@@ -33,18 +36,22 @@ import { CoreEventObserver, CoreEvents } from '@singletons/events';
 @Component({
     selector: 'core-rating-rate',
     templateUrl: 'core-rating-rate.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class CoreRatingRateComponent implements OnChanges, OnDestroy {
 
-    @Input() ratingInfo!: CoreRatingInfo;
-    @Input() contextLevel!: ContextLevel; // Context level: course, module, user, etc.
-    @Input() instanceId!: number; // Context instance id.
-    @Input() itemId!: number; // Item id. Example: forum post id.
-    @Input() itemSetId!: number; // Item set id. Example: forum discussion id.
-    @Input() courseId!: number;
-    @Input() aggregateMethod!: number;
-    @Input() scaleId!: number;
-    @Input() userId!: number;
+    @Input({ required: true }) ratingInfo!: CoreRatingInfo;
+    @Input({ required: true }) contextLevel!: ContextLevel; // Context level: course, module, user, etc.
+    @Input({ required: true }) instanceId!: number; // Context instance id.
+    @Input({ required: true }) itemId!: number; // Item id. Example: forum post id.
+    @Input({ required: true }) itemSetId!: number; // Item set id. Example: forum discussion id.
+    @Input({ required: true }) courseId!: number;
+    @Input({ required: true }) aggregateMethod!: number;
+    @Input({ required: true }) scaleId!: number;
+    @Input({ required: true }) userId!: number;
     @Output() protected onLoading: EventEmitter<boolean>; // Eevent that indicates whether the component is loading data.
     @Output() protected onUpdate: EventEmitter<void>; // Event emitted when the rating is updated online.
 
@@ -129,7 +136,7 @@ export class CoreRatingRateComponent implements OnChanges, OnDestroy {
             return;
         }
 
-        const modal = await CoreDomUtils.showModalLoading('core.sending', true);
+        const modal = await CoreLoadings.show('core.sending', true);
 
         try {
             const response = await CoreRating.addRating(
@@ -147,12 +154,16 @@ export class CoreRatingRateComponent implements OnChanges, OnDestroy {
             );
 
             if (response === undefined) {
-                CoreDomUtils.showToast('core.datastoredoffline', true, ToastDuration.LONG);
+                CoreToasts.show({
+                    message: 'core.datastoredoffline',
+                    translateMessage: true,
+                    duration: ToastDuration.LONG,
+                });
             } else {
                 this.onUpdate.emit();
             }
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
+            CoreAlerts.showError(error);
         } finally {
             modal.dismiss();
         }

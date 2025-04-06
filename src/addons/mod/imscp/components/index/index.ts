@@ -14,11 +14,15 @@
 
 import { Component, OnInit, Optional } from '@angular/core';
 import { CoreCourseModuleMainResourceComponent } from '@features/course/classes/main-resource-component';
-import { CoreCourseContentsPage } from '@features/course/pages/contents/contents';
+import CoreCourseContentsPage from '@features/course/pages/contents/contents';
 import { CoreCourse } from '@features/course/services/course';
 import { CoreNavigator } from '@services/navigator';
-import { AddonModImscpProvider, AddonModImscp, AddonModImscpTocItem } from '../../services/imscp';
-import { CoreUtils } from '@services/utils/utils';
+import { AddonModImscp, AddonModImscpTocItem } from '../../services/imscp';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { ADDON_MOD_IMSCP_COMPONENT_LEGACY, ADDON_MOD_IMSCP_PAGE_NAME } from '../../constants';
+import { CoreCourseModuleNavigationComponent } from '@features/course/components/module-navigation/module-navigation';
+import { CoreCourseModuleInfoComponent } from '@features/course/components/module-info/module-info';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component that displays a IMSCP.
@@ -26,11 +30,17 @@ import { CoreUtils } from '@services/utils/utils';
 @Component({
     selector: 'addon-mod-imscp-index',
     templateUrl: 'addon-mod-imscp-index.html',
-    styleUrls: ['index.scss'],
+    styleUrl: 'index.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCourseModuleInfoComponent,
+        CoreCourseModuleNavigationComponent,
+    ],
 })
 export class AddonModImscpIndexComponent extends CoreCourseModuleMainResourceComponent implements OnInit {
 
-    component = AddonModImscpProvider.COMPONENT;
+    component = ADDON_MOD_IMSCP_COMPONENT_LEGACY;
     pluginName = 'imscp';
 
     items: AddonModImscpTocItem[] = [];
@@ -102,7 +112,7 @@ export class AddonModImscpIndexComponent extends CoreCourseModuleMainResourceCom
      * @inheritdoc
      */
     protected async logActivity(): Promise<void> {
-        await CoreUtils.ignoreErrors(AddonModImscp.logView(this.module.instance));
+        await CorePromiseUtils.ignoreErrors(AddonModImscp.logView(this.module.instance));
 
         this.analyticsLogEvent('mod_imscp_view_imscp');
     }
@@ -112,14 +122,17 @@ export class AddonModImscpIndexComponent extends CoreCourseModuleMainResourceCom
      *
      * @param href Item href to open, undefined for last item seen.
      */
-    openImscp(href?: string): void {
-        CoreNavigator.navigate('view', {
-            params: {
-                cmId: this.module.id,
-                courseId: this.courseId,
-                initialHref: href,
+    async openImscp(href?: string): Promise<void> {
+        await CoreNavigator.navigateToSitePath(
+            `${ADDON_MOD_IMSCP_PAGE_NAME}/${this.courseId}/${this.module.id}/view`,
+            {
+                params: {
+                    cmId: this.module.id,
+                    courseId: this.courseId,
+                    initialHref: href,
+                },
             },
-        });
+        );
 
         this.hasStarted = true;
     }

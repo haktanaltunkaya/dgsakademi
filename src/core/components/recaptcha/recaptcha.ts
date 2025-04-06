@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { toBoolean } from '@/core/transforms/boolean';
 import { Component, Input, OnInit } from '@angular/core';
 
 import { CoreLang, CoreLangFormat } from '@services/lang';
 import { CoreSites } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreOpener } from '@singletons/opener';
 import { CorePath } from '@singletons/path';
+import { CoreBaseModule } from '@/core/base.module';
+import { CoreUpdateNonReactiveAttributesDirective } from '@directives/update-non-reactive-attributes';
 
 /**
  * Component that allows answering a recaptcha.
@@ -25,6 +28,11 @@ import { CorePath } from '@singletons/path';
 @Component({
     selector: 'core-recaptcha',
     templateUrl: 'core-recaptcha.html',
+    standalone: true,
+    imports: [
+        CoreBaseModule,
+        CoreUpdateNonReactiveAttributesDirective,
+    ],
 })
 export class CoreRecaptchaComponent implements OnInit {
 
@@ -32,7 +40,7 @@ export class CoreRecaptchaComponent implements OnInit {
     @Input() publicKey?: string; // The site public key.
     @Input() modelValueName = 'recaptcharesponse'; // Name of the model property where to store the response.
     @Input() siteUrl = ''; // The site URL. If not defined, current site.
-    @Input() showRequiredError = false; // Whether to display the required error if recaptcha hasn't been answered.
+    @Input({ transform: toBoolean }) showRequiredError = false; // Whether to display the required error if recaptcha not answered.
 
     expired = false;
 
@@ -63,9 +71,9 @@ export class CoreRecaptchaComponent implements OnInit {
         // Open the recaptcha challenge in an InAppBrowser.
         // The app used to use an iframe for this, but the app can no longer access the iframe to create the required callbacks.
         // The app cannot render the recaptcha directly because it has problems with the local protocols and domains.
-        const src = CorePath.concatenatePaths(this.siteUrl, 'webservice/recaptcha.php?lang=' + this.lang);
+        const src = CorePath.concatenatePaths(this.siteUrl, `webservice/recaptcha.php?lang=${this.lang}`);
 
-        const inAppBrowserWindow = CoreUtils.openInApp(src);
+        const inAppBrowserWindow = CoreOpener.openInApp(src);
         if (!inAppBrowserWindow) {
             return;
         }

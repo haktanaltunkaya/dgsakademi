@@ -12,21 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Component, OnInit, ViewChild, ElementRef, Optional } from '@angular/core';
+import { Component, OnInit, ViewChild, ElementRef } from '@angular/core';
 import { FormControl } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { CoreError } from '@classes/errors/error';
 import { CoreNetworkError } from '@classes/errors/network-error';
-import { CoreSplitViewComponent } from '@components/split-view/split-view';
 import { CoreFileUploader, CoreFileUploaderStoreFilesResult } from '@features/fileuploader/services/fileuploader';
 import { CanLeave } from '@guards/can-leave';
-import { CoreFileEntry } from '@services/file-helper';
+import { CoreFileEntry, CoreFileHelper } from '@services/file-helper';
 import { CoreNavigator } from '@services/navigator';
 import { CoreNetwork } from '@services/network';
-import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreSites, CoreSitesReadingStrategy } from '@services/sites';
+import { CoreText } from '@singletons/text';
+import { CoreWSError } from '@classes/errors/wserror';
 import { Translate } from '@singletons';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
 import { CoreForms } from '@singletons/form';
@@ -36,11 +34,15 @@ import {
     AddonModGlossaryEntry,
     AddonModGlossaryEntryOption,
     AddonModGlossaryGlossary,
-    AddonModGlossaryProvider,
 } from '../../services/glossary';
 import { AddonModGlossaryHelper } from '../../services/glossary-helper';
 import { AddonModGlossaryOffline } from '../../services/glossary-offline';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
+import { ADDON_MOD_GLOSSARY_COMPONENT_LEGACY } from '../../constants';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreEditorRichTextEditorComponent } from '@features/editor/components/rich-text-editor/rich-text-editor';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays the edit form.
@@ -48,12 +50,17 @@ import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
 @Component({
     selector: 'page-addon-mod-glossary-edit',
     templateUrl: 'edit.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreEditorRichTextEditorComponent,
+    ],
 })
-export class AddonModGlossaryEditPage implements OnInit, CanLeave {
+export default class AddonModGlossaryEditPage implements OnInit, CanLeave {
 
     @ViewChild('editFormEl') formElement?: ElementRef;
 
-    component = AddonModGlossaryProvider.COMPONENT;
+    component = ADDON_MOD_GLOSSARY_COMPONENT_LEGACY;
     cmId!: number;
     courseId!: number;
     loaded = false;
@@ -83,7 +90,7 @@ export class AddonModGlossaryEditPage implements OnInit, CanLeave {
     protected isDestroyed = false;
     protected saved = false;
 
-    constructor(protected route: ActivatedRoute, @Optional() protected splitView: CoreSplitViewComponent) {}
+    constructor(protected route: ActivatedRoute) {}
 
     /**
      * @inheritdoc
@@ -99,7 +106,11 @@ export class AddonModGlossaryEditPage implements OnInit, CanLeave {
                 this.editorExtraParams.timecreated = timecreated;
                 this.handler = new AddonModGlossaryOfflineFormHandler(this, timecreated);
             } else if (entrySlug) {
-                const { entry } = await AddonModGlossary.getEntry(Number(entrySlug));
+                // Get the entry content unfiltered to edit it.
+                const { entry } = await AddonModGlossary.getEntry(Number(entrySlug), {
+                    readingStrategy: CoreSitesReadingStrategy.ONLY_NETWORK,
+                    filter: false,
+                });
 
                 this.entry = entry;
                 this.editorExtraParams.timecreated = entry.timecreated;
@@ -108,9 +119,8 @@ export class AddonModGlossaryEditPage implements OnInit, CanLeave {
                 this.handler = new AddonModGlossaryNewFormHandler(this);
             }
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
-
-            this.goBack();
+            CoreAlerts.showError(error);
+            CoreNavigator.back();
 
             return;
         }
@@ -143,9 +153,8 @@ export class AddonModGlossaryEditPage implements OnInit, CanLeave {
                 url: '/mod/glossary/edit.php' + (this.entry ? `?cmid=${this.cmId}&id=${this.entry.id}` : ''),
             });
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'addon.mod_glossary.errorloadingglossary', true);
-
-            this.goBack();
+            CoreAlerts.showError(error, { default: Translate.instant('addon.mod_glossary.errorloadingglossary') });
+            CoreNavigator.back();
         }
     }
 
@@ -189,7 +198,7 @@ export class AddonModGlossaryEditPage implements OnInit, CanLeave {
 
         if (this.hasDataChanged()) {
             // Show confirmation if some data has been modified.
-            await CoreDomUtils.showConfirm(Translate.instant('core.confirmcanceledit'));
+            await CoreAlerts.confirmLeaveWithChanges();
         }
 
         // Delete the local files from the tmp folder.
@@ -205,7 +214,7 @@ export class AddonModGlossaryEditPage implements OnInit, CanLeave {
      */
     async save(): Promise<void> {
         if (!this.data.concept || !this.data.definition) {
-            CoreDomUtils.showErrorModal('addon.mod_glossary.fillfields', true);
+            CoreAlerts.showError(Translate.instant('addon.mod_glossary.fillfields'));
 
             return;
         }
@@ -214,7 +223,7 @@ export class AddonModGlossaryEditPage implements OnInit, CanLeave {
             return;
         }
 
-        const modal = await CoreDomUtils.showModalLoading('core.sending', true);
+        const modal = await CoreLoadings.show('core.sending', true);
 
         try {
             const savedOnline = await this.handler.save(this.glossary);
@@ -223,9 +232,9 @@ export class AddonModGlossaryEditPage implements OnInit, CanLeave {
 
             CoreForms.triggerFormSubmittedEvent(this.formElement, savedOnline, CoreSites.getCurrentSiteId());
 
-            this.goBack();
+            CoreNavigator.back();
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'addon.mod_glossary.cannoteditentry', true);
+            CoreAlerts.showError(error, { default: Translate.instant('addon.mod_glossary.cannoteditentry') });
         } finally {
             modal.dismiss();
         }
@@ -247,17 +256,6 @@ export class AddonModGlossaryEditPage implements OnInit, CanLeave {
         }
 
         return CoreFileUploader.areFileListDifferent(this.data.attachments, this.originalData.attachments);
-    }
-
-    /**
-     * Helper function to go back.
-     */
-    protected goBack(): void {
-        if (this.splitView?.outletActivated) {
-            CoreNavigator.navigate('../../');
-        } else {
-            CoreNavigator.back();
-        }
     }
 
 }
@@ -299,13 +297,13 @@ abstract class AddonModGlossaryFormHandler {
      * Upload attachments online.
      *
      * @param glossary Glossary.
-     * @returns Uploaded attachments item id.
+     * @returns Uploaded attachments item id, undefined if nothing to upload or change.
      */
-    protected async uploadAttachments(glossary: AddonModGlossaryGlossary): Promise<number> {
+    protected async uploadAttachments(glossary: AddonModGlossaryGlossary): Promise<number | undefined> {
         const data = this.page.data;
         const itemId = await CoreFileUploader.uploadOrReuploadFiles(
             data.attachments,
-            AddonModGlossaryProvider.COMPONENT,
+            ADDON_MOD_GLOSSARY_COMPONENT_LEGACY,
             glossary.id,
         );
 
@@ -485,7 +483,7 @@ class AddonModGlossaryOfflineFormHandler extends AddonModGlossaryFormHandler {
         const originalData = this.page.originalData;
         const data = this.page.data;
         const options = this.getSaveOptions(glossary);
-        const definition = CoreTextUtils.formatHtmlLines(data.definition);
+        const definition = CoreText.formatHtmlLines(data.definition);
 
         if (!originalData) {
             return;
@@ -535,7 +533,7 @@ class AddonModGlossaryNewFormHandler extends AddonModGlossaryFormHandler {
             try {
                 onlineAttachments = await this.uploadAttachments(glossary);
             } catch (error) {
-                if (CoreUtils.isWebServiceError(error)) {
+                if (CoreWSError.isWebServiceError(error)) {
                     throw error;
                 }
 
@@ -574,7 +572,7 @@ class AddonModGlossaryNewFormHandler extends AddonModGlossaryFormHandler {
     ): Promise<void> {
         const data = this.page.data;
         const options = this.getSaveOptions(glossary);
-        const definition = CoreTextUtils.formatHtmlLines(data.definition);
+        const definition = CoreText.formatHtmlLines(data.definition);
 
         await this.checkDuplicates(glossary);
         await AddonModGlossaryOffline.addOfflineEntry(
@@ -607,7 +605,7 @@ class AddonModGlossaryNewFormHandler extends AddonModGlossaryFormHandler {
     ): Promise<number | false> {
         const data = this.page.data;
         const options = this.getSaveOptions(glossary);
-        const definition = CoreTextUtils.formatHtmlLines(data.definition);
+        const definition = CoreText.formatHtmlLines(data.definition);
         const entryId = await AddonModGlossary.addEntry(
             glossary.id,
             data.concept,
@@ -647,7 +645,10 @@ class AddonModGlossaryOnlineFormHandler extends AddonModGlossaryFormHandler {
         const data = this.page.data;
 
         data.concept = this.entry.concept;
-        data.definition = this.entry.definition || '';
+        data.definition = CoreFileHelper.replacePluginfileUrls(
+            this.entry.definition,
+            this.entry.definitioninlinefiles || [],
+        );
         data.timecreated = this.entry.timecreated;
         data.usedynalink = this.entry.usedynalink;
 
@@ -656,10 +657,7 @@ class AddonModGlossaryOnlineFormHandler extends AddonModGlossaryFormHandler {
             data.fullmatch = this.entry.fullmatch;
         }
 
-        // Treat offline attachments if any.
-        if (this.entry.attachments) {
-            data.attachments = this.entry.attachments;
-        }
+        data.attachments = (this.entry.attachments ?? []).slice();
 
         this.page.originalData = {
             concept: data.concept,
@@ -687,14 +685,13 @@ class AddonModGlossaryOnlineFormHandler extends AddonModGlossaryFormHandler {
 
         const data = this.page.data;
         const options = this.getSaveOptions(glossary);
-        const definition = CoreTextUtils.formatHtmlLines(data.definition);
+        const definition = CoreText.formatHtmlLines(CoreFileHelper.restorePluginfileUrls(
+            data.definition,
+            this.entry.definitioninlinefiles || [],
+        ));
 
         // Upload attachments, if any.
-        let attachmentsId: number | undefined = undefined;
-
-        if (data.attachments.length) {
-            attachmentsId = await this.uploadAttachments(glossary);
-        }
+        const attachmentsId = await this.uploadAttachments();
 
         // Save entry data.
         await AddonModGlossary.updateEntry(glossary.id, this.entry.id, data.concept, definition, options, attachmentsId);
@@ -705,6 +702,31 @@ class AddonModGlossaryOnlineFormHandler extends AddonModGlossaryFormHandler {
         CoreEvents.trigger(CoreEvents.ACTIVITY_DATA_SENT, { module: 'glossary' });
 
         return true;
+    }
+
+    /**
+     * Upload attachments online.
+     *
+     * @returns Uploaded attachments item id, undefined if nothing to upload or change.
+     */
+    protected async uploadAttachments(): Promise<number | undefined> {
+        const data = this.page.data;
+
+        if (!CoreFileUploader.areFileListDifferent(data.attachments, this.entry.attachments ?? [])) {
+            return;
+        }
+
+        const { attachmentsid: attachmentsId } = await AddonModGlossary.prepareEntryForEdition(this.entry.id);
+
+        const removedFiles = CoreFileUploader.getFilesToDelete(this.entry.attachments ?? [], data.attachments);
+
+        if (removedFiles.length) {
+            await CoreFileUploader.deleteDraftFiles(attachmentsId, removedFiles);
+        }
+
+        await CoreFileUploader.uploadFiles(attachmentsId, data.attachments);
+
+        return attachmentsId;
     }
 
 }

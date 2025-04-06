@@ -14,12 +14,16 @@
 
 import { Component, OnInit, Optional } from '@angular/core';
 import { CoreCourseModuleMainResourceComponent } from '@features/course/classes/main-resource-component';
-import { CoreCourseContentsPage } from '@features/course/pages/contents/contents';
-import { CoreCourse } from '@features/course/services/course';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
-import { AddonModPageProvider, AddonModPagePage, AddonModPage } from '../../services/page';
+import CoreCourseContentsPage from '@features/course/pages/contents/contents';
+import { CoreText } from '@singletons/text';
+import { CoreUtils } from '@singletons/utils';
+import { AddonModPagePage, AddonModPage } from '../../services/page';
 import { AddonModPageHelper } from '../../services/page-helper';
+import { ADDON_MOD_PAGE_COMPONENT_LEGACY } from '../../constants';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreCourseModuleNavigationComponent } from '@features/course/components/module-navigation/module-navigation';
+import { CoreCourseModuleInfoComponent } from '@features/course/components/module-info/module-info';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component that displays a page.
@@ -27,17 +31,22 @@ import { AddonModPageHelper } from '../../services/page-helper';
 @Component({
     selector: 'addon-mod-page-index',
     templateUrl: 'addon-mod-page-index.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCourseModuleInfoComponent,
+        CoreCourseModuleNavigationComponent,
+    ],
 })
 export class AddonModPageIndexComponent extends CoreCourseModuleMainResourceComponent implements OnInit {
 
-    component = AddonModPageProvider.COMPONENT;
+    component = ADDON_MOD_PAGE_COMPONENT_LEGACY;
     pluginName = 'page';
     contents?: string;
     displayDescription = false;
     displayTimemodified = true;
     timemodified?: number;
     page?: AddonModPagePage;
-    warning?: string;
 
     protected fetchContentDefaultError = 'addon.mod_page.errorwhileloadingthepage';
 
@@ -67,19 +76,12 @@ export class AddonModPageIndexComponent extends CoreCourseModuleMainResourceComp
      * @inheritdoc
      */
     protected async fetchContent(refresh?: boolean): Promise<void> {
-        // Download the resource if it needs to be downloaded.
-        const downloadResult = await this.downloadResourceIfNeeded(refresh);
-
-        // Get contents. No need to refresh, it has been done in downloadResourceIfNeeded.
-        const contents = await CoreCourse.getModuleContents(this.module);
-
-        const results = await Promise.all([
+        const [contents] = await Promise.all([
+            this.getModuleContents(refresh),
             this.loadPageData(),
-            AddonModPageHelper.getPageHtml(contents, this.module.id),
         ]);
 
-        this.contents = results[1];
-        this.warning = downloadResult?.failed ? this.getErrorDownloadingSomeFilesMessage(downloadResult.error!) : '';
+        this.contents = await AddonModPageHelper.getPageHtml(contents, this.module.id);
     }
 
     /**
@@ -97,7 +99,7 @@ export class AddonModPageIndexComponent extends CoreCourseModuleMainResourceComp
         // Check if description and timemodified should be displayed.
         if (this.page.displayoptions) {
             const options: Record<string, string | boolean> =
-                CoreTextUtils.unserialize(this.page.displayoptions) || {};
+                CoreText.unserialize(this.page.displayoptions) || {};
 
             this.displayDescription = options.printintro === undefined ||
                     CoreUtils.isTrueOrOne(options.printintro);
@@ -115,7 +117,7 @@ export class AddonModPageIndexComponent extends CoreCourseModuleMainResourceComp
      * @inheritdoc
      */
     protected async logActivity(): Promise<void> {
-        await CoreUtils.ignoreErrors(AddonModPage.logView(this.module.instance));
+        await CorePromiseUtils.ignoreErrors(AddonModPage.logView(this.module.instance));
 
         this.analyticsLogEvent('mod_page_view_page');
     }

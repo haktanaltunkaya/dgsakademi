@@ -16,13 +16,14 @@ import { Injectable } from '@angular/core';
 
 import { CoreNetwork } from '@services/network';
 import { CoreSites } from '@services/sites';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreTimeUtils } from '@services/utils/time';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreText } from '@singletons/text';
+import { CoreTime } from '@singletons/time';
+import { CoreObject } from '@singletons/object';
 import { makeSingleton } from '@singletons';
 import { ACTIVITY_LOG_TABLE, CoreCourseActivityLogDBRecord } from './database/log';
 import { CoreStatusWithWarningsWSResponse } from '@services/ws';
 import { CoreWSError } from '@classes/errors/wserror';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 
 /**
  * Helper to manage logging to Moodle.
@@ -83,7 +84,7 @@ export class CoreCourseLogHelperProvider {
 
         const conditions: Partial<CoreCourseActivityLogDBRecord> = {
             ws,
-            data: CoreUtils.sortAndStringify(data),
+            data: CoreObject.sortAndStringify(data),
         };
 
         await site.getDb().deleteRecords(ACTIVITY_LOG_TABLE, conditions);
@@ -141,7 +142,7 @@ export class CoreCourseLogHelperProvider {
         try {
             await this.logOnline(ws, data, site.getId());
         } catch (error) {
-            if (CoreUtils.isWebServiceError(error)) {
+            if (CoreWSError.isWebServiceError(error)) {
                 // The WebService has thrown an error, this means that responses cannot be submitted.
                 throw error;
             }
@@ -263,8 +264,8 @@ export class CoreCourseLogHelperProvider {
             component,
             componentid: componentId,
             ws,
-            data: CoreUtils.sortAndStringify(data),
-            time: CoreTimeUtils.timestamp(),
+            data: CoreObject.sortAndStringify(data),
+            time: CoreTime.timestamp(),
         };
 
         await site.getDb().insertRecord(ACTIVITY_LOG_TABLE, log);
@@ -338,14 +339,14 @@ export class CoreCourseLogHelperProvider {
      */
     protected async syncLogs(logs: CoreCourseActivityLogDBRecord[], siteId: string): Promise<void> {
         await Promise.all(logs.map(async (log) => {
-            const data = CoreTextUtils.parseJSON<Record<string, unknown>>(log.data || '{}', {});
+            const data = CoreText.parseJSON<Record<string, unknown>>(log.data || '{}', {});
 
             try {
                 await this.logOnline(log.ws, data, siteId);
             } catch (error) {
-                if (CoreUtils.isWebServiceError(error)) {
+                if (CoreWSError.isWebServiceError(error)) {
                     // The WebService has thrown an error, this means that responses cannot be submitted.
-                    await CoreUtils.ignoreErrors(this.deleteWSLogs(log.ws, data, siteId));
+                    await CorePromiseUtils.ignoreErrors(this.deleteWSLogs(log.ws, data, siteId));
                 }
 
                 throw error;

@@ -17,22 +17,76 @@ import { Routes } from '@angular/router';
 
 import { AddonBadgesMyBadgesLinkHandler } from './services/handlers/mybadges-link';
 import { AddonBadgesBadgeLinkHandler } from './services/handlers/badge-link';
+import { AddonBadgesBadgeClassLinkHandler } from './services/handlers/badgeclass-link';
 import { CoreContentLinksDelegate } from '@features/contentlinks/services/contentlinks-delegate';
 import { CoreUserDelegate } from '@features/user/services/user-delegate';
 import { AddonBadgesUserHandler } from './services/handlers/user';
 import { CoreMainMenuTabRoutingModule } from '@features/mainmenu/mainmenu-tab-routing.module';
 import { CorePushNotificationsDelegate } from '@features/pushnotifications/services/push-delegate';
 import { AddonBadgesPushClickHandler } from './services/handlers/push-click';
-import { AddonBadgesProvider } from './services/badges';
+import { CoreTagAreaDelegate } from '@features/tag/services/tag-area-delegate';
+import { AddonBadgesTagAreaHandler } from './services/handlers/tag-area';
+import { conditionalRoutes } from '@/app/app-routing.module';
+import { CoreScreen } from '@services/screen';
 
-export const ADDON_BADGES_SERVICES: Type<unknown>[] = [
-    AddonBadgesProvider,
+/**
+ * Get badges services.
+ *
+ * @returns Returns badges services.
+ */
+export async function getBadgesServices(): Promise<Type<unknown>[]> {
+    const { AddonBadgesProvider } = await import('@addons/badges/services/badges');
+
+    return [
+        AddonBadgesProvider,
+    ];
+}
+
+const mobileRoutes: Routes = [
+    {
+        path: '',
+        pathMatch: 'full',
+        loadComponent: () => import('./pages/user-badges/user-badges'),
+    },
+    {
+        path: ':badgeHash',
+        loadComponent: () => import('./pages/issued-badge/issued-badge'),
+        data: { usesSwipeNavigation: true },
+    },
+];
+
+const tabletRoutes: Routes = [
+    {
+        path: '',
+        loadComponent: () => import('./pages/user-badges/user-badges'),
+        loadChildren: () => [
+            {
+                path: ':badgeHash',
+                loadComponent: () => import('./pages/issued-badge/issued-badge'),
+                data: { usesSwipeNavigation: true },
+            },
+        ],
+    },
+];
+
+const routes: Routes = [
+    ...conditionalRoutes(mobileRoutes, () => CoreScreen.isMobile),
+    ...conditionalRoutes(tabletRoutes, () => CoreScreen.isTablet),
 ];
 
 const mainMenuRoutes: Routes = [
     {
+        path: 'badge/:badgeHash',
+        loadComponent: () => import('./pages/issued-badge/issued-badge'),
+        data: { usesSwipeNavigation: false },
+    },
+    {
         path: 'badges',
-        loadChildren: () => import('./badges-lazy.module').then(m => m.AddonBadgesLazyModule),
+        loadChildren: () => routes,
+    },
+    {
+        path: 'badgeclass/:badgeId',
+        loadComponent: () => import('./pages/badge-class/badge-class'),
     },
 ];
 
@@ -47,8 +101,10 @@ const mainMenuRoutes: Routes = [
             useValue: () => {
                 CoreContentLinksDelegate.registerHandler(AddonBadgesMyBadgesLinkHandler.instance);
                 CoreContentLinksDelegate.registerHandler(AddonBadgesBadgeLinkHandler.instance);
+                CoreContentLinksDelegate.registerHandler(AddonBadgesBadgeClassLinkHandler.instance);
                 CoreUserDelegate.registerHandler(AddonBadgesUserHandler.instance);
                 CorePushNotificationsDelegate.registerClickHandler(AddonBadgesPushClickHandler.instance);
+                CoreTagAreaDelegate.registerHandler(AddonBadgesTagAreaHandler.instance);
             },
         },
     ],

@@ -13,10 +13,16 @@
 // limitations under the License.
 
 import { Injectable } from '@angular/core';
-import { CoreUserDelegateService, CoreUserProfileHandler, CoreUserProfileHandlerData } from '@features/user/services/user-delegate';
+import {
+    CoreUserProfileHandlerType,
+    CoreUserProfileHandler,
+    CoreUserProfileHandlerData,
+    CoreUserDelegateContext,
+} from '@features/user/services/user-delegate';
 import { CoreNavigator } from '@services/navigator';
 import { makeSingleton } from '@singletons';
 import { CoreReportBuilder } from '../reportbuilder';
+import { CORE_REPORT_BUILDER_PAGE_NAME } from '@features/reportbuilder/constants';
 
 /**
  * Handler to visualize custom reports.
@@ -24,9 +30,7 @@ import { CoreReportBuilder } from '../reportbuilder';
 @Injectable({ providedIn: 'root' })
 export class CoreReportBuilderHandlerService implements CoreUserProfileHandler {
 
-    static readonly PAGE_NAME = 'reportbuilder';
-
-    type = CoreUserDelegateService.TYPE_NEW_PAGE;
+    type = CoreUserProfileHandlerType.LIST_ITEM;
     cacheEnabled = true;
     name = 'CoreReportBuilderDelegate';
     priority = 350;
@@ -41,6 +45,18 @@ export class CoreReportBuilderHandlerService implements CoreUserProfileHandler {
     /**
      * @inheritdoc
      */
+    async isEnabledForContext(context: CoreUserDelegateContext): Promise<boolean> {
+        // Custom reports only available in user menu.
+        if (context !== CoreUserDelegateContext.USER_MENU) {
+            return false;
+        }
+
+        return this.isEnabled();
+    }
+
+    /**
+     * @inheritdoc
+     */
     getDisplayData(): CoreUserProfileHandlerData {
         return {
             class: 'core-report-builder',
@@ -49,7 +65,7 @@ export class CoreReportBuilderHandlerService implements CoreUserProfileHandler {
             action: async (event): Promise<void> => {
                 event.preventDefault();
                 event.stopPropagation();
-                await CoreNavigator.navigateToSitePath(CoreReportBuilderHandlerService.PAGE_NAME);
+                await CoreNavigator.navigateToSitePath(CORE_REPORT_BUILDER_PAGE_NAME);
             },
         };
     }

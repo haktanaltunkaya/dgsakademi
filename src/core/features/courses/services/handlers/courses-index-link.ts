@@ -18,7 +18,7 @@ import { CoreContentLinksHandlerBase } from '@features/contentlinks/classes/base
 import { CoreContentLinksAction } from '@features/contentlinks/services/contentlinks-delegate';
 import { CoreNavigator } from '@services/navigator';
 import { makeSingleton } from '@singletons';
-import { CoreCoursesMyCoursesMainMenuHandlerService } from './my-courses-mainmenu';
+import { CORE_COURSES_MYCOURSES_PAGE_NAME } from '@features/courses/constants';
 
 /**
  * Handler to treat links to course index (list of courses).
@@ -33,20 +33,20 @@ export class CoreCoursesIndexLinkHandlerService extends CoreContentLinksHandlerB
     /**
      * @inheritdoc
      */
-    getActions(siteIds: string[], url: string, params: Params): CoreContentLinksAction[] {
+    getActions(siteIds: string[], url: string, params: Record<string, string>): CoreContentLinksAction[] {
         return [{
-            action: (siteId): void => {
-                let pageName = CoreCoursesMyCoursesMainMenuHandlerService.PAGE_NAME;
+            action: async (siteId): Promise<void> => {
+                let pageName = CORE_COURSES_MYCOURSES_PAGE_NAME;
                 const pageParams: Params = {};
 
                 if (params.categoryid) {
-                    pageName += '/categories/' + params.categoryid;
+                    pageName += `/categories/${params.categoryid}`;
                 } else {
                     pageName += '/list';
                     pageParams.mode = 'all';
                 }
 
-                CoreNavigator.navigateToSitePath(pageName, { params: pageParams, siteId });
+                await CoreNavigator.navigateToSitePath(pageName, { params: pageParams, siteId });
             },
         }];
     }

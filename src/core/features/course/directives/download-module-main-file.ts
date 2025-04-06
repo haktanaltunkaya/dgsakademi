@@ -13,11 +13,12 @@
 // limitations under the License.
 
 import { Directive, Input, OnInit, ElementRef } from '@angular/core';
-
-import { CoreDomUtils } from '@services/utils/dom';
 import { CoreCourse, CoreCourseModuleContentFile } from '@features/course/services/course';
 import { CoreCourseHelper, CoreCourseModuleData } from '@features/course/services/course-helper';
-import { CoreUtilsOpenFileOptions } from '@services/utils/utils';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreOpenerOpenFileOptions } from '@singletons/opener';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { Translate } from '@singletons';
 
 /**
  * Directive to allow downloading and open the main file of a module.
@@ -28,6 +29,7 @@ import { CoreUtilsOpenFileOptions } from '@services/utils/utils';
  */
 @Directive({
     selector: '[core-course-download-module-main-file]',
+    standalone: true,
 })
 export class CoreCourseDownloadModuleMainFileDirective implements OnInit {
 
@@ -37,7 +39,7 @@ export class CoreCourseDownloadModuleMainFileDirective implements OnInit {
     @Input() component?: string; // Component to link the file to.
     @Input() componentId?: string | number; // Component ID to use in conjunction with the component. If not defined, use moduleId.
     @Input() files?: CoreCourseModuleContentFile[]; // List of files of the module. If not provided, use module.contents.
-    @Input() options?: CoreUtilsOpenFileOptions = {};
+    @Input() options?: CoreOpenerOpenFileOptions = {};
 
     protected element: HTMLElement;
 
@@ -57,7 +59,7 @@ export class CoreCourseDownloadModuleMainFileDirective implements OnInit {
             ev.preventDefault();
             ev.stopPropagation();
 
-            const modal = await CoreDomUtils.showModalLoading();
+            const modal = await CoreLoadings.show();
             const courseId = this.courseId ? Number(this.courseId) : undefined;
 
             try {
@@ -82,7 +84,7 @@ export class CoreCourseDownloadModuleMainFileDirective implements OnInit {
                     this.options,
                 );
             } catch (error) {
-                CoreDomUtils.showErrorModalDefault(error, 'core.errordownloading', true);
+                CoreAlerts.showError(error, { default: Translate.instant('core.errordownloading') });
             } finally {
                 modal.dismiss();
             }

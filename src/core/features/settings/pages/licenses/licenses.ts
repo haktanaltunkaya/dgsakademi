@@ -17,6 +17,7 @@ import { CoreConstants } from '@/core/constants';
 import { Http } from '@singletons';
 import { IonSearchbar } from '@ionic/angular';
 import { firstValueFrom } from 'rxjs';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Defines license info
@@ -39,8 +40,12 @@ interface CoreSettingsLicense {
 @Component({
     selector: 'page-core-app-settings-licenses',
     templateUrl: 'licenses.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
-export class CoreSettingsLicensesPage implements OnInit {
+export default class CoreSettingsLicensesPage implements OnInit {
 
     licensesUrl: string;
     loaded = false;
@@ -52,11 +57,11 @@ export class CoreSettingsLicensesPage implements OnInit {
     protected allLicenses: CoreSettingsLicense[] = [];
 
     constructor() {
-        this.appLicenseVersion = CoreConstants.CONFIG.versionname.indexOf('-') > 0
+        this.appLicenseVersion = CoreConstants.BUILD.isDevelopment
             ? 'main'
-            : 'v' + CoreConstants.CONFIG.versionname;
+            : `v${CoreConstants.CONFIG.versionname}`;
 
-        this.licensesUrl = 'https://raw.githubusercontent.com/moodlehq/moodleapp/' + this.appLicenseVersion + '/licenses.json';
+        this.licensesUrl = `https://raw.githubusercontent.com/moodlehq/moodleapp/${this.appLicenseVersion}/licenses.json`;
     }
 
     /**
@@ -79,7 +84,7 @@ export class CoreSettingsLicensesPage implements OnInit {
                     license.repository = license.repository.replace('git://', 'https://');
                     if (license.repository.indexOf('github.com') > 0) {
                         const version = license.name == 'moodlemobile' ? this.appLicenseVersion : license.version;
-                        license.licenseUrl = license.repository + '/blob/' + version + '/' + license.licenseFile;
+                        license.licenseUrl = `${license.repository}/blob/${version}/${license.licenseFile}`;
                     }
                 }
 

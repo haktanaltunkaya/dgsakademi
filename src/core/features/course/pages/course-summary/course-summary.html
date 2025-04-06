@@ -1,11 +1,11 @@
 <ion-header class="no-title">
     <ion-toolbar>
-        <ion-buttons slot="start">
+        <ion-buttons slot="start" *ngIf="!isModal">
             <ion-back-button [text]="'core.back' | translate" />
         </ion-buttons>
         <ion-title />
         <ion-buttons slot="end" *ngIf="isModal">
-            <ion-button fill="clear" (click)="closeModal()" [attr.aria-label]="'core.close' | translate">
+            <ion-button fill="clear" (click)="closeModal()" [ariaLabel]="'core.close' | translate">
                 <ion-icon slot="icon-only" name="fas-xmark" aria-hidden="true" />
             </ion-button>
         </ion-buttons>
@@ -17,7 +17,7 @@
     </ion-refresher>
     <core-loading [hideUntil]="dataLoaded">
         <div *ngIf="course" class="core-course-thumb" #courseThumb>
-            <img *ngIf="course.courseimage" [src]="course.courseimage" core-external-content alt="" (error)="loadFallbackCourseIcon()" />
+            <img *ngIf="course.courseimage" [url]="course.courseimage" core-external-content alt="" (error)="loadFallbackCourseIcon()" />
             <ion-icon *ngIf="!course.courseimage" name="fas-graduation-cap" class="course-icon" aria-hidden="true" />
         </div>
         <div *ngIf="course" class="course-container">
@@ -41,7 +41,8 @@
                         </ion-chip>
                     </ion-label>
                     <ion-button *ngIf="displayOpenInBrowser" fill="clear" [href]="courseUrl" core-link [showBrowserWarning]="false"
-                        [attr.aria-label]="'core.openinbrowser' | translate" slot="end">
+                        [ariaLabel]="'core.openinbrowser' | translate" slot="end" [class.hidden]="!isTeacher"
+                        class="core-course-oib-button">
                         <ion-icon name="fas-up-right-from-square" slot="icon-only" aria-hidden="true" />
                     </ion-button>
                 </ion-item>
@@ -83,7 +84,7 @@
                     </ion-item>
                     <ng-container *ngIf="contactsExpanded || course.contacts.length < 5">
                         <ion-item button class="ion-text-wrap" *ngFor="let contact of course.contacts" core-user-link [userId]="contact.id"
-                            [courseId]="isEnrolled ? course.id : null" [attr.aria-label]="'core.viewprofile' | translate" [detail]="true">
+                            [courseId]="isEnrolled ? course.id : null" [detail]="true">
                             <core-user-avatar [user]="contact" slot="start" [userId]="contact.id" [courseId]="isEnrolled ? course.id : null"
                                 [linkProfile]="false" />
                             <ion-label>

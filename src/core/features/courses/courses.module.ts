@@ -26,39 +26,90 @@ import { CorePushNotificationsDelegate } from '@features/pushnotifications/servi
 import { CoreRemindersPushNotificationData } from '@features/reminders/services/reminders';
 import { CoreLocalNotifications } from '@services/local-notifications';
 import { ApplicationInit } from '@singletons';
-import { CoreCoursesProvider } from './services/courses';
-import { CoreCoursesHelperProvider } from './services/courses-helper';
-import { CoreCoursesDashboardProvider } from './services/dashboard';
 import { CoreCoursesCourseLinkHandler } from './services/handlers/course-link';
 import { CoreCoursesIndexLinkHandler } from './services/handlers/courses-index-link';
 
-import { CoreDashboardHomeHandler, CoreDashboardHomeHandlerService } from './services/handlers/dashboard-home';
+import { CoreDashboardHomeHandler } from './services/handlers/dashboard-home';
 import { CoreCoursesDashboardLinkHandler } from './services/handlers/dashboard-link';
 import { CoreCoursesEnrolPushClickHandler } from './services/handlers/enrol-push-click';
-import {
-    CoreCoursesMyCoursesHomeHandler,
-    CoreCoursesMyCoursesMainMenuHandlerService,
-} from './services/handlers/my-courses-mainmenu';
+import { CoreCoursesMyCoursesHomeHandler } from './services/handlers/my-courses-mainmenu';
 import { CoreCoursesRequestPushClickHandler } from './services/handlers/request-push-click';
 import { CoreCoursesMyCoursesLinkHandler } from './services/handlers/my-courses-link';
+import { CoreCoursesSectionLinkHandler } from '@features/courses/services/handlers/section-link';
+import { CORE_COURSES_DASHBOARD_PAGE_NAME, CORE_COURSES_MYCOURSES_PAGE_NAME } from '@features/courses/constants';
 
-export const CORE_COURSES_SERVICES: Type<unknown>[] = [
-    CoreCoursesProvider,
-    CoreCoursesDashboardProvider,
-    CoreCoursesHelperProvider,
-];
+/**
+ * Get courses services.
+ *
+ * @returns Returns courses services.
+ */
+export async function getCoursesServices(): Promise<Type<unknown>[]> {
+    const { CoreCoursesProvider } = await import('@features/courses/services/courses');
+    const { CoreCoursesDashboardProvider } = await import('@features/courses/services/dashboard');
+    const { CoreCoursesHelperProvider } = await import('@features/courses/services/courses-helper');
+
+    return [
+        CoreCoursesProvider,
+        CoreCoursesDashboardProvider,
+        CoreCoursesHelperProvider,
+    ];
+}
+
+/**
+ * Get courses exported objects.
+ *
+ * @returns Courses exported objects.
+ */
+export async function getCoursesExportedObjects(): Promise<Record<string, unknown>> {
+    const {
+        CORE_COURSES_ENROL_INVALID_KEY,
+        CORE_COURSES_MY_COURSES_CHANGED_EVENT,
+        CORE_COURSES_MY_COURSES_UPDATED_EVENT,
+        CORE_COURSES_MY_COURSES_REFRESHED_EVENT,
+        CORE_COURSES_DASHBOARD_DOWNLOAD_ENABLED_CHANGED_EVENT,
+        CoreCoursesMyCoursesUpdatedEventAction,
+        CORE_COURSES_STATE_HIDDEN,
+        CORE_COURSES_STATE_FAVOURITE,
+    } = await import('@features/courses/constants');
+
+    /* eslint-disable @typescript-eslint/naming-convention */
+    return {
+        CORE_COURSES_ENROL_INVALID_KEY,
+        CORE_COURSES_MY_COURSES_CHANGED_EVENT,
+        CORE_COURSES_MY_COURSES_UPDATED_EVENT,
+        CORE_COURSES_MY_COURSES_REFRESHED_EVENT,
+        CORE_COURSES_DASHBOARD_DOWNLOAD_ENABLED_CHANGED_EVENT,
+        CoreCoursesMyCoursesUpdatedEventAction,
+        CORE_COURSES_STATE_HIDDEN,
+        CORE_COURSES_STATE_FAVOURITE,
+    };
+    /* eslint-enable @typescript-eslint/naming-convention */
+}
+
+/**
+ * Get directives and components for site plugins.
+ *
+ * @returns Returns directives and components.
+ */
+export async function getCoursesExportedDirectives(): Promise<Type<unknown>[]> {
+    const { CoreCoursesCourseListItemComponent } = await import('@features/courses/components/course-list-item/course-list-item');
+
+    return [
+        CoreCoursesCourseListItemComponent,
+    ];
+}
 
 const mainMenuHomeChildrenRoutes: Routes = [
     {
-        path: CoreDashboardHomeHandlerService.PAGE_NAME,
-        loadChildren: () => import('./courses-dashboard-lazy.module').then(m => m.CoreCoursesDashboardLazyModule),
+        path: CORE_COURSES_DASHBOARD_PAGE_NAME,
+        loadComponent: () => import('@features/courses/pages/dashboard/dashboard'),
     },
 ];
 
 const routes: Routes = [
     {
-        path: CoreCoursesMyCoursesMainMenuHandlerService.PAGE_NAME,
-        loadChildren: () => import('./courses-lazy.module').then(m => m.CoreCoursesLazyModule),
+        path: CORE_COURSES_MYCOURSES_PAGE_NAME,
+        loadChildren: () => import('./courses-lazy.module'),
     },
 ];
 
@@ -70,7 +121,6 @@ const routes: Routes = [
         CoreMainMenuRoutingModule.forChild({ children: routes }),
         CoreMainMenuTabRoutingModule.forChild(routes),
     ],
-    exports: [CoreMainMenuRoutingModule],
     providers: [
         {
             provide: APP_INITIALIZER,
@@ -82,6 +132,7 @@ const routes: Routes = [
                 CoreContentLinksDelegate.registerHandler(CoreCoursesIndexLinkHandler.instance);
                 CoreContentLinksDelegate.registerHandler(CoreCoursesMyCoursesLinkHandler.instance);
                 CoreContentLinksDelegate.registerHandler(CoreCoursesDashboardLinkHandler.instance);
+                CoreContentLinksDelegate.registerHandler(CoreCoursesSectionLinkHandler.instance);
                 CorePushNotificationsDelegate.registerClickHandler(CoreCoursesEnrolPushClickHandler.instance);
                 CorePushNotificationsDelegate.registerClickHandler(CoreCoursesRequestPushClickHandler.instance);
 

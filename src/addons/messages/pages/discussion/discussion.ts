@@ -14,11 +14,9 @@
 
 import { AfterViewInit, Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { IonContent } from '@ionic/angular';
-import { AlertOptions } from '@ionic/core';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
 import { CoreSites } from '@services/sites';
 import {
-    AddonMessagesProvider,
     AddonMessagesConversationFormatted,
     AddonMessagesConversationMember,
     AddonMessagesGetMessagesMessage,
@@ -27,16 +25,13 @@ import {
     AddonMessagesSendMessageResults,
 } from '../../services/messages';
 import { AddonMessagesOffline, AddonMessagesOfflineMessagesDBRecordFormatted } from '../../services/messages-offline';
-import { AddonMessagesSync, AddonMessagesSyncProvider } from '../../services/messages-sync';
+import { AddonMessagesSync } from '../../services/messages-sync';
 import { CoreUser } from '@features/user/services/user';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
-import { CoreTextUtils } from '@services/utils/text';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { CoreLogger } from '@singletons/logger';
-import { CoreApp } from '@services/app';
 import { CoreInfiniteLoadingComponent } from '@components/infinite-loading/infinite-loading';
 import { Md5 } from 'ts-md5/dist/md5';
-import moment from 'moment-timezone';
+import dayjs from 'dayjs';
 import { CoreError } from '@classes/errors/error';
 import { Translate } from '@singletons';
 import { CoreNavigator } from '@services/navigator';
@@ -44,6 +39,25 @@ import { CoreIonLoadingElement } from '@classes/ion-loading';
 import { ActivatedRoute } from '@angular/router';
 import { CoreConstants } from '@/core/constants';
 import { CoreDom } from '@singletons/dom';
+import { CoreKeyboard } from '@singletons/keyboard';
+import { CoreText } from '@singletons/text';
+import { CoreWait } from '@singletons/wait';
+import { CoreModals } from '@services/overlays/modals';
+import { CoreLoadings } from '@services/overlays/loadings';
+import {
+    ADDON_MESSAGES_AUTO_SYNCED,
+    ADDON_MESSAGES_LIMIT_MESSAGES,
+    ADDON_MESSAGES_MEMBER_INFO_CHANGED_EVENT,
+    ADDON_MESSAGES_NEW_MESSAGE_EVENT,
+    ADDON_MESSAGES_OPEN_CONVERSATION_EVENT,
+    ADDON_MESSAGES_POLL_INTERVAL,
+    ADDON_MESSAGES_READ_CHANGED_EVENT,
+    ADDON_MESSAGES_UPDATE_CONVERSATION_LIST_EVENT,
+    AddonMessagesMessageConversationType,
+    AddonMessagesUpdateConversationAction,
+} from '@addons/messages/constants';
+import { CoreAlerts, CoreAlertsConfirmOptions } from '@services/overlays/alerts';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays a message discussion page.
@@ -52,8 +66,12 @@ import { CoreDom } from '@singletons/dom';
     selector: 'page-addon-messages-discussion',
     templateUrl: 'discussion.html',
     styleUrls: ['../../../../theme/components/discussion.scss', 'discussion.scss'],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
-export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterViewInit {
+export default class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterViewInit {
 
     @ViewChild(IonContent) content?: IonContent;
     @ViewChild(CoreInfiniteLoadingComponent) infinite?: CoreInfiniteLoadingComponent;
@@ -92,12 +110,11 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
     groupMessagingEnabled: boolean;
     isGroup = false;
     members: {[id: number]: AddonMessagesConversationMember} = {}; // Members that wrote a message, indexed by ID.
-    favouriteIcon = 'fa-star';
+    favouriteIcon = 'fas-star';
     deleteIcon = 'fas-trash';
     blockIcon = 'fas-user-lock';
     addRemoveIcon = 'fas-user-plus';
     muteIcon = 'fas-bell-slash';
-    favouriteIconSlash = false;
     muteEnabled = false;
     otherMember?: AddonMessagesConversationMember; // Other member information (individual conversations only).
     footerType: 'message' | 'blocked' | 'requiresContact' | 'requestSent' | 'requestReceived' | 'unable' = 'unable';
@@ -122,7 +139,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
         this.logger = CoreLogger.getInstance('AddonMessagesDiscussionPage');
 
         // Refresh data if this discussion is synchronized automatically.
-        this.syncObserver = CoreEvents.on(AddonMessagesSyncProvider.AUTO_SYNCED, (data) => {
+        this.syncObserver = CoreEvents.on(ADDON_MESSAGES_AUTO_SYNCED, (data) => {
             if ((data.userId && data.userId == this.userId) ||
                     (data.conversationId && data.conversationId == this.conversationId)) {
                 // Fetch messages.
@@ -130,14 +147,14 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
 
                 // Show first warning if any.
                 if (data.warnings && data.warnings[0]) {
-                    CoreDomUtils.showAlert(undefined, data.warnings[0]);
+                    CoreAlerts.show({ message: data.warnings[0] });
                 }
             }
         }, this.siteId);
 
         // Refresh data if info of a mamber of the conversation have changed.
         this.memberInfoObserver = CoreEvents.on(
-            AddonMessagesProvider.MEMBER_INFO_CHANGED_EVENT,
+            ADDON_MESSAGES_MEMBER_INFO_CHANGED_EVENT,
             (data) => {
                 if (data.userId && (this.members[data.userId] || this.otherMember && data.userId == this.otherMember.id)) {
                     this.fetchData();
@@ -229,7 +246,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
     protected async fetchData(): Promise<void> {
         let loader: CoreIonLoadingElement | undefined;
         if (this.showLoadingModal) {
-            loader = await CoreDomUtils.showModalLoading();
+            loader = await CoreLoadings.show();
         }
 
         if (!this.groupMessagingEnabled && this.userId) {
@@ -251,7 +268,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
         try {
             const syncResult = await AddonMessagesSync.syncDiscussion(this.conversationId, this.userId);
             if (syncResult.warnings && syncResult.warnings[0]) {
-                CoreDomUtils.showAlert(undefined, syncResult.warnings[0]);
+                CoreAlerts.show({ message: syncResult.warnings[0] });
             }
         } catch {
             // Ignore errors;
@@ -337,7 +354,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
 
             await Promise.all(promises);
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'addon.messages.errorwhileretrievingmessages', true);
+            CoreAlerts.showError(error, { default: Translate.instant('addon.messages.errorwhileretrievingmessages') });
         } finally {
             this.checkCanDelete();
             this.loaded = true;
@@ -592,14 +609,13 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
             this.conversationId = this.conversation.id;
             this.title = this.conversation.name;
             this.conversationImage = this.conversation.imageurl;
-            this.isGroup = this.conversation.type == AddonMessagesProvider.MESSAGE_CONVERSATION_TYPE_GROUP;
+            this.isGroup = this.conversation.type === AddonMessagesMessageConversationType.GROUP;
             this.favouriteIcon = 'fas-star';
-            this.favouriteIconSlash = this.conversation.isfavourite;
             this.muteIcon = this.conversation.ismuted ? 'fas-bell' : 'fas-bell-slash';
             if (!this.isGroup) {
                 this.userId = this.conversation.userid;
             }
-            this.isSelf = this.conversation.type == AddonMessagesProvider.MESSAGE_CONVERSATION_TYPE_SELF;
+            this.isSelf = this.conversation.type === AddonMessagesMessageConversationType.SELF;
 
             return true;
         } else {
@@ -633,7 +649,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
 
         pagesToLoad--;
 
-        // Treat members. Don't use CoreUtilsProvider.arrayToObject because we don't want to override the existing object.
+        // Treat members. Don't use CoreArray.toObject because we don't want to override the existing object.
         if (result.members) {
             result.members.forEach((member) => {
                 this.members[member.id] = member;
@@ -643,7 +659,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
         const messages: AddonMessagesConversationMessageFormatted[] = result.messages;
 
         if (pagesToLoad > 0 && result.canLoadMore) {
-            offset += AddonMessagesProvider.LIMIT_MESSAGES;
+            offset += ADDON_MESSAGES_LIMIT_MESSAGES;
 
             // Get more messages.
             const nextMessages = await this.getConversationMessages(pagesToLoad, offset);
@@ -762,7 +778,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
         }
 
         if (readChanged) {
-            CoreEvents.trigger(AddonMessagesProvider.READ_CHANGED_EVENT, {
+            CoreEvents.trigger(ADDON_MESSAGES_READ_CHANGED_EVENT, {
                 conversationId: this.conversationId,
                 userId: this.userId,
             }, this.siteId);
@@ -787,7 +803,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
 
         if (trigger) {
             // Update discussions last message.
-            CoreEvents.trigger(AddonMessagesProvider.NEW_MESSAGE_EVENT, {
+            CoreEvents.trigger(ADDON_MESSAGES_NEW_MESSAGE_EVENT, {
                 conversationId: this.conversationId,
                 userId: this.userId,
                 message: this.lastMessage?.text,
@@ -884,8 +900,8 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
             return;
         }
 
-        await CoreUtils.wait(400);
-        await CoreUtils.ignoreErrors(this.waitForFetch());
+        await CoreWait.wait(400);
+        await CorePromiseUtils.ignoreErrors(this.waitForFetch());
     }
 
     /**
@@ -903,7 +919,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
                 this.fetchMessages().catch(() => {
                     // Ignore errors.
                 });
-            }, AddonMessagesProvider.POLL_INTERVAL);
+            }, ADDON_MESSAGES_POLL_INTERVAL);
         }
     }
 
@@ -925,7 +941,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
      */
     copyMessage(message: AddonMessagesConversationMessageFormatted): void {
         const text = 'smallmessage' in message ? message.smallmessage || message.text || '' : message.text || '';
-        CoreUtils.copyToClipboard(CoreTextUtils.decodeHTMLEntities(text));
+        CoreText.copyToClipboard(CoreText.decodeHTMLEntities(text));
     }
 
     /**
@@ -941,7 +957,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
         const canDeleteAll = this.conversation && this.conversation.candeletemessagesforallusers;
         const langKey = message.pending || canDeleteAll || this.isSelf ? 'core.areyousure' :
             'addon.messages.deletemessageconfirmation';
-        const options: AlertOptions = {};
+        const options: CoreAlertsConfirmOptions = {};
 
         if (canDeleteAll && !message.pending) {
             // Show delete for all checkbox.
@@ -955,15 +971,9 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
         }
 
         try {
-            const data: boolean[] = await CoreDomUtils.showConfirm(
-                Translate.instant(langKey),
-                undefined,
-                undefined,
-                undefined,
-                options,
-            );
+            const data = await CoreAlerts.confirm<boolean[]>(Translate.instant(langKey), options);
 
-            const modal = await CoreDomUtils.showModalLoading('core.deleting', true);
+            const modal = await CoreLoadings.show('core.deleting', true);
 
             try {
                 await AddonMessages.deleteMessage(message, data && data[0]);
@@ -977,7 +987,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
                 modal.dismiss();
             }
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'addon.messages.errordeletemessage', true);
+            CoreAlerts.showError(error, { default: Translate.instant('addon.messages.errordeletemessage') });
         }
     }
 
@@ -1025,7 +1035,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
             } catch (error) {
                 this.loadMoreError = true; // Set to prevent infinite calls with infinite-loading.
                 this.pagesLoaded--;
-                CoreDomUtils.showErrorModalDefault(error, 'addon.messages.errorwhileretrievingmessages', true);
+                CoreAlerts.showError(error, { default: Translate.instant('addon.messages.errorwhileretrievingmessages') });
             } finally {
                 infiniteComplete && infiniteComplete();
             }
@@ -1072,7 +1082,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
             this.setNewMessagesBadge(0);
 
             // Leave time for the view to be rendered.
-            await CoreUtils.nextTicks(5);
+            await CoreWait.nextTicks(5);
 
             if (!this.viewDestroyed && this.content) {
                 this.content.scrollToBottom(0);
@@ -1178,9 +1188,9 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
 
                 // Only close the keyboard if an error happens.
                 // We want the user to be able to send multiple messages without the keyboard being closed.
-                CoreApp.closeKeyboard();
+                CoreKeyboard.close();
 
-                CoreDomUtils.showErrorModalDefault(error, 'addon.messages.messagenotsent', true);
+                CoreAlerts.showError(error, { default: Translate.instant('addon.messages.messagenotsent') });
                 this.removeMessage(message.hash!);
             }
         }
@@ -1205,7 +1215,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
         }
 
         // Check if day has changed.
-        return !moment(message.timecreated).isSame(prevMessage.timecreated, 'day');
+        return !dayjs.tz(message.timecreated).isSame(prevMessage.timecreated, 'day');
     }
 
     /**
@@ -1246,10 +1256,10 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
     async viewInfo(): Promise<void> {
         if (this.isGroup) {
             const { AddonMessagesConversationInfoComponent } =
-                await import('@addons/messages/components/conversation-info/conversation-info.module');
+                await import('@addons/messages/components/conversation-info/conversation-info');
 
             // Display the group information.
-            const userId = await CoreDomUtils.openSideModal<number>({
+            const userId = await CoreModals.openSideModal<number>({
                 component: AddonMessagesConversationInfoComponent,
                 componentProps: {
                     conversationId: this.conversationId,
@@ -1263,7 +1273,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
                 if (splitViewLoaded) {
                     // Notify the left pane to load it, this way the right conversation will be highlighted.
                     CoreEvents.trigger(
-                        AddonMessagesProvider.OPEN_CONVERSATION_EVENT,
+                        ADDON_MESSAGES_OPEN_CONVERSATION_EVENT,
                         { userId },
                         this.siteId,
                     );
@@ -1298,16 +1308,15 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
             // Get the conversation data so it's cached. Don't block the user for this.
             AddonMessages.getConversation(this.conversation.id, undefined, true);
 
-            CoreEvents.trigger(AddonMessagesProvider.UPDATE_CONVERSATION_LIST_EVENT, {
+            CoreEvents.trigger(ADDON_MESSAGES_UPDATE_CONVERSATION_LIST_EVENT, {
                 conversationId: this.conversation.id,
-                action: 'favourite',
+                action: AddonMessagesUpdateConversationAction.FAVOURITE,
                 value: this.conversation.isfavourite,
             }, this.siteId);
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Error changing favourite state.');
+            CoreAlerts.showError(error, { default: 'Error changing favourite state.' });
         } finally {
             this.favouriteIcon = 'fas-star';
-            this.favouriteIconSlash = this.conversation.isfavourite;
             done && done();
         }
     }
@@ -1331,14 +1340,14 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
             // Get the conversation data so it's cached. Don't block the user for this.
             AddonMessages.getConversation(this.conversation.id, undefined, true);
 
-            CoreEvents.trigger(AddonMessagesProvider.UPDATE_CONVERSATION_LIST_EVENT, {
+            CoreEvents.trigger(ADDON_MESSAGES_UPDATE_CONVERSATION_LIST_EVENT, {
                 conversationId: this.conversation.id,
-                action: 'mute',
+                action: AddonMessagesUpdateConversationAction.MUTE,
                 value: this.conversation.ismuted,
             }, this.siteId);
 
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Error changing muted state.');
+            CoreAlerts.showError(error, { default: 'Error changing muted state.' });
         } finally {
             this.muteIcon = this.conversation.ismuted ? 'fas-bell' : 'fas-bell-slash';
             done && done();
@@ -1393,19 +1402,19 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
         }
 
         if (this.otherMember.canmessageevenifblocked) {
-            CoreDomUtils.showErrorModal(Translate.instant('addon.messages.cantblockuser', { $a: this.otherMember.fullname }));
+            CoreAlerts.showError(Translate.instant('addon.messages.cantblockuser', { $a: this.otherMember.fullname }));
 
             return;
         }
 
-        const template = Translate.instant('addon.messages.blockuserconfirm', { $a: this.otherMember.fullname });
-        const okText = Translate.instant('addon.messages.blockuser');
-
         try {
-            await CoreDomUtils.showConfirm(template, undefined, okText);
+            await CoreAlerts.confirm(Translate.instant('addon.messages.blockuserconfirm', { $a: this.otherMember.fullname }), {
+                okText: Translate.instant('addon.messages.blockuser'),
+            });
+
             this.blockIcon = CoreConstants.ICON_LOADING;
 
-            const modal = await CoreDomUtils.showModalLoading('core.sending', true);
+            const modal = await CoreLoadings.show('core.sending', true);
             this.showLoadingModal = true;
 
             try {
@@ -1416,7 +1425,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
                     this.showLoadingModal = false;
                 }
             } catch (error) {
-                CoreDomUtils.showErrorModalDefault(error, 'core.error', true);
+                CoreAlerts.showError(error, { default: Translate.instant('core.error') });
             } finally {
                 this.blockIcon = this.otherMember.isblocked ? 'fas-user-check' : 'fas-user-lock';
             }
@@ -1438,7 +1447,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
         const confirmMessage = 'addon.messages.' + (this.isSelf ? 'deleteallselfconfirm' : 'deleteallconfirm');
 
         try {
-            await CoreDomUtils.showDeleteConfirm(confirmMessage);
+            await CoreAlerts.confirmDelete(Translate.instant(confirmMessage));
             this.deleteIcon = CoreConstants.ICON_LOADING;
 
             try {
@@ -1446,10 +1455,10 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
                     await AddonMessages.deleteConversation(this.conversation.id);
 
                     CoreEvents.trigger(
-                        AddonMessagesProvider.UPDATE_CONVERSATION_LIST_EVENT,
+                        ADDON_MESSAGES_UPDATE_CONVERSATION_LIST_EVENT,
                         {
                             conversationId: this.conversation.id,
-                            action: 'delete',
+                            action: AddonMessagesUpdateConversationAction.DELETE,
                         },
                         this.siteId,
                     );
@@ -1459,7 +1468,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
                     done && done();
                 }
             } catch (error) {
-                CoreDomUtils.showErrorModalDefault(error, 'Error deleting conversation.');
+                CoreAlerts.showError(error, { default: 'Error deleting conversation.' });
             } finally {
                 this.deleteIcon = 'fas-trash';
             }
@@ -1479,15 +1488,14 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
             throw new CoreError('No member selected to be unblocked.');
         }
 
-        const template = Translate.instant('addon.messages.unblockuserconfirm', { $a: this.otherMember.fullname });
-        const okText = Translate.instant('addon.messages.unblockuser');
-
         try {
-            await CoreDomUtils.showConfirm(template, undefined, okText);
+            await CoreAlerts.confirm(Translate.instant('addon.messages.unblockuserconfirm', { $a: this.otherMember.fullname }), {
+                okText: Translate.instant('addon.messages.unblockuser'),
+            });
 
             this.blockIcon = CoreConstants.ICON_LOADING;
 
-            const modal = await CoreDomUtils.showModalLoading('core.sending', true);
+            const modal = await CoreLoadings.show('core.sending', true);
             this.showLoadingModal = true;
 
             try {
@@ -1498,7 +1506,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
                     this.showLoadingModal = false;
                 }
             } catch (error) {
-                CoreDomUtils.showErrorModalDefault(error, 'core.error', true);
+                CoreAlerts.showError(error, { default: Translate.instant('core.error') });
             } finally {
                 this.blockIcon = this.otherMember.isblocked ? 'fas-user-check' : 'fas-user-lock';
             }
@@ -1518,15 +1526,14 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
             throw new CoreError('No member selected to be requested.');
         }
 
-        const template = Translate.instant('addon.messages.addcontactconfirm', { $a: this.otherMember.fullname });
-        const okText = Translate.instant('core.add');
-
         try {
-            await CoreDomUtils.showConfirm(template, undefined, okText);
+            await CoreAlerts.confirm(Translate.instant('addon.messages.addcontactconfirm', { $a: this.otherMember.fullname }), {
+                okText: Translate.instant('core.add'),
+            });
 
             this.addRemoveIcon = CoreConstants.ICON_LOADING;
 
-            const modal = await CoreDomUtils.showModalLoading('core.sending', true);
+            const modal = await CoreLoadings.show('core.sending', true);
             this.showLoadingModal = true;
 
             try {
@@ -1537,7 +1544,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
                     this.showLoadingModal = false;
                 }
             } catch (error) {
-                CoreDomUtils.showErrorModalDefault(error, 'core.error', true);
+                CoreAlerts.showError(error, { default: Translate.instant('core.error') });
             } finally {
                 this.addRemoveIcon = 'fas-user-plus';
             }
@@ -1557,7 +1564,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
             throw new CoreError('No member selected to be confirmed.');
         }
 
-        const modal = await CoreDomUtils.showModalLoading('core.sending', true);
+        const modal = await CoreLoadings.show('core.sending', true);
         this.showLoadingModal = true;
 
         try {
@@ -1568,7 +1575,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
                 this.showLoadingModal = false;
             }
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'core.error', true);
+            CoreAlerts.showError(error, { default: Translate.instant('core.error') });
         }
     }
 
@@ -1583,7 +1590,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
             throw new CoreError('No member selected to be declined.');
         }
 
-        const modal = await CoreDomUtils.showModalLoading('core.sending', true);
+        const modal = await CoreLoadings.show('core.sending', true);
         this.showLoadingModal = true;
 
         try {
@@ -1594,7 +1601,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
                 this.showLoadingModal = false;
             }
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'core.error', true);
+            CoreAlerts.showError(error, { default: Translate.instant('core.error') });
         }
     }
 
@@ -1609,15 +1616,14 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
             throw new CoreError('No member selected to be removed.');
         }
 
-        const template = Translate.instant('addon.messages.removecontactconfirm', { $a: this.otherMember.fullname });
-        const okText = Translate.instant('core.remove');
-
         try {
-            await CoreDomUtils.showConfirm(template, undefined, okText);
+            await CoreAlerts.confirm(Translate.instant('addon.messages.removecontactconfirm', { $a: this.otherMember.fullname }), {
+                okText: Translate.instant('core.remove'),
+            });
 
             this.addRemoveIcon = CoreConstants.ICON_LOADING;
 
-            const modal = await CoreDomUtils.showModalLoading('core.sending', true);
+            const modal = await CoreLoadings.show('core.sending', true);
             this.showLoadingModal = true;
 
             try {
@@ -1628,7 +1634,7 @@ export class AddonMessagesDiscussionPage implements OnInit, OnDestroy, AfterView
                     this.showLoadingModal = false;
                 }
             } catch (error) {
-                CoreDomUtils.showErrorModalDefault(error, 'core.error', true);
+                CoreAlerts.showError(error, { default: Translate.instant('core.error') });
             } finally {
                 this.addRemoveIcon = 'fas-user-plus';
             }

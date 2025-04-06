@@ -1,4 +1,4 @@
-@addon_mod_glossary @app @javascript
+@addon_mod_glossary @app @mod @mod_glossary @javascript
 Feature: Test basic usage of glossary in app
   In order to participate in the glossaries while using the mobile app
   As a student
@@ -45,17 +45,22 @@ Feature: Test basic usage of glossary in app
     When I press "Potato" in the app
     Then I should find "Potato" in the app
     And I should find "To make chips" in the app
+    And the following events should have been logged for "student1" in the app:
+      | name                                     | activity | activityname  | object           | objectname | course   |
+      | \mod_glossary\event\course_module_viewed | glossary | Test glossary |                  |            | Course 1 |
+      | \mod_glossary\event\entry_viewed         | glossary | Test glossary | glossary_entries | Potato     | Course 1 |
 
   Scenario: Navigate to glossary terms by link (auto-linking)
     Given the "glossary" filter is "on"
-    And I entered the glossary activity "Test glossary" on course "Course 1" as "student1" in the app
+    And I entered the course "Course 1" as "student1" in the app
+    And I press "Test glossary" in the app
     Then the header should be "Test glossary" in the app
     And I should find "Eggplant" in the app
     And I should find "Cucumber" in the app
     And I should find "Potato" in the app
     And I should find "Raddish" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Test forum name" in the app
     And I press "Add discussion topic" in the app
     And I set the field "Subject" to "Testing auto-link glossary"
@@ -68,7 +73,7 @@ Feature: Test basic usage of glossary in app
     Then the header should be "Raddish" in the app
     And I should find "Raphanus sativus" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Potato" in the app
     Then the header should be "Potato" in the app
     And I should find "To make chips" in the app
@@ -111,7 +116,7 @@ Feature: Test basic usage of glossary in app
     Given I entered the course "Course 1" as "student1" in the app
     When I press "Course downloads" in the app
     When I press "Download" within "Test glossary" "ion-item" in the app
-    And I press the back button in the app
+    And I go back in the app
     And I switch network connection to offline
     And I press "Test glossary" in the app
     Then the header should be "Test glossary" in the app
@@ -154,7 +159,6 @@ Feature: Test basic usage of glossary in app
     Then I should find "Garlic" in the app
     And I should find "Allium sativum" in the app
 
-  @lms_from3.10
   Scenario: Edit entries
     Given I entered the glossary activity "Test glossary" on course "Course 1" as "student1" in the app
 
@@ -198,7 +202,7 @@ Feature: Test basic usage of glossary in app
     And I should find "stub3.txt" in the app
     But I should not find "stub2.txt" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     Then I should find "Coconut" in the app
     And I should find "Potato" in the app
     But I should not find "Cucumber" in the app
@@ -254,7 +258,7 @@ Feature: Test basic usage of glossary in app
     But I should not find "stub2.txt" in the app
     And I should not find "Brassica oleracea var. italica" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     Then I should find "Pickle" in the app
     And I should find "Potato" in the app
     But I should not find "Broccoli" in the app
@@ -271,7 +275,6 @@ Feature: Test basic usage of glossary in app
     But I should not find "stub2.txt" in the app
     And I should not find "Brassica oleracea var. italica" in the app
 
-  @lms_from3.10
   Scenario: Delete entries
     Given I entered the glossary activity "Test glossary" on course "Course 1" as "student1" in the app
 
@@ -367,7 +370,7 @@ Feature: Test basic usage of glossary in app
     And I should find "Average of ratings: 1" in the app
 
     When I switch network connection to wifi
-    And I press the back button in the app
+    And I go back in the app
     Then I should find "This Glossary has offline data to be synchronised." in the app
 
     When I press "Information" in the app

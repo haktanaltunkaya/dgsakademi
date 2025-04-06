@@ -14,13 +14,11 @@
 
 import { Injectable } from '@angular/core';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreCourse } from '@features/course/services/course';
+import { CoreDom } from '@singletons/dom';
+import { CoreCourseModuleHelper } from '@features/course/services/course-module-helper';
 import { CoreSiteWSPreSets } from '@classes/sites/authenticated-site';
 import { makeSingleton } from '@singletons';
 import { CoreCourseModuleDelegate } from '@features/course/services/module-delegate';
-
-const ROOT_CACHE_KEY = 'AddonBlockRecentlyAccessedItems:';
 
 /**
  * Service that provides some features regarding recently accessed items.
@@ -28,47 +26,60 @@ const ROOT_CACHE_KEY = 'AddonBlockRecentlyAccessedItems:';
 @Injectable( { providedIn: 'root' })
 export class AddonBlockRecentlyAccessedItemsProvider {
 
+    protected static readonly ROOT_CACHE_KEY = 'AddonBlockRecentlyAccessedItems:';
+
     /**
      * Get cache key for get last accessed items value WS call.
      *
      * @returns Cache key.
      */
     protected getRecentItemsCacheKey(): string {
-        return ROOT_CACHE_KEY + ':recentitems';
+        return `${AddonBlockRecentlyAccessedItemsProvider.ROOT_CACHE_KEY}:recentitems`;
     }
 
     /**
-     * Get last accessed items.
+     * Get last accessed items from WS.
      *
      * @param siteId Site ID. If not defined, use current site.
      * @returns Promise resolved when the info is retrieved.
      */
-    async getRecentItems(siteId?: string): Promise<AddonBlockRecentlyAccessedItemsItem[]> {
+    protected async getRecentItemsWS(siteId?: string): Promise<AddonBlockRecentlyaccesseditemsGetRecentItemsWSResponse[]> {
         const site = await CoreSites.getSite(siteId);
 
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getRecentItemsCacheKey(),
         };
 
-        let items: AddonBlockRecentlyAccessedItemsItem[] =
-            await site.read('block_recentlyaccesseditems_get_recent_items', undefined, preSets);
+        return await site.read('block_recentlyaccesseditems_get_recent_items', undefined, preSets);
+    }
+
+    /**
+     * Get last accessed items.
+     *
+     * @param siteId Site ID. If not defined, use current site.
+     * @returns Promise resolved when the info is retrieved with some calculated data.
+     */
+    async getRecentItems(siteId?: string): Promise<AddonBlockRecentlyAccessedItemsItemCalculatedData[]> {
+        const site = await CoreSites.getSite(siteId);
+
+        const items = await this.getRecentItemsWS(site.getId());
 
         const cmIds: number[] = [];
 
-        items = await Promise.all(items.map(async (item) => {
-            const modicon = item.icon && CoreDomUtils.getHTMLElementAttribute(item.icon, 'src');
+        const itemsToDisplay = await Promise.all(items.map(async (item: AddonBlockRecentlyAccessedItemsItemCalculatedData) => {
+            const modicon = item.icon && CoreDom.getHTMLElementAttribute(item.icon, 'src');
 
             item.iconUrl = await CoreCourseModuleDelegate.getModuleIconSrc(item.modname, modicon || undefined);
-            item.iconTitle = item.icon && CoreDomUtils.getHTMLElementAttribute(item.icon, 'title');
+            item.iconTitle = item.icon && CoreDom.getHTMLElementAttribute(item.icon, 'title');
             cmIds.push(item.cmid);
 
             return item;
         }));
 
         // Check if the viewed module should be updated for each activity.
-        const lastViewedMap = await CoreCourse.getCertainModulesViewed(cmIds, site.getId());
+        const lastViewedMap = await CoreCourseModuleHelper.getCertainModulesViewed(cmIds, site.getId());
 
-        items.forEach((recentItem) => {
+        itemsToDisplay.forEach((recentItem) => {
             const timeAccess = recentItem.timeaccess * 1000;
             const lastViewed = lastViewedMap[recentItem.cmid];
 
@@ -77,21 +88,20 @@ export class AddonBlockRecentlyAccessedItemsProvider {
             }
 
             // Update access.
-            CoreCourse.storeModuleViewed(recentItem.courseid, recentItem.cmid, {
+            CoreCourseModuleHelper.storeModuleViewed(recentItem.courseid, recentItem.cmid, {
                 timeaccess: recentItem.timeaccess * 1000,
                 sectionId: lastViewed && lastViewed.sectionId,
                 siteId: site.getId(),
             });
         });
 
-        return items;
+        return itemsToDisplay;
     }
 
     /**
      * Invalidates get last accessed items WS call.
      *
      * @param siteId Site ID to invalidate. If not defined, use current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateRecentItems(siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -103,11 +113,11 @@ export class AddonBlockRecentlyAccessedItemsProvider {
 export const AddonBlockRecentlyAccessedItems = makeSingleton(AddonBlockRecentlyAccessedItemsProvider);
 
 /**
- * Result of WS block_recentlyaccesseditems_get_recent_items.
+ * Data returned by block_recentlyaccesseditems_get_recent_items WS.
  *
  * The most recently accessed activities/resources by the logged user.
  */
-export type AddonBlockRecentlyAccessedItemsItem = {
+type AddonBlockRecentlyaccesseditemsGetRecentItemsWSResponse = {
     id: number; // Id.
     courseid: number; // Courseid.
     cmid: number; // Cmid.
@@ -120,12 +130,13 @@ export type AddonBlockRecentlyAccessedItemsItem = {
     courseviewurl: string; // Courseviewurl.
     icon: string; // Icon.
     purpose?: string; // Purpose. @since 4.0
-} & AddonBlockRecentlyAccessedItemsItemCalculatedData;
+    branded?: boolean; // Branded. @since 4.4
+};
 
 /**
  * Calculated data for recently accessed item.
  */
-export type AddonBlockRecentlyAccessedItemsItemCalculatedData = {
+export type AddonBlockRecentlyAccessedItemsItemCalculatedData = AddonBlockRecentlyaccesseditemsGetRecentItemsWSResponse & {
     iconUrl: string; // Icon URL. Calculated by the app.
     iconTitle?: string | null; // Icon title.
 };

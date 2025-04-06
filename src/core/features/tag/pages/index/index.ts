@@ -13,7 +13,6 @@
 // limitations under the License.
 
 import { Component, OnInit } from '@angular/core';
-import { CoreDomUtils } from '@services/utils/dom';
 import { CoreTag } from '@features/tag/services/tag';
 import { CoreTagAreaDelegate } from '@features/tag/services/tag-area-delegate';
 import { CoreScreen } from '@services/screen';
@@ -21,7 +20,9 @@ import { CoreNavigator } from '@services/navigator';
 import { CoreTime } from '@singletons/time';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
 import { Translate } from '@singletons';
-import { CoreUrlUtils } from '@services/utils/url';
+import { CoreUrl } from '@singletons/url';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays the tag index.
@@ -29,8 +30,12 @@ import { CoreUrlUtils } from '@services/utils/url';
 @Component({
     selector: 'page-core-tag-index',
     templateUrl: 'index.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
-export class CoreTagIndexPage implements OnInit {
+export default class CoreTagIndexPage implements OnInit {
 
     tagId = 0;
     tagName = '';
@@ -62,7 +67,7 @@ export class CoreTagIndexPage implements OnInit {
                 ws: 'core_tag_get_tagindex_per_area',
                 name: this.tagName || Translate.instant('core.tag.tag'),
                 data: { id: this.tagId || undefined, ...params, category: 'tag' },
-                url: CoreUrlUtils.addParamsToUrl('/tag/index.php', params),
+                url: CoreUrl.addParamsToUrl('/tag/index.php', params),
             });
         });
     }
@@ -139,7 +144,7 @@ export class CoreTagIndexPage implements OnInit {
             this.logView();
 
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Error loading tag index');
+            CoreAlerts.showError(error, { default: 'Error loading tag index' });
         }
     }
 

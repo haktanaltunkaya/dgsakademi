@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreConstants } from '@/core/constants';
+import { DownloadStatus } from '@/core/constants';
 import { Injectable } from '@angular/core';
 
 import { CoreCourseActivityPrefetchHandlerBase } from '@features/course/classes/activity-prefetch-handler';
@@ -25,16 +25,20 @@ import { CoreXAPI } from '@features/xapi/services/xapi';
 import { CoreFileHelper } from '@services/file-helper';
 import { CoreFilepool } from '@services/filepool';
 import { CoreSites, CoreSitesReadingStrategy } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { CoreWSFile } from '@services/ws';
 import { makeSingleton } from '@singletons';
 import {
     AddonModH5PActivity,
     AddonModH5PActivityAccessInfo,
     AddonModH5PActivityData,
-    AddonModH5PActivityProvider,
-    MOD_H5PACTIVITY_STATE_ID,
 } from '../h5pactivity';
+import {
+    ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY,
+    ADDON_MOD_H5PACTIVITY_MODNAME,
+    ADDON_MOD_H5PACTIVITY_STATE_ID,
+    ADDON_MOD_H5PACTIVITY_TRACK_COMPONENT,
+} from '../../constants';
 
 /**
  * Handler to prefetch h5p activity.
@@ -43,8 +47,8 @@ import {
 export class AddonModH5PActivityPrefetchHandlerService extends CoreCourseActivityPrefetchHandlerBase {
 
     name = 'AddonModH5PActivity';
-    modName = 'h5pactivity';
-    component = AddonModH5PActivityProvider.COMPONENT;
+    modName = ADDON_MOD_H5PACTIVITY_MODNAME;
+    component = ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY;
     updatesNames = /^configuration$|^.*files$|^tracks$|^usertracks$/;
 
     /**
@@ -113,8 +117,9 @@ export class AddonModH5PActivityPrefetchHandlerService extends CoreCourseActivit
 
         await Promise.all([
             this.prefetchWSData(h5pActivity, siteId),
-            CoreFilepool.addFilesToQueue(siteId, introFiles, AddonModH5PActivityProvider.COMPONENT, module.id),
+            CoreFilepool.addFilesToQueue(siteId, introFiles, ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY, module.id),
             this.prefetchMainFile(module, h5pActivity, siteId),
+            CoreH5P.getCustomCssSrc(siteId),
         ]);
     }
 
@@ -140,19 +145,25 @@ export class AddonModH5PActivityPrefetchHandlerService extends CoreCourseActivit
             siteId: siteId,
         });
 
+        // If we already detected that the file has missing dependencies there's no need to download it again.
+        const missingDependencies = await AddonModH5PActivity.getMissingDependencies(module.id, deployedFile, siteId);
+        if (missingDependencies.length > 0) {
+            throw CoreH5P.h5pFramework.buildMissingDependenciesErrorFromDBRecords(missingDependencies);
+        }
+
         if (AddonModH5PActivity.isSaveStateEnabled(h5pActivity)) {
             // If the file needs to be downloaded, delete the states because it means the package has changed or user deleted it.
             const fileState = await CoreFilepool.getFileStateByUrl(siteId, CoreFileHelper.getFileUrl(deployedFile));
 
-            if (fileState !== CoreConstants.DOWNLOADED) {
-                await CoreUtils.ignoreErrors(CoreXAPIOffline.deleteStates(AddonModH5PActivityProvider.TRACK_COMPONENT, {
+            if (fileState !== DownloadStatus.DOWNLOADED) {
+                await CorePromiseUtils.ignoreErrors(CoreXAPIOffline.deleteStates(ADDON_MOD_H5PACTIVITY_TRACK_COMPONENT, {
                     itemId: h5pActivity.context,
                     siteId,
                 }));
             }
         }
 
-        await CoreFilepool.addFilesToQueue(siteId, [deployedFile], AddonModH5PActivityProvider.COMPONENT, module.id);
+        await CoreFilepool.addFilesToQueue(siteId, [deployedFile], ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY, module.id);
     }
 
     /**
@@ -238,16 +249,29 @@ export class AddonModH5PActivityPrefetchHandlerService extends CoreCourseActivit
         }
 
         await CoreXAPI.getStateFromServer(
-            AddonModH5PActivityProvider.TRACK_COMPONENT,
+            ADDON_MOD_H5PACTIVITY_TRACK_COMPONENT,
             h5pActivity.context,
-            MOD_H5PACTIVITY_STATE_ID,
+            ADDON_MOD_H5PACTIVITY_STATE_ID,
             {
-                appComponent: AddonModH5PActivityProvider.COMPONENT,
+                appComponent: ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY,
                 appComponentId: h5pActivity.coursemodule,
                 readingStrategy: CoreSitesReadingStrategy.ONLY_NETWORK,
                 siteId,
             },
         );
+    }
+
+    /**
+     * @inheritdoc
+     */
+    async removeFiles(module: CoreCourseAnyModuleData, courseId: number): Promise<void> {
+        // Remove files and delete any missing dependency stored to force recalculating them.
+        await Promise.all([
+            super.removeFiles(module, courseId),
+            CorePromiseUtils.ignoreErrors(
+                CoreH5P.h5pFramework.deleteMissingDependenciesForComponent(ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY, module.id),
+            ),
+        ]);
     }
 
 }

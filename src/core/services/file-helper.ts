@@ -17,20 +17,23 @@ import { FileEntry } from '@awesome-cordova-plugins/file/ngx';
 
 import { CoreNetwork } from '@services/network';
 import { CoreFile } from '@services/file';
+import { CoreFileUtils } from '@singletons/file-utils';
 import { CoreFilepool } from '@services/filepool';
 import { CoreSites } from '@services/sites';
 import { CoreWS, CoreWSFile } from '@services/ws';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUrlUtils } from '@services/utils/url';
-import { CoreUtils, CoreUtilsOpenFileOptions, OpenFileAction } from '@services/utils/utils';
-import { CoreConstants } from '@/core/constants';
+import { CoreUrl } from '@singletons/url';
+import { CoreOpener, CoreOpenerOpenFileOptions, OpenFileAction } from '@singletons/opener';
+import { CoreConstants, DownloadStatus } from '@/core/constants';
 import { CoreError } from '@classes/errors/error';
 import { makeSingleton, Translate } from '@singletons';
 import { CoreNetworkError } from '@classes/errors/network-error';
 import { CoreConfig } from './config';
 import { CoreCanceledError } from '@classes/errors/cancelederror';
-import { CoreMimetypeUtils } from '@services/utils/mimetype';
+import { CoreMimetype } from '@singletons/mimetype';
 import { CorePlatform } from './platform';
+import { CorePath } from '@singletons/path';
+import { CoreText } from '@singletons/text';
+import { CorePrompts } from './overlays/prompts';
 
 /**
  * Provider to provide some helper functions regarding files and packages.
@@ -63,10 +66,10 @@ export class CoreFileHelperProvider {
         file: CoreWSFile,
         component?: string,
         componentId?: string | number,
-        state?: string,
+        state?: DownloadStatus,
         onProgress?: CoreFileHelperOnProgress,
         siteId?: string,
-        options: CoreUtilsOpenFileOptions = {},
+        options: CoreOpenerOpenFileOptions = {},
     ): Promise<void> {
         siteId = siteId || CoreSites.getCurrentSiteId();
 
@@ -93,31 +96,27 @@ export class CoreFileHelperProvider {
             return;
         }
 
-        if (!CoreUrlUtils.isLocalFileUrl(url)) {
+        if (!CoreUrl.isLocalFileUrl(url)) {
             /* In iOS, if we use the same URL in embedded browser and background download then the download only
                downloads a few bytes (cached ones). Add a hash to the URL so both URLs are different. */
-            url = url + '#moodlemobile-embedded';
+            url = `${url}#moodlemobile-embedded`;
 
             try {
-                await CoreUtils.openOnlineFile(url);
+                await CoreOpener.openOnlineFile(url);
 
                 return;
-            } catch (error) {
+            } catch {
                 // Error opening the file, some apps don't allow opening online files.
-                if (!CoreFile.isAvailable()) {
-                    throw error;
-                }
-
                 // Get the state.
                 if (!state) {
                     state = await CoreFilepool.getFileStateByUrl(siteId, fileUrl, timemodified);
                 }
 
-                if (state == CoreConstants.DOWNLOADING) {
+                if (state === DownloadStatus.DOWNLOADING) {
                     throw new CoreError(Translate.instant('core.erroropenfiledownloading'));
                 }
 
-                if (state === CoreConstants.NOT_DOWNLOADED) {
+                if (state === DownloadStatus.DOWNLOADABLE_NOT_DOWNLOADED) {
                     // File is not downloaded, download and then return the local URL.
                     url = await this.downloadFile(fileUrl, component, componentId, timemodified, onProgress, file, siteId);
                 } else {
@@ -127,7 +126,7 @@ export class CoreFileHelperProvider {
             }
         }
 
-        return CoreUtils.openFile(url, options);
+        return CoreOpener.openFile(url, options);
     }
 
     /**
@@ -150,20 +149,15 @@ export class CoreFileHelperProvider {
         component?: string,
         componentId?: string | number,
         timemodified?: number,
-        state?: string,
+        state?: DownloadStatus,
         onProgress?: CoreFileHelperOnProgress,
         siteId?: string,
-        options: CoreUtilsOpenFileOptions = {},
+        options: CoreOpenerOpenFileOptions = {},
     ): Promise<string> {
         siteId = siteId || CoreSites.getCurrentSiteId();
 
         const site = await CoreSites.getSite(siteId);
         const fixedUrl = await site.checkAndFixPluginfileURL(fileUrl);
-
-        if (!CoreFile.isAvailable()) {
-            // Use the online URL.
-            return fixedUrl;
-        }
 
         if (!state) {
             // Calculate the state.
@@ -174,7 +168,7 @@ export class CoreFileHelperProvider {
         const isWifi = CoreNetwork.isWifi();
         const isOnline = CoreNetwork.isOnline();
 
-        if (state == CoreConstants.DOWNLOADED) {
+        if (state === DownloadStatus.DOWNLOADED) {
             // File is downloaded, get the local file URL.
             return CoreFilepool.getUrlByUrl(siteId, fileUrl, component, componentId, timemodified, false, false, file);
         } else {
@@ -191,7 +185,7 @@ export class CoreFileHelperProvider {
             const shouldDownloadFirst = await CoreFilepool.shouldDownloadFileBeforeOpen(fixedUrl, file.filesize || 0, options);
             if (shouldDownloadFirst) {
                 // Download the file first.
-                if (state == CoreConstants.DOWNLOADING) {
+                if (state === DownloadStatus.DOWNLOADING) {
                     // It's already downloading, stop.
                     return fixedUrl;
                 }
@@ -304,8 +298,8 @@ export class CoreFileHelperProvider {
      * @param state The state to check.
      * @returns If file has been downloaded (or outdated).
      */
-    isStateDownloaded(state: string): boolean {
-        return state === CoreConstants.DOWNLOADED || state === CoreConstants.OUTDATED;
+    isStateDownloaded(state: DownloadStatus): boolean {
+        return state === DownloadStatus.DOWNLOADED || state === DownloadStatus.OUTDATED;
     }
 
     /**
@@ -323,7 +317,7 @@ export class CoreFileHelperProvider {
 
         if (!('isexternalfile' in file) || !file.isexternalfile) {
             return mimetype === 'application/vnd.android.package-archive'
-                || CoreMimetypeUtils.getFileExtension(file.filename ?? '') === 'apk';
+                || CoreMimetype.getFileExtension(file.filename ?? '') === 'apk';
         }
 
         if (mimetype.indexOf('application/vnd.google-apps.') != -1) {
@@ -433,24 +427,21 @@ export class CoreFileHelperProvider {
         const regex = /(?:\.([^.]+))?$/;
         const regexResult = regex.exec(file.filename || file.name || '');
 
-        const configKey = 'CoreFileUnsupportedWarningDisabled-' + (regexResult?.[1] ?? 'unknown');
+        const configKey = `CoreFileUnsupportedWarningDisabled-${regexResult?.[1] ?? 'unknown'}`;
         const dontShowWarning = await CoreConfig.get(configKey, 0);
         if (dontShowWarning) {
             return;
         }
 
-        const message = Translate.instant('core.cannotopeninapp' + (onlyDownload ? 'download' : ''));
+        const message = Translate.instant(`core.cannotopeninapp${onlyDownload ? 'download' : ''}`);
         const okButton = Translate.instant(onlyDownload ? 'core.downloadfile' : 'core.openfile');
 
         try {
-            const dontShowAgain = await CoreDomUtils.showPrompt(
-                message,
-                undefined,
-                Translate.instant('core.dontshowagain'),
-                'checkbox',
-                { okText: okButton },
-                { cssClass: 'core-modal-force-on-top' },
-            );
+            const dontShowAgain = await CorePrompts.show(message, 'checkbox', {
+                placeholderOrLabel: Translate.instant('core.dontshowagain'),
+                buttons: { okText: okButton },
+                cssClass: 'core-alert-force-on-top',
+            });
 
             if (dontShowAgain) {
                 CoreConfig.set(configKey, 1);
@@ -475,7 +466,7 @@ export class CoreFileHelperProvider {
             return false;
         }
 
-        const regEx = new RegExp('(,|^)' + fileType + '(,|$)', 'g');
+        const regEx = new RegExp(`(,|^)${fileType}(,|$)`, 'g');
 
         return !!fileTypeExcludeList.match(regEx);
     }
@@ -487,13 +478,168 @@ export class CoreFileHelperProvider {
      * @returns The file name.
      */
     getFilenameFromPath(file: CoreFileEntry): string | undefined {
-        const path = CoreUtils.isFileEntry(file) ? file.fullPath : file.filepath;
+        const path = CoreFileUtils.isFileEntry(file) ? file.fullPath : file.filepath;
 
         if (path === undefined || path.length == 0) {
             return;
         }
 
         return path.split('\\').pop()?.split('/').pop();
+    }
+
+    /**
+     * Get the pluginfile URL to replace @@PLUGINFILE@@ wildcards.
+     *
+     * @param files Files to extract the URL from. They need to have the URL in a 'url' or 'fileurl' attribute.
+     * @returns Pluginfile URL, undefined if no files found.
+     */
+    getTextPluginfileUrl(files: CoreWSFile[]): string | undefined {
+        if (files?.length) {
+            const url = this.getFileUrl(files[0]);
+
+            // Remove text after last slash (encoded or not).
+            return url?.substring(0, Math.max(url.lastIndexOf('/'), url.lastIndexOf('%2F')));
+        }
+
+        return;
+    }
+
+    /**
+     * Replace draftfile URLs with the equivalent pluginfile URL.
+     *
+     * @param siteUrl URL of the site.
+     * @param text Text to treat, including draftfile URLs.
+     * @param files List of files of the area, using pluginfile URLs.
+     * @returns Treated text and map with the replacements.
+     */
+    replaceDraftfileUrls(
+        siteUrl: string,
+        text: string,
+        files: CoreWSFile[],
+    ): { text: string; replaceMap?: {[url: string]: string} } {
+
+        if (!text || !files || !files.length) {
+            return { text };
+        }
+
+        const draftfileUrl = CorePath.concatenatePaths(siteUrl, 'draftfile.php');
+        const matches = text.match(new RegExp(`${CoreText.escapeForRegex(draftfileUrl)}[^'" ]+`, 'ig'));
+
+        if (!matches || !matches.length) {
+            return { text };
+        }
+
+        // Index the pluginfile URLs by file name.
+        const pluginfileMap: {[name: string]: string} = {};
+        files.forEach((file) => {
+            if (!file.filename) {
+                return;
+            }
+            pluginfileMap[file.filename] = CoreFileHelper.getFileUrl(file);
+        });
+
+        // Replace each draftfile with the corresponding pluginfile URL.
+        const replaceMap: {[url: string]: string} = {};
+        matches.forEach((url) => {
+            if (replaceMap[url]) {
+                // URL already treated, same file embedded more than once.
+                return;
+            }
+
+            // Get the filename from the URL.
+            let filename = url.substring(url.lastIndexOf('/') + 1);
+            if (filename.indexOf('?') != -1) {
+                filename = filename.substring(0, filename.indexOf('?'));
+            }
+            filename = CoreUrl.decodeURIComponent(filename);
+
+            if (pluginfileMap[filename]) {
+                replaceMap[url] = pluginfileMap[filename];
+                text = text.replace(new RegExp(CoreText.escapeForRegex(url), 'g'), pluginfileMap[filename]);
+            }
+        });
+
+        return {
+            text,
+            replaceMap,
+        };
+    }
+
+    /**
+     * Replace @@PLUGINFILE@@ wildcards with the real URL in a text.
+     *
+     * @param text to treat.
+     * @param files Files to extract the pluginfile URL from. They need to have the URL in a url or fileurl attribute.
+     * @returns Treated text.
+     */
+    replacePluginfileUrls(text: string, files: CoreWSFile[]): string {
+        if (text && typeof text === 'string') {
+            const fileURL = this.getTextPluginfileUrl(files);
+            if (fileURL) {
+                return text.replace(/@@PLUGINFILE@@/g, fileURL);
+            }
+        }
+
+        return text;
+    }
+
+    /**
+     * Restore original draftfile URLs.
+     *
+     * @param siteUrl Site URL.
+     * @param treatedText Treated text with replacements.
+     * @param originalText Original text.
+     * @param files List of files to search and replace.
+     * @returns Treated text.
+     */
+    restoreDraftfileUrls(siteUrl: string, treatedText: string, originalText: string, files: CoreWSFile[]): string {
+        if (!treatedText || !files || !files.length) {
+            return treatedText;
+        }
+
+        const draftfileUrl = CorePath.concatenatePaths(siteUrl, 'draftfile.php');
+        const draftfileUrlRegexPrefix = `${CoreText.escapeForRegex(draftfileUrl)}/[^/]+/[^/]+/[^/]+/[^/]+/`;
+
+        files.forEach((file) => {
+            // Get the file name from the URL instead of using file.filename because the URL can have encoded characters.
+            // encodeURIComponent doesn't encode parenthesis, so it's better to rely on the name from the URL.
+            const url = CoreFileHelper.getFileUrl(file);
+            let filename = url.substring(url.lastIndexOf('/') + 1);
+            if (filename.indexOf('?') != -1) {
+                filename = filename.substring(0, filename.indexOf('?'));
+            }
+
+            // Search the draftfile URL in the original text.
+            const matches = originalText.match(
+                new RegExp(`${draftfileUrlRegexPrefix + CoreText.escapeForRegex(filename)}[^'" ]*`, 'i'),
+            );
+
+            if (!matches || !matches[0]) {
+                return; // Original URL not found, skip.
+            }
+
+            treatedText = treatedText.replace(new RegExp(CoreText.escapeForRegex(url), 'g'), matches[0]);
+        });
+
+        return treatedText;
+    }
+
+    /**
+     * Replace pluginfile URLs with @@PLUGINFILE@@ wildcards.
+     *
+     * @param text Text to treat.
+     * @param files Files to extract the pluginfile URL from. They need to have the URL in a url or fileurl attribute.
+     * @returns Treated text.
+     */
+    restorePluginfileUrls(text: string, files: CoreWSFile[]): string {
+        if (text && typeof text == 'string') {
+            const fileURL = this.getTextPluginfileUrl(files);
+            if (fileURL) {
+                return text.replace(new RegExp(CoreText.escapeForRegex(fileURL), 'g'), '@@PLUGINFILE@@');
+            }
+        }
+
+        return text;
     }
 
 }

@@ -13,17 +13,14 @@
 // limitations under the License.
 
 import { Component, ElementRef, OnInit, ViewChild } from '@angular/core';
-import { CoreQuestionQuestionParsed } from '@features/question/services/question';
+import { CoreQuestionQuestionForView } from '@features/question/services/question';
 import { CoreQuestionHelper } from '@features/question/services/question-helper';
 import { IonContent } from '@ionic/angular';
 import { CoreNavigator } from '@services/navigator';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
-import { Translate } from '@singletons';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { CoreDom } from '@singletons/dom';
 import { CoreTime } from '@singletons/time';
 import {
-    AddonModQuizNavigationModalComponent,
     AddonModQuizNavigationModalReturn,
     AddonModQuizNavigationQuestion,
 } from '../../components/navigation-modal/navigation-modal';
@@ -31,13 +28,19 @@ import {
     AddonModQuiz,
     AddonModQuizAttemptWSData,
     AddonModQuizCombinedReviewOptions,
-    AddonModQuizGetAttemptReviewResponse,
-    AddonModQuizProvider,
     AddonModQuizQuizWSData,
     AddonModQuizWSAdditionalData,
 } from '../../services/quiz';
 import { AddonModQuizHelper } from '../../services/quiz-helper';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
+import { ADDON_MOD_QUIZ_COMPONENT_LEGACY } from '../../constants';
+import { CoreModals } from '@services/overlays/modals';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { Translate } from '@singletons';
+import { AddonModQuizQuestionCardComponent } from '../../components/question-card/question-card';
+import { AddonModQuizAttemptInfoComponent } from '../../components/attempt-info/attempt-info';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreQuestionComponent } from '@features/question/components/question/question';
 
 /**
  * Page that allows reviewing a quiz attempt.
@@ -45,27 +48,32 @@ import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
 @Component({
     selector: 'page-addon-mod-quiz-review',
     templateUrl: 'review.html',
-    styleUrls: ['review.scss'],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        AddonModQuizAttemptInfoComponent,
+        AddonModQuizQuestionCardComponent,
+        CoreQuestionComponent,
+    ],
 })
-export class AddonModQuizReviewPage implements OnInit {
+export default class AddonModQuizReviewPage implements OnInit {
 
     @ViewChild(IonContent) content?: IonContent;
 
     attempt?: AddonModQuizAttemptWSData; // The attempt being reviewed.
-    component = AddonModQuizProvider.COMPONENT; // Component to link the files to.
+    component = ADDON_MOD_QUIZ_COMPONENT_LEGACY; // Component to link the files to.
     showAll = false; // Whether to view all questions in the same page.
     numPages = 1; // Number of pages.
     showCompleted = false; // Whether to show completed time.
     additionalData?: AddonModQuizWSAdditionalData[]; // Additional data to display for the attempt.
     loaded = false; // Whether data has been loaded.
     navigation: AddonModQuizNavigationQuestion[] = []; // List of questions to navigate them.
-    questions: QuizQuestion[] = []; // Questions of the current page.
+    questions: CoreQuestionQuestionForView[] = []; // Questions of the current page.
     nextPage = -2; // Next page.
     previousPage = -2; // Previous page.
-    readableState?: string;
     readableGrade?: string;
-    readableMark?: string;
     timeTaken?: string;
+    gradeItemMarks: { name: string; grade: string }[] = [];
     overTime?: string;
     quiz?: AddonModQuizQuizWSData; // The quiz the attempt belongs to.
     courseId!: number; // The course ID the quiz belongs to.
@@ -96,8 +104,7 @@ export class AddonModQuizReviewPage implements OnInit {
             this.currentPage = CoreNavigator.getRouteNumberParam('page') || -1;
             this.showAll = this.currentPage == -1;
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
-
+            CoreAlerts.showError(error);
             CoreNavigator.back();
 
             return;
@@ -135,7 +142,7 @@ export class AddonModQuizReviewPage implements OnInit {
 
             this.performLogView(false, { page });
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'addon.mod_quiz.errorgetquestions', true);
+            CoreAlerts.showError(error, { default: Translate.instant('addon.mod_quiz.errorgetquestions') });
         } finally {
             this.loaded = true;
 
@@ -148,14 +155,14 @@ export class AddonModQuizReviewPage implements OnInit {
 
     /**
      * Convenience function to get the quiz data.
-     *
-     * @returns Promise resolved when done.
      */
     protected async fetchData(): Promise<void> {
         try {
             this.quiz = await AddonModQuiz.getQuiz(this.courseId, this.cmId);
 
             this.options = await AddonModQuiz.getCombinedReviewOptions(this.quiz.id, { cmId: this.cmId });
+
+            AddonModQuizHelper.setQuizCalculatedData(this.quiz, this.options);
 
             // Load the navigation data.
             await this.loadNavigation();
@@ -165,7 +172,10 @@ export class AddonModQuizReviewPage implements OnInit {
 
             this.logView();
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'addon.mod_quiz.errorgetquiz', true);
+            CoreAlerts.showError(error, { default: Translate.instant('addon.mod_quiz.errorgetquiz') });
+            if (error.errorcode === 'noreview' || error.errorcode === 'noreviewattempt') {
+                CoreNavigator.back();
+            }
         }
     }
 
@@ -173,17 +183,18 @@ export class AddonModQuizReviewPage implements OnInit {
      * Load a page questions.
      *
      * @param page The page to load.
-     * @returns Promise resolved when done.
      */
     protected async loadPage(page: number): Promise<void> {
-        const data = await AddonModQuiz.getAttemptReview(this.attemptId, { page, cmId: this.quiz?.coursemodule });
+        if (!this.quiz) {
+            return;
+        }
 
-        this.attempt = data.attempt;
+        const data = await AddonModQuiz.getAttemptReview(this.attemptId, { page, cmId: this.quiz.coursemodule });
+
+        this.attempt = await AddonModQuizHelper.setAttemptCalculatedData(this.quiz, data.attempt);
         this.attempt.currentpage = page;
+        this.additionalData = data.additionaldata;
         this.currentPage = page;
-
-        // Set the summary data.
-        this.setSummaryCalculatedData(data);
 
         this.questions = data.questions;
         this.nextPage = page + 1;
@@ -200,8 +211,6 @@ export class AddonModQuizReviewPage implements OnInit {
 
     /**
      * Load data to navigate the questions using the navigation modal.
-     *
-     * @returns Promise resolved when done.
      */
     protected async loadNavigation(): Promise<void> {
         // Get all questions in single page to retrieve all the questions.
@@ -210,7 +219,7 @@ export class AddonModQuizReviewPage implements OnInit {
         this.navigation = data.questions;
 
         this.navigation.forEach((question) => {
-            question.stateClass = CoreQuestionHelper.getQuestionStateClass(question.state || '');
+            CoreQuestionHelper.populateQuestionStateClass(question);
         });
 
         const lastQuestion = data.questions[data.questions.length - 1];
@@ -231,7 +240,7 @@ export class AddonModQuizReviewPage implements OnInit {
             promises.push(AddonModQuiz.invalidateCombinedReviewOptionsForUser(this.quiz.id));
         }
 
-        await CoreUtils.ignoreErrors(Promise.all(promises));
+        await CorePromiseUtils.ignoreErrors(Promise.all(promises));
 
         try {
             await this.fetchData();
@@ -253,78 +262,6 @@ export class AddonModQuizReviewPage implements OnInit {
     }
 
     /**
-     * Calculate review summary data.
-     *
-     * @param data Result of getAttemptReview.
-     */
-    protected setSummaryCalculatedData(data: AddonModQuizGetAttemptReviewResponse): void {
-        if (!this.attempt || !this.quiz) {
-            return;
-        }
-
-        this.readableState = AddonModQuiz.getAttemptReadableStateName(this.attempt.state ?? '');
-
-        if (this.attempt.state != AddonModQuizProvider.ATTEMPT_FINISHED) {
-            return;
-        }
-
-        this.showCompleted = true;
-        this.additionalData = data.additionaldata;
-
-        const timeTaken = (this.attempt.timefinish || 0) - (this.attempt.timestart || 0);
-        if (timeTaken > 0) {
-            // Format time taken.
-            this.timeTaken = CoreTime.formatTime(timeTaken);
-
-            // Calculate overdue time.
-            if (this.quiz.timelimit && timeTaken > this.quiz.timelimit + 60) {
-                this.overTime = CoreTime.formatTime(timeTaken - this.quiz.timelimit);
-            }
-        } else {
-            this.timeTaken = undefined;
-        }
-
-        // Treat grade.
-        if (this.options && this.options.someoptions.marks >= AddonModQuizProvider.QUESTION_OPTIONS_MARK_AND_MAX &&
-                AddonModQuiz.quizHasGrades(this.quiz)) {
-
-            if (data.grade === null || data.grade === undefined) {
-                this.readableGrade = AddonModQuiz.formatGrade(data.grade, this.quiz.decimalpoints);
-            } else {
-                // Show raw marks only if they are different from the grade (like on the entry page).
-                if (this.quiz.grade != this.quiz.sumgrades) {
-                    this.readableMark = Translate.instant('addon.mod_quiz.outofshort', { $a: {
-                        grade: AddonModQuiz.formatGrade(this.attempt.sumgrades, this.quiz.decimalpoints),
-                        maxgrade: AddonModQuiz.formatGrade(this.quiz.sumgrades, this.quiz.decimalpoints),
-                    } });
-                }
-
-                // Now the scaled grade.
-                const gradeObject: Record<string, unknown> = {
-                    grade: AddonModQuiz.formatGrade(Number(data.grade), this.quiz.decimalpoints),
-                    maxgrade: AddonModQuiz.formatGrade(this.quiz.grade, this.quiz.decimalpoints),
-                };
-
-                if (this.quiz.grade != 100) {
-                    gradeObject.percent = AddonModQuiz.formatGrade(
-                        (this.attempt.sumgrades ?? 0) * 100 / (this.quiz.sumgrades ?? 1),
-                        this.quiz.decimalpoints,
-                    );
-                    this.readableGrade = Translate.instant('addon.mod_quiz.outofpercent', { $a: gradeObject });
-                } else {
-                    this.readableGrade = Translate.instant('addon.mod_quiz.outof', { $a: gradeObject });
-                }
-            }
-        }
-
-        // Treat additional data.
-        this.additionalData.forEach((data) => {
-            // Remove help links from additional data.
-            data.content = CoreDomUtils.removeElementFromHtml(data.content, '.helptooltip');
-        });
-    }
-
-    /**
      * Switch mode: all questions in same page OR one page at a time.
      */
     async switchMode(): Promise<void> {
@@ -337,13 +274,16 @@ export class AddonModQuizReviewPage implements OnInit {
     }
 
     async openNavigation(): Promise<void> {
+        const { AddonModQuizNavigationModalComponent } = await import('../../components/navigation-modal/navigation-modal');
+
         // Create the navigation modal.
-        const modalData = await CoreDomUtils.openSideModal<AddonModQuizNavigationModalReturn>({
+        const modalData = await CoreModals.openSideModal<AddonModQuizNavigationModalReturn>({
             component: AddonModQuizNavigationModalComponent,
             componentProps: {
                 navigation: this.navigation,
                 summaryShown: false,
                 currentPage: this.attempt?.currentpage,
+                nextPage: this.nextPage,
                 isReview: true,
                 isSequential: this.quiz && AddonModQuiz.isNavigationSequential(this.quiz),
             },
@@ -368,14 +308,14 @@ export class AddonModQuizReviewPage implements OnInit {
         }
 
         if (logInLMS) {
-            await CoreUtils.ignoreErrors(AddonModQuiz.logViewAttemptReview(this.attemptId, this.quiz.id));
+            await CorePromiseUtils.ignoreErrors(AddonModQuiz.logViewAttemptReview(this.attemptId, this.quiz.id));
         }
 
         let url = `/mod/quiz/review.php?attempt=${this.attemptId}&cmid=${this.cmId}`;
         if (options.showAllDisabled) {
             url += '&showall=0';
         } else if (options.page && options.page > 0) {
-            url += `&page=${ options.page}`;
+            url += `&page=${options.page}`;
         }
 
         CoreAnalytics.logEvent({
@@ -388,13 +328,6 @@ export class AddonModQuizReviewPage implements OnInit {
     }
 
 }
-
-/**
- * Question with some calculated data for the view.
- */
-type QuizQuestion = CoreQuestionQuestionParsed & {
-    readableMark?: string;
-};
 
 type LogViewOptions = {
     page?: number; // Page being viewed (if viewing pages);

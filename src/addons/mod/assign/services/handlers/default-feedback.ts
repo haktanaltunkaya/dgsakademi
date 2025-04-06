@@ -17,6 +17,7 @@ import { CoreWSFile } from '@services/ws';
 import { Translate } from '@singletons';
 import { AddonModAssignPlugin } from '../assign';
 import { AddonModAssignFeedbackHandler } from '../feedback-delegate';
+import { CoreFormFields } from '@singletons/form';
 
 /**
  * Default handler used when a feedback plugin doesn't have a specific implementation.
@@ -30,14 +31,22 @@ export class AddonModAssignDefaultFeedbackHandler implements AddonModAssignFeedb
     /**
      * @inheritdoc
      */
-    discardDraft(): void {
+    async canContainFiltersWhenEditing(): Promise<boolean> {
+        return true;
+    }
+
+    /**
+     * @inheritdoc
+     */
+
+    discardDraft(): void | Promise<void> {
         // Nothing to do.
     }
 
     /**
      * @inheritdoc
      */
-    getDraft(): undefined {
+    getDraft(): CoreFormFields | Promise<CoreFormFields | undefined> | undefined {
         // Nothing to do.
         return;
     }
@@ -45,7 +54,7 @@ export class AddonModAssignDefaultFeedbackHandler implements AddonModAssignFeedb
     /**
      * @inheritdoc
      */
-    getPluginFiles(): CoreWSFile[] {
+    getPluginFiles(): CoreWSFile[] | Promise<CoreWSFile[]> {
         return [];
     }
 
@@ -54,7 +63,7 @@ export class AddonModAssignDefaultFeedbackHandler implements AddonModAssignFeedb
      */
     getPluginName(plugin: AddonModAssignPlugin): string {
         // Check if there's a translated string for the plugin.
-        const translationId = 'addon.mod_assign_feedback_' + plugin.type + '.pluginname';
+        const translationId = `addon.mod_assign_feedback_${plugin.type}.pluginname`;
         const translation = Translate.instant(translationId);
 
         if (translationId != translation) {
@@ -73,14 +82,14 @@ export class AddonModAssignDefaultFeedbackHandler implements AddonModAssignFeedb
     /**
      * @inheritdoc
      */
-    hasDataChanged(): boolean {
+    async hasDataChanged(): Promise<boolean> {
         return false;
     }
 
     /**
      * @inheritdoc
      */
-    hasDraftData(): boolean {
+    async hasDraftData(): Promise<boolean> {
         return false;
     }
 
@@ -101,14 +110,14 @@ export class AddonModAssignDefaultFeedbackHandler implements AddonModAssignFeedb
     /**
      * @inheritdoc
      */
-    prepareFeedbackData(): void {
+    prepareFeedbackData(): void | Promise<void> {
         // Nothing to do.
     }
 
     /**
      * @inheritdoc
      */
-    saveDraft(): void {
+    saveDraft(): void | Promise<void> {
         // Nothing to do.
     }
 

@@ -13,8 +13,9 @@
 // limitations under the License.
 
 import { Component, OnInit } from '@angular/core';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreText } from '@singletons/text';
 import { CoreErrorLogs, CoreSettingsErrorLog } from '@singletons/error-logs';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays the error logs.
@@ -22,8 +23,12 @@ import { CoreErrorLogs, CoreSettingsErrorLog } from '@singletons/error-logs';
 @Component({
     selector: 'page-core-app-settings-error-log',
     templateUrl: 'error-log.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
-export class CoreSettingsErrorLogPage implements OnInit {
+export default class CoreSettingsErrorLogPage implements OnInit {
 
     errorLogs: CoreSettingsErrorLog[] = [];
 
@@ -39,9 +44,9 @@ export class CoreSettingsErrorLogPage implements OnInit {
      */
     async copyError(error?: CoreSettingsErrorLog): Promise<void> {
         if (error) {
-            await CoreUtils.copyToClipboard(JSON.stringify(error));
+            await CoreText.copyToClipboard(JSON.stringify(error));
         } else {
-            await CoreUtils.copyToClipboard(JSON.stringify({ errors: this.errorLogs }));
+            await CoreText.copyToClipboard(JSON.stringify({ errors: this.errorLogs }));
         }
     }
 

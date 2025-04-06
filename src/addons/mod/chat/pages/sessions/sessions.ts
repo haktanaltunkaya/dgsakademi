@@ -18,13 +18,15 @@ import { CoreRoutedItemsManagerSourcesTracker } from '@classes/items-management/
 import { CoreSplitViewComponent } from '@components/split-view/split-view';
 import { CoreGroupInfo } from '@services/groups';
 import { CoreNavigator } from '@services/navigator';
-import { CoreDomUtils } from '@services/utils/dom';
 import { AddonModChatSessionFormatted, AddonModChatSessionsSource } from '../../classes/chat-sessions-source';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
 import { CoreTime } from '@singletons/time';
 import { Translate } from '@singletons';
 import { AddonModChat } from '@addons/mod/chat/services/chat';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays list of chat sessions.
@@ -32,8 +34,12 @@ import { CoreUtils } from '@services/utils/utils';
 @Component({
     selector: 'page-addon-mod-chat-sessions',
     templateUrl: 'sessions.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
-export class AddonModChatSessionsPage implements OnInit, AfterViewInit, OnDestroy {
+export default class AddonModChatSessionsPage implements OnInit, AfterViewInit, OnDestroy {
 
     @ViewChild(CoreSplitViewComponent) splitView!: CoreSplitViewComponent;
 
@@ -45,7 +51,7 @@ export class AddonModChatSessionsPage implements OnInit, AfterViewInit, OnDestro
         this.logView = CoreTime.once(async () => {
             const source = this.sessions.getSource();
 
-            await CoreUtils.ignoreErrors(AddonModChat.logViewSessions(this.sessions.getSource().CM_ID));
+            await CorePromiseUtils.ignoreErrors(AddonModChat.logViewSessions(this.sessions.getSource().CM_ID));
 
             CoreAnalytics.logEvent({
                 type: CoreAnalyticsEventType.VIEW_ITEM_LIST,
@@ -72,8 +78,7 @@ export class AddonModChatSessionsPage implements OnInit, AfterViewInit, OnDestro
 
             this.sessions = new CoreListItemsManager(source, AddonModChatSessionsPage);
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
-
+            CoreAlerts.showError(error);
             CoreNavigator.back();
 
             return;
@@ -118,7 +123,7 @@ export class AddonModChatSessionsPage implements OnInit, AfterViewInit, OnDestro
 
             this.logView();
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'core.errorloadingcontent', true);
+            CoreAlerts.showError(error, { default: Translate.instant('core.errorloadingcontent') });
         }
     }
 
@@ -126,12 +131,12 @@ export class AddonModChatSessionsPage implements OnInit, AfterViewInit, OnDestro
      * Reload chat sessions.
      */
     async reloadSessions(): Promise<void> {
-        const modal = await CoreDomUtils.showModalLoading();
+        const modal = await CoreLoadings.show();
 
         try {
             await this.sessions.reload();
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'core.errorloadingcontent', true);
+            CoreAlerts.showError(error, { default: Translate.instant('core.errorloadingcontent') });
         } finally {
             modal.dismiss();
         }

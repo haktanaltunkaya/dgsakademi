@@ -1,7 +1,7 @@
 <ion-header class="no-title">
     <ion-toolbar>
         <ion-buttons slot="end">
-            <ion-button fill="clear" (click)="closeModal()" [attr.aria-label]="'core.close' | translate">
+            <ion-button fill="clear" (click)="closeModal()" [ariaLabel]="'core.close' | translate">
                 <ion-icon slot="icon-only" name="fas-xmark" aria-hidden="true" />
             </ion-button>
         </ion-buttons>
@@ -15,7 +15,7 @@
             <ion-label>
                 <p *ngIf="moduleNameTranslated" class="core-modulename">
                     <core-mod-icon slot="start" [modicon]="modicon" [modname]="module.modname" [componentId]="module.instance"
-                        [fallbackTranslation]="module.modplural" />
+                        [fallbackTranslation]="module.modplural" [purpose]="module.purpose" [isBranded]="module.branded" />
                     {{moduleNameTranslated}}
                 </p>
                 <h1>
@@ -24,7 +24,8 @@
                 </h1>
             </ion-label>
             <ion-button fill="clear" *ngIf="displayOptions.displayOpenInBrowser && externalUrl" [href]="externalUrl" core-link
-                [showBrowserWarning]="false" [attr.aria-label]="'core.openinbrowser' | translate" slot="end">
+                [showBrowserWarning]="false" [ariaLabel]="'core.openinbrowser' | translate" slot="end" [class.hidden]="!isTeacher"
+                class="core-module-oib-button">
                 <ion-icon name="fas-up-right-from-square" slot="icon-only" aria-hidden="true" />
             </ion-button>
         </ion-item>
@@ -72,7 +73,7 @@
                                 <core-format-text [text]="grade.gradeitem" contextLevel="course" [contextInstanceId]="courseId" />
                             </p>
                             <p class="item-heading" *ngIf="grade.itemmodule">
-                                {{ 'core.grades.grade' | translate }}
+                                {{ 'core.gradenoun' | translate }}
                             </p>
                             <p *ngIf="grade.grade && grade.grade !== '-'" [innerHTML]="grade.grade"></p>
                             <ion-badge *ngIf="!grade.grade || grade.grade === '-'" color="light">
@@ -80,7 +81,8 @@
                             </ion-badge>
                         </ion-label>
                         <ion-icon *ngIf="grade.icon" name="{{grade.icon}}" slot="end" [attr.aria-label]="grade.iconAlt" />
-                        <img *ngIf="grade.image && !grade.itemmodule" [src]="grade.image" slot="end" [alt]="grade.iconAlt" />
+                        <img *ngIf="grade.image && !grade.itemmodule" [url]="grade.image" slot="end" [alt]="grade.iconAlt"
+                            core-external-content />
                         <ion-icon *ngIf="grade.image && grade.itemmodule" name="fas-chart-bar" slot="end"
                             [attr.aria-label]="grade.iconAlt" />
                     </ion-item>
@@ -163,7 +165,7 @@
                     <ion-badge color="light">{{ size | coreBytesToSize }}</ion-badge>
                 </ion-label>
                 <ion-button *ngIf="!removeFilesLoading" [disabled]="prefetchLoading" (click)="removeFiles()" color="danger" fill="clear"
-                    [attr.aria-label]="'core.clearstoreddata' | translate:{$a: size | coreBytesToSize}" slot="end">
+                    [ariaLabel]="'core.clearstoreddata' | translate:{$a: size | coreBytesToSize}" slot="end">
                     <ion-icon name="fas-trash" slot="icon-only" aria-hidden="true" />
                 </ion-button>
                 <ion-spinner *ngIf="removeFilesLoading" slot="end" aria-hidden="true" />
@@ -174,7 +176,8 @@
                 </ion-label>
             </ion-item>
             <ion-button fill="outline" expand="block" *ngIf="canPrefetch && displayOptions.displayPrefetch" class="ion-text-wrap"
-                (click)="prefetch()" [disabled]="prefetchDisabled">
+                (click)="prefetch()" [disabled]="prefetchDisabled"
+                [attr.aria-label]="'addon.storagemanager.downloaddatafrom' | translate:{name: module?.name}">
                 <ion-icon *ngIf="!prefetchLoading" name="fas-cloud-arrow-down" slot="start" aria-hidden="true" />
                 <ion-spinner *ngIf="prefetchLoading" slot="start" aria-hidden="true" />
                 <ion-label>

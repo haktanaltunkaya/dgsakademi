@@ -16,18 +16,17 @@ import { Injectable } from '@angular/core';
 import { CoreBlockDelegate } from '@features/block/services/block-delegate';
 import { CoreMainMenuHomeHandler, CoreMainMenuHomeHandlerToDisplay } from '@features/mainmenu/services/home-delegate';
 import { CoreSites } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { makeSingleton } from '@singletons';
 import { CoreLogger } from '@singletons/logger';
 import { CoreCoursesDashboard } from '../dashboard';
+import { CORE_COURSES_DASHBOARD_PAGE_NAME } from '@features/courses/constants';
 
 /**
  * Handler to add dashboard into home page.
  */
 @Injectable({ providedIn: 'root' })
 export class CoreDashboardHomeHandlerService implements CoreMainMenuHomeHandler {
-
-    static readonly PAGE_NAME = 'dashboard';
 
     name = 'CoreCoursesDashboard';
     priority = 1200;
@@ -60,7 +59,7 @@ export class CoreDashboardHomeHandlerService implements CoreMainMenuHomeHandler 
             CoreBlockDelegate.areBlocksDisabled(site.getId()),
             CoreCoursesDashboard.isDisabled(site.getId()),
             CoreCoursesDashboard.isAvailable(site.getId()),
-            CoreUtils.ignoreErrors(site.getConfig('enabledashboard'), '1'),
+            CorePromiseUtils.ignoreErrors(site.getConfig('enabledashboard'), '1'),
         ]);
         const dashboardEnabled = !dashboardDisabled && dashboardConfig !== '0';
 
@@ -90,7 +89,7 @@ export class CoreDashboardHomeHandlerService implements CoreMainMenuHomeHandler 
     getDisplayData(): CoreMainMenuHomeHandlerToDisplay {
         return {
             title: 'core.courses.mymoodle',
-            page: CoreDashboardHomeHandlerService.PAGE_NAME,
+            page: CORE_COURSES_DASHBOARD_PAGE_NAME,
             class: 'core-courses-dashboard-handler',
             icon: 'fas-gauge-high',
         };

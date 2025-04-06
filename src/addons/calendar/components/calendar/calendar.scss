@@ -144,13 +144,12 @@
 
     swiper-slide {
         display: block;
-        font-size: inherit;
         justify-content: start;
         align-items: start;
         text-align: start;
     }
 }
 
-:host-context(html.dark) {
+:host-context(:root.dark) {
     --addon-calendar-blank-day-background-color: var(--gray-900);
 }

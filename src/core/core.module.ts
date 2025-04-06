@@ -21,65 +21,125 @@ import { CoreInterceptor } from './classes/interceptor';
 import { getDatabaseProviders } from './services/database';
 import { getInitializerProviders } from './initializers';
 
-import { CoreAppProvider } from '@services/app';
-import { CoreConfigProvider } from '@services/config';
-import { CoreCronDelegateService } from '@services/cron';
-import { CoreCustomURLSchemesProvider } from '@services/urlschemes';
-import { CoreDbProvider } from '@services/db';
-import { CoreDomUtilsProvider } from '@services/utils/dom';
-import { CoreFileHelperProvider } from '@services/file-helper';
-import { CoreFilepoolProvider } from '@services/filepool';
-import { CoreFileProvider } from '@services/file';
-import { CoreFileSessionProvider } from '@services/file-session';
-import { CoreGeolocationProvider } from '@services/geolocation';
-import { CoreGroupsProvider } from '@services/groups';
-import { CoreIframeUtilsProvider } from '@services/utils/iframe';
-import { CoreLangProvider } from '@services/lang';
-import { CoreLocalNotificationsProvider } from '@services/local-notifications';
-import { CoreMimetypeUtilsProvider } from '@services/utils/mimetype';
-import { CoreNavigatorService } from '@services/navigator';
-import { CorePluginFileDelegateService } from '@services/plugin-file-delegate';
-import { CoreScreenService } from '@services/screen';
-import { CoreSitesProvider } from '@services/sites';
-import { CoreSyncProvider } from '@services/sync';
-import { CoreTextUtilsProvider } from '@services/utils/text';
-import { CoreTimeUtilsProvider } from '@services/utils/time';
-import { CoreUpdateManagerProvider } from '@services/update-manager';
-import { CoreUrlUtilsProvider } from '@services/utils/url';
-import { CoreUtilsProvider } from '@services/utils/utils';
-import { CoreWSProvider } from '@services/ws';
-import { CorePlatformService } from '@services/platform';
+/**
+ * Get core services.
+ *
+ * @returns Core services.
+ */
+export async function getCoreServices(): Promise<Type<unknown>[]> {
 
-export const CORE_SERVICES: Type<unknown>[] = [
-    CoreAppProvider,
-    CoreConfigProvider,
-    CoreCronDelegateService,
-    CoreCustomURLSchemesProvider,
-    CoreDbProvider,
-    CoreDomUtilsProvider,
-    CoreFileHelperProvider,
-    CoreFilepoolProvider,
-    CoreFileProvider,
-    CoreFileSessionProvider,
-    CoreGeolocationProvider,
-    CoreGroupsProvider,
-    CoreIframeUtilsProvider,
-    CoreLangProvider,
-    CoreLocalNotificationsProvider,
-    CoreMimetypeUtilsProvider,
-    CoreNavigatorService,
-    CorePluginFileDelegateService,
-    CorePlatformService,
-    CoreScreenService,
-    CoreSitesProvider,
-    CoreSyncProvider,
-    CoreTextUtilsProvider,
-    CoreTimeUtilsProvider,
-    CoreUpdateManagerProvider,
-    CoreUrlUtilsProvider,
-    CoreUtilsProvider,
-    CoreWSProvider,
-];
+    const { CoreAppProvider } = await import('@services/app');
+    const { CoreAppDBService } = await import('@services/app-db');
+    const { CoreConfigProvider } = await import('@services/config');
+    const { CoreCronDelegateService } = await import('@services/cron');
+    const { CoreCustomURLSchemesProvider } = await import('@services/urlschemes');
+    const { CoreDbProvider } = await import('@services/db');
+    const { CoreErrorHelperService } = await import('@services/error-helper');
+    const { CoreFileHelperProvider } = await import('@services/file-helper');
+    const { CoreFilepoolProvider } = await import('@services/filepool');
+    const { CoreFileProvider } = await import('@services/file');
+    const { CoreFileSessionProvider } = await import('@services/file-session');
+    const { CoreGroupsProvider } = await import('@services/groups');
+    const { CoreLangProvider } = await import('@services/lang');
+    const { CoreLocalNotificationsProvider } = await import('@services/local-notifications');
+    const { CoreNavigatorService } = await import('@services/navigator');
+    const { CorePluginFileDelegateService } = await import('@services/plugin-file-delegate');
+    const { CoreScreenService } = await import('@services/screen');
+    const { CoreSitesProvider } = await import('@services/sites');
+    const { CoreSyncProvider } = await import('@services/sync');
+    const { CoreUpdateManagerProvider } = await import('@services/update-manager');
+    const { CoreWSProvider } = await import('@services/ws');
+    const { CorePlatformService } = await import('@services/platform');
+    const { CoreQRScanService } = await import('@services/qrscan');
+
+    const { CoreAlertsService } = await import('@services/overlays/alerts');
+    const { CoreLoadingsService } = await import('@services/overlays/loadings');
+    const { CorePopoversService } = await import('@services/overlays/popovers');
+    const { CorePromptsService } = await import('@services/overlays/prompts');
+    const { CoreToastsService } = await import('@services/overlays/toasts');
+
+    // eslint-disable-next-line deprecation/deprecation
+    const { CoreDomUtilsProvider } = await import('@services/utils/dom');
+    // eslint-disable-next-line deprecation/deprecation
+    const { CoreGeolocationProvider } = await import('@services/geolocation');
+    // eslint-disable-next-line deprecation/deprecation
+    const { CoreTextUtilsProvider } = await import('@services/utils/text');
+    // eslint-disable-next-line deprecation/deprecation
+    const { CoreTimeUtilsProvider } = await import('@services/utils/time');
+    // eslint-disable-next-line deprecation/deprecation
+    const { CoreUrlUtilsProvider } = await import('@services/utils/url');
+    // eslint-disable-next-line deprecation/deprecation
+    const { CoreUtilsProvider } = await import('@services/utils/utils');
+    // eslint-disable-next-line deprecation/deprecation
+    const { CoreMimetypeUtilsProvider } = await import('@services/utils/mimetype');
+    // eslint-disable-next-line deprecation/deprecation
+    const { CoreIframeUtilsProvider } = await import('@services/utils/iframe');
+
+    return [
+        CoreAppProvider,
+        CoreAppDBService,
+        CoreConfigProvider,
+        CoreCronDelegateService,
+        CoreCustomURLSchemesProvider,
+        CoreDbProvider,
+        CoreDomUtilsProvider,
+        CoreErrorHelperService,
+        CoreFileHelperProvider,
+        CoreFilepoolProvider,
+        CoreFileProvider,
+        CoreFileSessionProvider,
+        CoreGeolocationProvider,
+        CoreGroupsProvider,
+        CoreIframeUtilsProvider,
+        CoreLangProvider,
+        CoreLocalNotificationsProvider,
+        CoreMimetypeUtilsProvider,
+        CoreNavigatorService,
+        CorePluginFileDelegateService,
+        CorePlatformService,
+        CoreQRScanService,
+        CoreScreenService,
+        CoreSitesProvider,
+        CoreSyncProvider,
+        CoreTextUtilsProvider,
+        CoreTimeUtilsProvider,
+        CoreUpdateManagerProvider,
+        CoreUrlUtilsProvider,
+        CoreUtilsProvider,
+        CoreWSProvider,
+        CoreAlertsService,
+        CoreLoadingsService,
+        CorePopoversService,
+        CorePromptsService,
+        CoreToastsService,
+    ];
+}
+
+/**
+ * Get core exported objects.
+ *
+ * @returns Core exported objects.
+ */
+export async function getCoreExportedObjects(): Promise<Record<string, unknown>> {
+    const {
+        CoreConstants,
+        CoreCacheUpdateFrequency,
+        DownloadStatus,
+        MINIMUM_MOODLE_VERSION,
+        MOODLE_RELEASES,
+    } = await import('@/core/constants');
+
+    /* eslint-disable @typescript-eslint/naming-convention */
+    return {
+        CoreConstants,
+        CoreConfigConstants: CoreConstants.CONFIG,
+        CoreCacheUpdateFrequency,
+        DownloadStatus,
+        MINIMUM_MOODLE_VERSION,
+        MOODLE_RELEASES,
+    };
+    /* eslint-enable @typescript-eslint/naming-convention */
+}
 
 @NgModule({
     imports: [

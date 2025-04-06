@@ -20,17 +20,18 @@ import { CoreEvents } from '@singletons/events';
 import { CoreFilepool } from '@services/filepool';
 import { CoreSite } from '@classes/sites/site';
 import { CoreSites } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { CoreConstants } from '@/core/constants';
 import { CoreConfig } from '@services/config';
 import { CoreFilter } from '@features/filter/services/filter';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreCourse } from '@features/course/services/course';
+import { CoreCourseDownloadStatusHelper } from '@features/course/services/course-download-status-helper';
 import { makeSingleton, Translate } from '@singletons';
 import { CoreError } from '@classes/errors/error';
 import { Observable, Subject } from 'rxjs';
-import { CoreTextUtils } from '@services/utils/text';
+import { CoreErrorHelper } from '@services/error-helper';
 import { CoreNavigator } from '@services/navigator';
+import { CoreHTMLClasses } from '@singletons/html-classes';
+import { CoreAlerts } from '@services/overlays/alerts';
 
 /**
  * Object with space usage and cache entries that can be erased.
@@ -125,23 +126,20 @@ export class CoreSettingsHelperProvider {
 
         const title = Translate.instant('addon.storagemanager.confirmdeleteallsitedata');
 
-        await CoreDomUtils.showDeleteConfirm(
-            'addon.storagemanager.deleteallsitedatainfo',
-            { name: siteName },
-            { header:  title },
-        );
+        await CoreAlerts.confirmDelete(Translate.instant('addon.storagemanager.deleteallsitedatainfo', { name: siteName }), {
+            header: title,
+        });
 
         const site = await CoreSites.getSite(siteId);
 
         // Clear cache tables.
         const cleanSchemas = CoreSites.getSiteTableSchemasToClear(site);
         const promises: Promise<number | void>[] = cleanSchemas.map((name) => site.getDb().deleteRecords(name));
-        const filepoolService = CoreFilepool.instance;
 
         promises.push(site.deleteFolder().then(() => {
-            filepoolService.clearAllPackagesStatus(siteId);
-            filepoolService.clearFilepool(siteId);
-            CoreCourse.clearAllCoursesStatus(siteId);
+            CoreFilepool.clearAllPackagesStatus(siteId);
+            CoreFilepool.clearFilepool(siteId);
+            CoreCourseDownloadStatusHelper.clearAllCoursesStatus(siteId);
 
             siteInfo.spaceUsage = 0;
 
@@ -149,11 +147,11 @@ export class CoreSettingsHelperProvider {
         }).catch(async (error) => {
             if (error && error.code === FileError.NOT_FOUND_ERR) {
                 // Not found, set size 0.
-                filepoolService.clearAllPackagesStatus(siteId);
+                CoreFilepool.clearAllPackagesStatus(siteId);
                 siteInfo.spaceUsage = 0;
             } else {
                 // Error, recalculate the site usage.
-                CoreDomUtils.showErrorModal('addon.storagemanager.errordeletedownloadeddata', true);
+                CoreAlerts.showError(Translate.instant('addon.storagemanager.errordeletedownloadeddata'));
 
                 siteInfo.spaceUsage = await site.getSpaceUsage();
             }
@@ -185,8 +183,8 @@ export class CoreSettingsHelperProvider {
             spaceUsage: 0,
         };
 
-        siteInfo.cacheEntries = await this.calcSiteClearRows(site);
-        siteInfo.spaceUsage = await site.getTotalUsage();
+        siteInfo.cacheEntries = await CorePromiseUtils.ignoreErrors(this.calcSiteClearRows(site), 0);
+        siteInfo.spaceUsage = await CorePromiseUtils.ignoreErrors(site.getTotalUsage(), 0);
 
         return siteInfo;
     }
@@ -249,7 +247,7 @@ export class CoreSettingsHelperProvider {
 
         const syncPromise = Promise.all([
             // Invalidate all the site files so they are re-downloaded.
-            CoreUtils.ignoreErrors(CoreFilepool.invalidateAllFiles(siteId)),
+            CorePromiseUtils.ignoreErrors(CoreFilepool.invalidateAllFiles(siteId)),
             // Invalidate and synchronize site data.
             site.invalidateWsCache(),
             CoreSites.updateSiteInfo(site.getId()),
@@ -264,7 +262,7 @@ export class CoreSettingsHelperProvider {
         try {
             await syncPromise;
         } catch (error) {
-            throw CoreTextUtils.addTitleToError(error, Translate.instant('core.settings.sitesyncfailed'));
+            throw CoreErrorHelper.addTitleToError(error, Translate.instant('core.settings.sitesyncfailed'));
         } finally {
             delete this.syncPromises[siteId];
         }
@@ -321,13 +319,24 @@ export class CoreSettingsHelperProvider {
     }
 
     /**
+     * Get saved pinch-to-zoom setting.
+     *
+     * @returns True if pinch-to-zoom is enabled.
+     */
+    async getPinchToZoom(): Promise<boolean> {
+        return Boolean(await CoreConfig.get(CoreConstants.SETTINGS_PINCH_TO_ZOOM, 0));
+    }
+
+    /**
      * Init Settings related to DOM.
      */
     async initDomSettings(): Promise<void> {
         // Set the font size based on user preference.
         const zoomLevel = await this.getZoomLevel();
+        const pinchToZoom = await this.getPinchToZoom();
 
         this.applyZoomLevel(zoomLevel);
+        this.applyPinchToZoom(pinchToZoom);
 
         this.initColorScheme();
     }
@@ -376,7 +385,31 @@ export class CoreSettingsHelperProvider {
     applyZoomLevel(zoomLevel: CoreZoomLevel): void {
         const zoom = CoreConstants.CONFIG.zoomlevels[zoomLevel];
 
-        document.documentElement.style.setProperty('--zoom-level', zoom + '%');
+        document.documentElement.style.setProperty('--zoom-level', `${zoom}%`);
+    }
+
+    /**
+     * Enable or disable pinch-to-zoom.
+     *
+     * @param pinchToZoom True if pinch-to-zoom should be enabled.
+     */
+    applyPinchToZoom(pinchToZoom: boolean): void {
+        const element = document.head.querySelector('meta[name=viewport]');
+        if (!element) {
+            return;
+        }
+        const content = element.getAttribute('content');
+        if (!content) {
+            return;
+        }
+
+        element.setAttribute('content', content.replace(/maximum-scale=\d\.\d/, `maximum-scale=${pinchToZoom ? '4.0' : '1.0'}`));
+
+        // Force layout reflow.
+        document.body.style.width = '99.9999%';
+        setTimeout(() => {
+            document.body.style.width = '';
+        });
     }
 
     /**
@@ -434,10 +467,10 @@ export class CoreSettingsHelperProvider {
      * @param enable True to enable dark mode, false to disable.
      */
     protected toggleDarkMode(enable: boolean = false): void {
-        const isDark = CoreDomUtils.hasModeClass('dark');
+        const isDark = CoreHTMLClasses.hasModeClass('dark');
 
         if (isDark !== enable) {
-            CoreDomUtils.toggleModeClass('dark', enable, { includeLegacy: true });
+            CoreHTMLClasses.toggleModeClass('dark', enable);
             this.darkModeObservable.next(enable);
 
             CoreApp.setSystemUIColors();
@@ -473,7 +506,7 @@ export class CoreSettingsHelperProvider {
         const reloadApp = !CoreSites.isLoggedIn();
 
         if (reloadApp) {
-            await CoreDomUtils.showConfirm('Are you sure that you want to enable/disable staging sites?');
+            await CoreAlerts.confirm('Are you sure that you want to enable/disable staging sites?');
         }
 
         await CoreConfig.set('stagingSites', enabled ? 1 : 0);
@@ -484,6 +517,17 @@ export class CoreSettingsHelperProvider {
 
         await CoreNavigator.navigate('/');
         window.location.reload();
+    }
+
+    /**
+     * Check if rich text editor is enabled.
+     *
+     * @returns Promise resolved with boolean: true if enabled, false otherwise.
+     */
+    async isRichTextEditorEnabled(): Promise<boolean> {
+        const enabled = await CoreConfig.get(CoreConstants.SETTINGS_RICH_TEXT_EDITOR, true);
+
+        return !!enabled;
     }
 
 }

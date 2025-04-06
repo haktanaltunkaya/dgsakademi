@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Component, Input, OnInit, AfterViewInit, ElementRef } from '@angular/core';
+import { toBoolean } from '@/core/transforms/boolean';
+import { Component, Input, AfterViewInit, ElementRef } from '@angular/core';
 
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreText } from '@singletons/text';
 import { Translate } from '@singletons';
+import { CoreBaseModule } from '@/core/base.module';
+import { CoreFaIconDirective } from '@directives/fa-icon';
 
 /**
  * Directive to add a red asterisk for required input fields.
@@ -31,11 +33,16 @@ import { Translate } from '@singletons';
 @Component({
     selector: '[core-mark-required]',
     templateUrl: 'core-mark-required.html',
-    styleUrls: ['mark-required.scss'],
+    styleUrl: 'mark-required.scss',
+    standalone: true,
+    imports: [
+        CoreBaseModule,
+        CoreFaIconDirective,
+    ],
 })
-export class CoreMarkRequiredComponent implements OnInit, AfterViewInit {
+export class CoreMarkRequiredComponent implements AfterViewInit {
 
-    @Input('core-mark-required') coreMarkRequired: boolean | string = true;
+    @Input({ alias: 'core-mark-required', transform: toBoolean }) coreMarkRequired = true;
 
     protected hostElement: HTMLElement;
     requiredLabel = Translate.instant('core.required');
@@ -49,26 +56,19 @@ export class CoreMarkRequiredComponent implements OnInit, AfterViewInit {
     /**
      * @inheritdoc
      */
-    ngOnInit(): void {
-        this.coreMarkRequired = CoreUtils.isTrueOrOne(this.coreMarkRequired);
-    }
-
-    /**
-     * @inheritdoc
-     */
     ngAfterViewInit(): void {
         if (this.coreMarkRequired) {
             // Add the "required" to the aria-label.
             const ariaLabel = this.hostElement.getAttribute('aria-label') ||
-                CoreTextUtils.cleanTags(this.hostElement.innerHTML, { singleLine: true });
+                CoreText.cleanTags(this.hostElement.innerHTML, { singleLine: true });
             if (ariaLabel) {
-                this.hostElement.setAttribute('aria-label', ariaLabel + '. ' + this.requiredLabel);
+                this.hostElement.setAttribute('aria-label', `${ariaLabel}. ${this.requiredLabel}`);
             }
         } else {
             // Remove the "required" from the aria-label.
             const ariaLabel = this.hostElement.getAttribute('aria-label');
             if (ariaLabel) {
-                this.hostElement.setAttribute('aria-label', ariaLabel.replace('. ' + this.requiredLabel, ''));
+                this.hostElement.setAttribute('aria-label', ariaLabel.replace(`. ${this.requiredLabel}`, ''));
             }
         }
 

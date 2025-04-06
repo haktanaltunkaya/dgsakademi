@@ -15,8 +15,8 @@
 import { Md5 } from 'ts-md5/dist/md5';
 
 import { CoreSites } from '@services/sites';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreText } from '@singletons/text';
+import { CoreUtils } from '@singletons/utils';
 import { CoreH5P } from '@features/h5p/services/h5p';
 import { CoreH5PFileStorage } from './file-storage';
 import { CoreH5PFramework } from './framework';
@@ -31,11 +31,17 @@ import { CorePath } from '@singletons/path';
  */
 export class CoreH5PCore {
 
+    static readonly API_VERSION = {
+        majorVersion: 1,
+        minorVersion: 27,
+    };
+
     static readonly STYLES = [
         'styles/h5p.css',
         'styles/h5p-confirmation-dialog.css',
         'styles/h5p-core-button.css',
         'styles/h5p-tooltip.css',
+        'styles/h5p-table.css',
     ];
 
     static readonly SCRIPTS = [
@@ -128,14 +134,14 @@ export class CoreH5PCore {
         // Use unique identifier for each library version.
         for (const name in dependencies) {
             const dep = dependencies[name];
-            toHash.push(dep.machineName + '-' + dep.majorVersion + '.' + dep.minorVersion + '.' + dep.patchVersion);
+            toHash.push(`${dep.machineName}-${dep.majorVersion}.${dep.minorVersion}.${dep.patchVersion}`);
         }
 
         // Sort in case the same dependencies comes in a different order.
         toHash.sort((a, b) => a.localeCompare(b));
 
         // Calculate hash.
-        return <string> Md5.hashAsciiStr(toHash.join(''));
+        return Md5.hashAsciiStr(toHash.join(''));
     }
 
     /**
@@ -265,7 +271,7 @@ export class CoreH5PCore {
 
         const params = {
             library: CoreH5PCore.libraryToString(content.library),
-            params: CoreTextUtils.parseJSON(content.params, false),
+            params: CoreText.parseJSON(content.params, false),
         };
 
         if (!params.params) {
@@ -361,7 +367,7 @@ export class CoreH5PCore {
 
         for (const i in types) {
             let type = types[i];
-            const property = type + 'Dependencies';
+            const property = `${type}Dependencies`;
 
             if (!library[property]) {
                 continue; // Skip, no such dependencies.
@@ -375,7 +381,7 @@ export class CoreH5PCore {
             for (const j in library[property]) {
                 const dependency: CoreH5PLibraryBasicData = library[property][j];
 
-                const dependencyKey = type + '-' + dependency.machineName;
+                const dependencyKey = `${type}-${dependency.machineName}`;
                 if (dependencies[dependencyKey]) {
                     continue; // Skip, already have this.
                 }
@@ -546,7 +552,7 @@ export class CoreH5PCore {
                 dependency.preloadedCss = (<string> dependency.preloadedCss).split(',');
             }
 
-            dependency.version = '?ver=' + dependency.majorVersion + '.' + dependency.minorVersion + '.' + dependency.patchVersion;
+            dependency.version = `?ver=${dependency.majorVersion}.${dependency.minorVersion}.${dependency.patchVersion}`;
 
             this.getDependencyAssets(dependency, 'preloadedJs', files.scripts, prefix);
             this.getDependencyAssets(dependency, 'preloadedCss', files.styles, prefix);
@@ -616,7 +622,7 @@ export class CoreH5PCore {
             const file = dependency[type][key];
 
             assets.push({
-                path: prefix + '/' + dependency.path + '/' + (typeof file != 'string' ? file.path : file).trim(),
+                path: `${prefix}/${dependency.path}/${(typeof file != 'string' ? file.path : file).trim()}`,
                 version: dependency.version || '',
             });
         }
@@ -812,6 +818,11 @@ export class CoreH5PCore {
             someKeywordsExits: Translate.instant('core.h5p.someKeywordsExits'),
             width: Translate.instant('core.h5p.width'),
             height: Translate.instant('core.h5p.height'),
+            rotateLeft: Translate.instant('core.h5p.rotateLeft'),
+            rotateRight: Translate.instant('core.h5p.rotateRight'),
+            cropImage: Translate.instant('core.h5p.cropImage'),
+            confirmCrop: Translate.instant('core.h5p.confirmCrop'),
+            cancelCrop: Translate.instant('core.h5p.cancelCrop'),
         };
     }
 
@@ -950,7 +961,7 @@ export class CoreH5PCore {
             if (params.match(pattern)) {
                 return true;
             }
-        } else if (typeof params == 'object') {
+        } else if (typeof params === 'object') {
             for (const key in params) {
                 const value = params[key];
 

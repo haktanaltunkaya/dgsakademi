@@ -21,27 +21,34 @@ import { CanLeave } from '@guards/can-leave';
 import { CoreFile } from '@services/file';
 import { CoreFileEntry, CoreFileHelper } from '@services/file-helper';
 import { CoreNavigator } from '@services/navigator';
-import { CoreSites } from '@services/sites';
+import { CoreSites, CoreSitesReadingStrategy } from '@services/sites';
 import { CoreSync } from '@services/sync';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreText } from '@singletons/text';
+import { CoreWSError } from '@classes/errors/wserror';
 import { Translate } from '@singletons';
 import { CoreEvents } from '@singletons/events';
 import { CoreForms } from '@singletons/form';
 import {
-    AddonModWorkshopProvider,
     AddonModWorkshop,
-    AddonModWorkshopSubmissionType,
     AddonModWorkshopSubmissionChangedEventData,
-    AddonModWorkshopAction,
     AddonModWorkshopGetWorkshopAccessInformationWSResponse,
     AddonModWorkshopData,
 } from '../../services/workshop';
 import { AddonModWorkshopHelper, AddonModWorkshopSubmissionDataWithOfflineData } from '../../services/workshop-helper';
 import { AddonModWorkshopOffline } from '../../services/workshop-offline';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
-import { ADDON_MOD_WORKSHOP_COMPONENT } from '@addons/mod/workshop/constants';
+import {
+    ADDON_MOD_WORKSHOP_COMPONENT,
+    ADDON_MOD_WORKSHOP_SUBMISSION_CHANGED,
+    AddonModWorkshopAction,
+    AddonModWorkshopSubmissionType,
+} from '@addons/mod/workshop/constants';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreDom } from '@singletons/dom';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreEditorRichTextEditorComponent } from '@features/editor/components/rich-text-editor/rich-text-editor';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 
 /**
  * Page that displays the workshop edit submission.
@@ -49,8 +56,13 @@ import { ADDON_MOD_WORKSHOP_COMPONENT } from '@addons/mod/workshop/constants';
 @Component({
     selector: 'page-addon-mod-workshop-edit-submission',
     templateUrl: 'edit-submission.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreEditorRichTextEditorComponent,
+    ],
 })
-export class AddonModWorkshopEditSubmissionPage implements OnInit, OnDestroy, CanLeave {
+export default class AddonModWorkshopEditSubmissionPage implements OnInit, OnDestroy, CanLeave {
 
     @ViewChild('editFormEl') formElement!: ElementRef;
 
@@ -108,7 +120,7 @@ export class AddonModWorkshopEditSubmissionPage implements OnInit, OnDestroy, Ca
             this.access = CoreNavigator.getRequiredRouteParam<AddonModWorkshopGetWorkshopAccessInformationWSResponse>('access');
             this.submissionId = CoreNavigator.getRouteNumberParam('submissionId') || 0;
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
+            CoreAlerts.showError(error);
 
             CoreNavigator.back();
 
@@ -124,7 +136,7 @@ export class AddonModWorkshopEditSubmissionPage implements OnInit, OnDestroy, Ca
 
         if (!this.isDestroyed) {
             // Block the workshop.
-            CoreSync.blockOperation(this.component, this.workshopId);
+            CoreSync.blockOperation(ADDON_MOD_WORKSHOP_COMPONENT, this.workshopId);
         }
 
         this.fetchSubmissionData();
@@ -143,7 +155,7 @@ export class AddonModWorkshopEditSubmissionPage implements OnInit, OnDestroy, Ca
         // Check if data has changed.
         if (this.hasDataChanged()) {
             // Show confirmation if some data has been modified.
-            await CoreDomUtils.showConfirm(Translate.instant('core.confirmcanceledit'));
+            await CoreAlerts.confirmLeaveWithChanges();
         }
 
         if (this.submission?.attachmentfiles) {
@@ -174,8 +186,11 @@ export class AddonModWorkshopEditSubmissionPage implements OnInit, OnDestroy, Ca
             if (this.submissionId > 0) {
                 this.editing = true;
 
-                this.submission =
-                    await AddonModWorkshopHelper.getSubmissionById(this.workshopId, this.submissionId, { cmId: this.module.id });
+                this.submission = await AddonModWorkshopHelper.getSubmissionById(this.workshopId, this.submissionId, {
+                    cmId: this.module.id,
+                    filter: false,
+                    readingStrategy: CoreSitesReadingStrategy.PREFER_NETWORK,
+                });
 
                 const canEdit = this.userId == this.submission.authorid &&
                     this.access.cansubmit &&
@@ -203,8 +218,15 @@ export class AddonModWorkshopEditSubmissionPage implements OnInit, OnDestroy, Ca
             }
 
             if (this.submission) {
-                this.originalData.title = this.submission.title || '';
-                this.originalData.content = this.submission.content || '';
+                this.editForm.controls['title'].setValue(this.submission.title);
+                this.editForm.controls['content'].setValue(CoreFileHelper.replacePluginfileUrls(
+                    this.submission.content,
+                    this.submission.contentfiles || [],
+                ));
+                this.attachments = this.submission.attachmentfiles || [];
+
+                this.originalData.title = this.editForm.controls['title'].value;
+                this.originalData.content = this.editForm.controls['content'].value;
                 this.originalData.attachmentfiles = [];
 
                 (this.submission.attachmentfiles || []).forEach((file) => {
@@ -219,10 +241,6 @@ export class AddonModWorkshopEditSubmissionPage implements OnInit, OnDestroy, Ca
                         fileurl: 'fileurl' in file ? file.fileurl : '',
                     });
                 });
-
-                this.editForm.controls['title'].setValue(this.submission.title);
-                this.editForm.controls['content'].setValue(this.submission.content);
-                this.attachments = this.submission.attachmentfiles || [];
             }
 
             this.loaded = true;
@@ -231,7 +249,7 @@ export class AddonModWorkshopEditSubmissionPage implements OnInit, OnDestroy, Ca
         } catch (error) {
             this.loaded = false;
 
-            CoreDomUtils.showErrorModalDefault(error, 'core.course.errorgetmodule', true);
+            CoreAlerts.showError(error, { default: Translate.instant('core.course.errorgetmodule') });
 
             this.forceLeavePage();
         }
@@ -335,28 +353,35 @@ export class AddonModWorkshopEditSubmissionPage implements OnInit, OnDestroy, Ca
         const inputData = this.getInputData();
 
         if (!inputData.title) {
-            CoreDomUtils.showAlertTranslated('core.notice', 'addon.mod_workshop.submissionrequiredtitle');
+            CoreAlerts.show({
+                header: Translate.instant('core.notice'),
+                message: Translate.instant('addon.mod_workshop.submissionrequiredtitle'),
+            });
 
             throw new CoreError(Translate.instant('addon.mod_workshop.submissionrequiredtitle'));
         }
 
-        const noText = CoreTextUtils.htmlIsBlank(inputData.content);
+        const noText = CoreDom.htmlIsBlank(inputData.content);
         const noFiles = !inputData.attachmentfiles.length;
 
         if ((this.textRequired && noText) || (this.fileRequired && noFiles) || (noText && noFiles)) {
-            CoreDomUtils.showAlertTranslated('core.notice', 'addon.mod_workshop.submissionrequiredcontent');
+            CoreAlerts.show({
+                header: Translate.instant('core.notice'),
+                message: Translate.instant('addon.mod_workshop.submissionrequiredcontent'),
+            });
 
             throw new CoreError(Translate.instant('addon.mod_workshop.submissionrequiredcontent'));
         }
 
         let saveOffline = false;
 
-        const modal = await CoreDomUtils.showModalLoading('core.sending', true);
+        const modal = await CoreLoadings.show('core.sending', true);
         const submissionId = this.submission?.id;
+        inputData.content = CoreFileHelper.restorePluginfileUrls(inputData.content, this.submission?.contentfiles || []);
 
         // Add some HTML to the message if needed.
         if (this.textAvailable) {
-            inputData.content = CoreTextUtils.formatHtmlLines(inputData.content);
+            inputData.content = CoreText.formatHtmlLines(inputData.content);
         }
 
         // Upload attachments first if any.
@@ -372,7 +397,7 @@ export class AddonModWorkshopEditSubmissionPage implements OnInit, OnDestroy, Ca
                     false,
                 );
             } catch (error) {
-                if (CoreUtils.isWebServiceError(error)) {
+                if (CoreWSError.isWebServiceError(error)) {
                     throw error;
                 }
 
@@ -469,17 +494,16 @@ export class AddonModWorkshopEditSubmissionPage implements OnInit, OnDestroy, Ca
 
             CoreEvents.trigger(CoreEvents.ACTIVITY_DATA_SENT, { module: 'workshop' });
 
-            const promise = newSubmissionId ? AddonModWorkshop.invalidateSubmissionData(this.workshopId, newSubmissionId) :
-                Promise.resolve();
+            if (newSubmissionId) {
+                await CorePromiseUtils.ignoreErrors(AddonModWorkshop.invalidateSubmissionData(this.workshopId, newSubmissionId));
+            }
 
-            await promise.finally(() => {
-                CoreEvents.trigger(AddonModWorkshopProvider.SUBMISSION_CHANGED, data, this.siteId);
+            CoreEvents.trigger(ADDON_MOD_WORKSHOP_SUBMISSION_CHANGED, data, this.siteId);
 
-                // Delete the local files from the tmp folder.
-                CoreFileUploader.clearTmpFiles(inputData.attachmentfiles);
-            });
+            // Delete the local files from the tmp folder.
+            CoreFileUploader.clearTmpFiles(inputData.attachmentfiles);
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Cannot save submission');
+            CoreAlerts.showError(error, { default: 'Cannot save submission' });
         } finally {
             modal.dismiss();
         }
@@ -490,7 +514,7 @@ export class AddonModWorkshopEditSubmissionPage implements OnInit, OnDestroy, Ca
             ? this.submissionId
             : 'newsub';
 
-        return this.workshopId + '_' + id;
+        return `${this.workshopId}_${id}`;
     }
 
     /**
@@ -498,7 +522,7 @@ export class AddonModWorkshopEditSubmissionPage implements OnInit, OnDestroy, Ca
      */
     ngOnDestroy(): void {
         this.isDestroyed = true;
-        CoreSync.unblockOperation(this.component, this.workshopId);
+        CoreSync.unblockOperation(ADDON_MOD_WORKSHOP_COMPONENT, this.workshopId);
     }
 
 }

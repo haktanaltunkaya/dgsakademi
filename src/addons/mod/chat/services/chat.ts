@@ -13,17 +13,16 @@
 // limitations under the License.
 
 import { Injectable } from '@angular/core';
-import { CoreError } from '@classes/errors/error';
 import { CoreSiteWSPreSets } from '@classes/sites/authenticated-site';
-import { CoreSite } from '@classes/sites/site';
 import { CoreCourseCommonModWSOptions } from '@features/course/services/course';
 import { CoreCourseLogHelper } from '@features/course/services/log-helper';
 import { CoreUser } from '@features/user/services/user';
 import { CoreSites, CoreSitesCommonWSOptions, CoreSitesReadingStrategy } from '@services/sites';
-import { CoreWSExternalFile, CoreWSExternalWarning } from '@services/ws';
+import { CoreWSExternalWarning } from '@services/ws';
 import { makeSingleton, Translate } from '@singletons';
-
-const ROOT_CACHE_KEY = 'AddonModChat:';
+import { ADDON_MOD_CHAT_COMPONENT_LEGACY } from '../constants';
+import { CoreCacheUpdateFrequency } from '@/core/constants';
+import { CoreCourseModuleHelper, CoreCourseModuleStandardElements } from '@features/course/services/course-module-helper';
 
 /**
  * Service that provides some features for chats.
@@ -31,8 +30,7 @@ const ROOT_CACHE_KEY = 'AddonModChat:';
 @Injectable({ providedIn: 'root' })
 export class AddonModChatProvider {
 
-    static readonly COMPONENT = 'mmaModChat';
-    static readonly POLL_INTERVAL = 4000;
+    protected static readonly ROOT_CACHE_KEY = 'AddonModChat:';
 
     /**
      * Get a chat.
@@ -50,19 +48,14 @@ export class AddonModChatProvider {
         };
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getChatsCacheKey(courseId),
-            updateFrequency: CoreSite.FREQUENCY_RARELY,
-            component: AddonModChatProvider.COMPONENT,
+            updateFrequency: CoreCacheUpdateFrequency.RARELY,
+            component: ADDON_MOD_CHAT_COMPONENT_LEGACY,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
 
         const response = await site.read<AddonModChatGetChatsByCoursesWSResponse>('mod_chat_get_chats_by_courses', params, preSets);
 
-        const chat = response.chats.find((chat) => chat.coursemodule == cmId);
-        if (chat) {
-            return chat;
-        }
-
-        throw new CoreError(Translate.instant('core.course.modulenotfound'));
+        return CoreCourseModuleHelper.getActivityByCmId(response.chats, cmId);
     }
 
     /**
@@ -99,7 +92,7 @@ export class AddonModChatProvider {
         await CoreCourseLogHelper.log(
             'mod_chat_view_chat',
             params,
-            AddonModChatProvider.COMPONENT,
+            ADDON_MOD_CHAT_COMPONENT_LEGACY,
             id,
             siteId,
         );
@@ -126,7 +119,7 @@ export class AddonModChatProvider {
         await CoreCourseLogHelper.log(
             'mod_chat_view_sessions',
             params,
-            AddonModChatProvider.COMPONENT,
+            ADDON_MOD_CHAT_COMPONENT_LEGACY,
             id,
         );
     }
@@ -208,7 +201,7 @@ export class AddonModChatProvider {
                 message.userprofileimageurl = user.profileimageurl;
             } catch {
                 // Error getting profile, most probably the user is deleted.
-                message.userfullname = Translate.instant('core.deleteduser') + ' ' + message.userid;
+                message.userfullname = `${Translate.instant('core.deleteduser')} ${message.userid}`;
             }
         }));
 
@@ -232,7 +225,7 @@ export class AddonModChatProvider {
             chatsid: sessionId,
         };
         const preSets: CoreSiteWSPreSets = {
-            component: AddonModChatProvider.COMPONENT,
+            component: ADDON_MOD_CHAT_COMPONENT_LEGACY,
             componentId: options.cmId,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
@@ -264,8 +257,8 @@ export class AddonModChatProvider {
         };
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getSessionsCacheKey(chatId, groupId, showAll),
-            updateFrequency: CoreSite.FREQUENCY_SOMETIMES,
-            component: AddonModChatProvider.COMPONENT,
+            updateFrequency: CoreCacheUpdateFrequency.SOMETIMES,
+            component: ADDON_MOD_CHAT_COMPONENT_LEGACY,
             componentId: options.cmId,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
@@ -302,8 +295,8 @@ export class AddonModChatProvider {
         };
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getSessionMessagesCacheKey(chatId, sessionStart, groupId),
-            updateFrequency: CoreSite.FREQUENCY_RARELY,
-            component: AddonModChatProvider.COMPONENT,
+            updateFrequency: CoreCacheUpdateFrequency.RARELY,
+            component: ADDON_MOD_CHAT_COMPONENT_LEGACY,
             componentId: options.cmId,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
@@ -322,7 +315,6 @@ export class AddonModChatProvider {
      *
      * @param courseId Course ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateChats(courseId: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -337,7 +329,6 @@ export class AddonModChatProvider {
      * @param groupId Group ID, 0 means that the function will determine the user group.
      * @param showAll Whether to include incomplete sessions or not.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateSessions(chatId: number, groupId: number = 0, showAll: boolean = false, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -350,7 +341,6 @@ export class AddonModChatProvider {
      *
      * @param chatId Chat ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateAllSessions(chatId: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -365,7 +355,6 @@ export class AddonModChatProvider {
      * @param sessionStart Session start time.
      * @param groupId Group ID, 0 means that the function will determine the user group.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateSessionMessages(chatId: number, sessionStart: number, groupId: number = 0, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -378,7 +367,6 @@ export class AddonModChatProvider {
      *
      * @param chatId Chat ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateAllSessionMessages(chatId: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -393,7 +381,7 @@ export class AddonModChatProvider {
      * @returns Cache key.
      */
     protected getChatsCacheKey(courseId: number): string {
-        return ROOT_CACHE_KEY + 'chats:' + courseId;
+        return `${AddonModChatProvider.ROOT_CACHE_KEY}chats:${courseId}`;
     }
 
     /**
@@ -415,7 +403,7 @@ export class AddonModChatProvider {
      * @returns Cache key prefix.
      */
     protected getSessionsCacheKeyPrefix(chatId: number): string {
-        return ROOT_CACHE_KEY + 'sessions:' + chatId + ':';
+        return `${AddonModChatProvider.ROOT_CACHE_KEY}sessions:${chatId}:`;
     }
 
     /**
@@ -437,7 +425,7 @@ export class AddonModChatProvider {
      * @returns Cache key prefix.
      */
     protected getSessionMessagesCacheKeyPrefix(chatId: number): string {
-        return ROOT_CACHE_KEY + 'sessionsMessages:' + chatId + ':';
+        return `${AddonModChatProvider.ROOT_CACHE_KEY}sessionsMessages:${chatId}:`;
     }
 
 }
@@ -462,24 +450,13 @@ export type AddonModChatGetChatsByCoursesWSResponse = {
 /**
  * Chat returned by mod_chat_get_chats_by_courses.
  */
-export type AddonModChatChat = {
-    id: number; // Chat id.
-    coursemodule: number; // Course module id.
-    course: number; // Course id.
-    name: string; // Chat name.
-    intro: string; // The Chat intro.
-    introformat: number; // Intro format (1 = HTML, 0 = MOODLE, 2 = PLAIN or 4 = MARKDOWN).
-    introfiles?: CoreWSExternalFile[];
+export type AddonModChatChat = CoreCourseModuleStandardElements & {
     chatmethod?: string; // Chat method (sockets, ajax, header_js).
     keepdays?: number; // Keep days.
     studentlogs?: number; // Student logs visible to everyone.
     chattime?: number; // Chat time.
     schedule?: number; // Schedule type.
     timemodified?: number; // Time of last modification.
-    section?: number; // Course section id.
-    visible?: boolean; // Visible.
-    groupmode?: number; // Group mode.
-    groupingid?: number; // Group id.
 };
 
 /**

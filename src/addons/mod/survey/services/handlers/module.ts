@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreConstants, ModPurpose } from '@/core/constants';
+import { ModFeature, ModPurpose } from '@addons/mod/constants';
+import { ADDON_MOD_SURVEY_MODNAME, ADDON_MOD_SURVEY_PAGE_NAME } from '@addons/mod/survey/constants';
 import { Injectable, Type } from '@angular/core';
 import { CoreModuleHandlerBase } from '@features/course/classes/module-base-handler';
 import { CoreCourseModuleHandler } from '@features/course/services/module-delegate';
 import { makeSingleton } from '@singletons';
-import { AddonModSurveyIndexComponent } from '../../components/index';
 
 /**
  * Handler to support survey modules.
@@ -25,29 +25,29 @@ import { AddonModSurveyIndexComponent } from '../../components/index';
 @Injectable( { providedIn: 'root' })
 export class AddonModSurveyModuleHandlerService extends CoreModuleHandlerBase implements CoreCourseModuleHandler {
 
-    static readonly PAGE_NAME = 'mod_survey';
-
     name = 'AddonModSurvey';
-    modName = 'survey';
-    protected pageName = AddonModSurveyModuleHandlerService.PAGE_NAME;
+    modName = ADDON_MOD_SURVEY_MODNAME;
+    protected pageName = ADDON_MOD_SURVEY_PAGE_NAME;
 
     supportedFeatures = {
-        [CoreConstants.FEATURE_GROUPS]: true,
-        [CoreConstants.FEATURE_GROUPINGS]: true,
-        [CoreConstants.FEATURE_MOD_INTRO]: true,
-        [CoreConstants.FEATURE_COMPLETION_TRACKS_VIEWS]: true,
-        [CoreConstants.FEATURE_COMPLETION_HAS_RULES]: true,
-        [CoreConstants.FEATURE_GRADE_HAS_GRADE]: false,
-        [CoreConstants.FEATURE_GRADE_OUTCOMES]: false,
-        [CoreConstants.FEATURE_BACKUP_MOODLE2]: true,
-        [CoreConstants.FEATURE_SHOW_DESCRIPTION]: true,
-        [CoreConstants.FEATURE_MOD_PURPOSE]: ModPurpose.MOD_PURPOSE_COMMUNICATION,
+        [ModFeature.GROUPS]: true,
+        [ModFeature.GROUPINGS]: true,
+        [ModFeature.MOD_INTRO]: true,
+        [ModFeature.COMPLETION_TRACKS_VIEWS]: true,
+        [ModFeature.COMPLETION_HAS_RULES]: true,
+        [ModFeature.GRADE_HAS_GRADE]: false,
+        [ModFeature.GRADE_OUTCOMES]: false,
+        [ModFeature.BACKUP_MOODLE2]: true,
+        [ModFeature.SHOW_DESCRIPTION]: true,
+        [ModFeature.MOD_PURPOSE]: ModPurpose.COMMUNICATION,
     };
 
     /**
      * @inheritdoc
      */
     async getMainComponent(): Promise<Type<unknown>> {
+        const { AddonModSurveyIndexComponent } = await import('../../components/index');
+
         return AddonModSurveyIndexComponent;
     }
 

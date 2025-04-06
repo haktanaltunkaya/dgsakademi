@@ -1,8 +1,9 @@
-@addon_notifications @app @javascript
+@addon_notifications @app @core @core_message @javascript
 Feature: Notifications
 
   Background:
-    Given the following "users" exist:
+    Given the Moodle site is compatible with this feature
+    And the following "users" exist:
       | username | firstname | lastname |
       | student1 | First     | Student  |
       | student2 | Second    | Student  |
@@ -49,21 +50,19 @@ Feature: Notifications
     And I should find "Test 01" in the app
 
     # Receive a push notification
-    And the following "notifications" exist:
-      | subject | userfrom | userto   | timecreated | timeread   |
-      | Test 31 | student2 | student1 | 1649766631  | null       |
     When I click a push notification in the app for:
-      | username | message   | title   | subject | userfrom |
-      | student1 | Test push | Test 31 | Push 01 | student2 |
+      | username | message   | title   |
+      | student1 | Test push | Push 01 |
     Then I should find "Push 01" in the app
+    And I should find "Test push" in the app
 
     # Open notification detail
-    When I press the back button in the app
+    When I go back in the app
     And I press "Test 30" in the app
     Then I should find "Test 30 description" in the app
 
     # Go back and open other notification
-    When I press the back button in the app
+    When I go back in the app
     Then I should find "Test 10" in the app
     When I press "Test 10" in the app
     Then I should find "Test 10 description" in the app
@@ -77,6 +76,16 @@ Feature: Notifications
     When I swipe to the left in the app
     Then I should find "Test 10 description" in the app
     But I should not find "Test 09 description" in the app
+
+
+    # Check event logs
+    And the following events should not have been logged for "student1" in the app:
+      | name                             | object        | objectname |
+      | \core\event\notification_viewed	 | notifications | Test 10    |
+      | \core\event\notification_viewed	 | notifications | Test 11    |
+    But the following events should have been logged for "student1" in the app:
+      | name                             | object        | objectname |
+      | \core\event\notification_viewed	 | notifications | Test 30    |
 
   Scenario: Tablet navigation
     Given I entered the app as "student1"

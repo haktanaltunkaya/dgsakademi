@@ -18,8 +18,9 @@ import { AddonModQuizQuestionBasicData, CoreQuestionBaseComponent } from '@featu
 import { CoreQuestionHelper } from '@features/question/services/question-helper';
 import { CoreFilepool } from '@services/filepool';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
 import { AddonQtypeDdMarkerQuestion } from '../classes/ddmarker';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreWait } from '@singletons/wait';
 
 /**
  * Component to render a drag-and-drop markers question.
@@ -27,7 +28,11 @@ import { AddonQtypeDdMarkerQuestion } from '../classes/ddmarker';
 @Component({
     selector: 'addon-qtype-ddmarker',
     templateUrl: 'addon-qtype-ddmarker.html',
-    styleUrls: ['ddmarker.scss'],
+    styleUrl: 'ddmarker.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class AddonQtypeDdMarkerComponent
     extends CoreQuestionBaseComponent<AddonQtypeDdMarkerQuestionData>
@@ -51,11 +56,15 @@ export class AddonQtypeDdMarkerComponent
      */
     init(): void {
         if (!this.question) {
+            this.onReadyPromise.resolve();
+
             return;
         }
 
         const questionElement = this.initComponent();
         if (!questionElement) {
+            this.onReadyPromise.resolve();
+
             return;
         }
 
@@ -65,6 +74,7 @@ export class AddonQtypeDdMarkerComponent
 
         if (!ddArea || !ddForm) {
             this.logger.warn('Aborting because of an error parsing question.', this.question.slot);
+            this.onReadyPromise.resolve();
 
             return CoreQuestionHelper.showComponentError(this.onAbort);
         }
@@ -107,6 +117,7 @@ export class AddonQtypeDdMarkerComponent
         }
 
         this.question.loaded = false;
+        this.onReadyPromise.resolve();
     }
 
     /**
@@ -154,7 +165,7 @@ export class AddonQtypeDdMarkerComponent
         }
 
         if (this.questionTextEl) {
-            await CoreDomUtils.waitForImages(this.questionTextEl.nativeElement);
+            await CoreWait.waitForImages(this.questionTextEl.nativeElement);
         }
 
         // Create the instance.

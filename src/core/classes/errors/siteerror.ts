@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreError } from '@classes/errors/error';
+import { CoreError, CoreErrorOptions } from '@classes/errors/error';
 import { CoreUserSupportConfig } from '@features/user/classes/support/support-config';
 
 /**
@@ -20,24 +20,29 @@ import { CoreUserSupportConfig } from '@features/user/classes/support/support-co
  */
 export class CoreSiteError extends CoreError {
 
-    errorcode?: string;
-    errorDetails?: string;
     supportConfig?: CoreUserSupportConfig;
 
     constructor(options: CoreSiteErrorOptions) {
-        super(options.message);
+        super(options.message, { title: options.title, debug: options.debug });
 
-        this.errorcode = options.errorcode;
-        this.errorDetails = options.errorDetails;
         this.supportConfig = options.supportConfig;
+    }
+
+    /**
+     * @deprecated since 4.4. This getter should not be called directly, but it's defined for backwards compatibility with many
+     * parts of the code that type errors as any and use it. We cannot rename those because the errors could also be
+     * CoreWSError instances which do have an "errorcode" property.
+     *
+     * @returns error code.
+     */
+    get errorcode(): string | undefined {
+        return this.debug?.code;
     }
 
 }
 
-export type CoreSiteErrorOptions = {
+export type CoreSiteErrorOptions = CoreErrorOptions & {
     message: string;
-    errorcode?: string; // Technical error code useful for technical assistance.
-    errorDetails?: string; // Technical error details useful for technical assistance.
 
     // Configuration to use to contact site support. If this attribute is present, it means
     // that the error warrants contacting support.

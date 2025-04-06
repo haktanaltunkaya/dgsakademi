@@ -15,16 +15,14 @@
 import { Component, Input, OnChanges, OnDestroy, OnInit, SimpleChange } from '@angular/core';
 
 import { CoreCourseModuleCompletionBaseComponent } from '@features/course/classes/module-completion';
-import {
-    CoreCourseModuleCompletionStatus,
-    CoreCourseModuleCompletionTracking,
-} from '@features/course/services/course';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreCourseModuleCompletionDetailsComponent } from '../module-completion-details/module-completion-details';
+import { CoreCourseModuleCompletionStatus } from '@features/course/constants';
+import { CorePopovers } from '@services/overlays/popovers';
 import { CoreCourseHelper } from '@features/course/services/course-helper';
 import { CoreUser } from '@features/user/services/user';
 import { Translate } from '@singletons';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
+import { toBoolean } from '@/core/transforms/boolean';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component to handle activity completion. It shows a checkbox with the current status, and allows manually changing
@@ -38,14 +36,18 @@ import { CoreEventObserver, CoreEvents } from '@singletons/events';
 @Component({
     selector: 'core-course-module-completion',
     templateUrl: 'core-course-module-completion.html',
-    styleUrls: ['module-completion.scss'],
+    styleUrl: 'module-completion.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class CoreCourseModuleCompletionComponent
     extends CoreCourseModuleCompletionBaseComponent
     implements OnInit, OnChanges, OnDestroy {
 
-    @Input() showCompletionConditions = false; // Whether to show activity completion conditions.
-    @Input() showManualCompletion = false; // Whether to show manual completion.
+    @Input({ transform: toBoolean }) showCompletionConditions = false; // Whether to show activity completion conditions.
+    @Input({ transform: toBoolean }) showManualCompletion = false; // Whether to show manual completion.
 
     completed = false;
     accessibleDescription: string | null = null;
@@ -87,9 +89,7 @@ export class CoreCourseModuleCompletionComponent
             return;
         }
 
-        const completionStatus = this.completion.tracking == CoreCourseModuleCompletionTracking.COMPLETION_TRACKING_NONE
-            ? undefined
-            : this.completion.state;
+        const completionStatus = CoreCourseHelper.getCompletionStatus(this.completion);
 
         this.completed = completionStatus !== CoreCourseModuleCompletionStatus.COMPLETION_INCOMPLETE &&
             completionStatus !== CoreCourseModuleCompletionStatus.COMPLETION_COMPLETE_FAIL;
@@ -106,10 +106,10 @@ export class CoreCourseModuleCompletionComponent
                     },
                 };
                 const setByLangKey = this.completion.state ? 'completion_setby:manual:done' : 'completion_setby:manual:markdone';
-                this.accessibleDescription = Translate.instant('core.course.' + setByLangKey, setByData);
+                this.accessibleDescription = Translate.instant(`core.course.${setByLangKey}`, setByData);
             } else {
                 const langKey = this.completion.state ? 'completion_manual:aria:done' : 'completion_manual:aria:markdone';
-                this.accessibleDescription = Translate.instant('core.course.' + langKey, { $a: this.moduleName });
+                this.accessibleDescription = Translate.instant(`core.course.${langKey}`, { $a: this.moduleName });
             }
         }
     }
@@ -134,7 +134,10 @@ export class CoreCourseModuleCompletionComponent
                 target = target.parentElement;
             }
 
-            CoreDomUtils.openPopover({
+            const { CoreCourseModuleCompletionDetailsComponent } =
+                await import('../module-completion-details/module-completion-details');
+
+            CorePopovers.openWithoutResult({
                 component: CoreCourseModuleCompletionDetailsComponent,
                 componentProps: {
                     completion: this.completion,

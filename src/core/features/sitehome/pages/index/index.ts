@@ -16,8 +16,7 @@ import { Component, OnDestroy, OnInit } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 
 import { CoreSite, CoreSiteConfig } from '@classes/sites/site';
-import { CoreCourse, CoreCourseWSSection } from '@features/course/services/course';
-import { CoreDomUtils } from '@services/utils/dom';
+import { CoreCourse, CoreCourseWSSection, sectionContentIsModule } from '@features/course/services/course';
 import { CoreSites } from '@services/sites';
 import { CoreSiteHome } from '@features/sitehome/services/sitehome';
 import { CoreCourses } from '@features//courses/services/courses';
@@ -27,10 +26,16 @@ import { CoreCourseModuleDelegate } from '@features/course/services/module-deleg
 import { CoreCourseModulePrefetchDelegate } from '@features/course/services/module-prefetch-delegate';
 import { CoreNavigationOptions, CoreNavigator } from '@services/navigator';
 import { CoreBlockHelper } from '@features/block/services/block-helper';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { CoreTime } from '@singletons/time';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
-import { CoreBlockSideBlocksComponent } from '@features/block/components/side-blocks/side-blocks';
+import { ContextLevel } from '@/core/constants';
+import { CoreModals } from '@services/overlays/modals';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { Translate } from '@singletons';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreCourseModuleComponent } from '../../../course/components/module/module';
+import { CoreBlockSideBlocksButtonComponent } from '../../../block/components/side-blocks-button/side-blocks-button';
 
 /**
  * Page that displays site home index.
@@ -38,9 +43,15 @@ import { CoreBlockSideBlocksComponent } from '@features/block/components/side-bl
 @Component({
     selector: 'page-core-sitehome-index',
     templateUrl: 'index.html',
-    styleUrls: ['index.scss'],
+    styleUrl: 'index.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCourseModuleComponent,
+        CoreBlockSideBlocksButtonComponent,
+    ],
 })
-export class CoreSiteHomeIndexPage implements OnInit, OnDestroy {
+export default class CoreSiteHomeIndexPage implements OnInit, OnDestroy {
 
     dataLoaded = false;
     section?: CoreCourseWSSection & {
@@ -54,6 +65,7 @@ export class CoreSiteHomeIndexPage implements OnInit, OnDestroy {
     currentSite!: CoreSite;
     searchEnabled = false;
     newsForumModule?: CoreCourseModuleData;
+    isModule = sectionContentIsModule;
 
     protected updateSiteObserver: CoreEventObserver;
     protected logView: () => void;
@@ -65,7 +77,7 @@ export class CoreSiteHomeIndexPage implements OnInit, OnDestroy {
         }, CoreSites.getCurrentSiteId());
 
         this.logView = CoreTime.once(async () => {
-            await CoreUtils.ignoreErrors(CoreCourse.logView(this.siteHomeId));
+            await CorePromiseUtils.ignoreErrors(CoreCourse.logView(this.siteHomeId));
 
             CoreAnalytics.logEvent({
                 type: CoreAnalyticsEventType.VIEW_ITEM,
@@ -135,7 +147,7 @@ export class CoreSiteHomeIndexPage implements OnInit, OnDestroy {
             const sections = await CoreCourse.getSections(this.siteHomeId, false, true);
 
             // Check "Include a topic section" setting from numsections.
-            this.section = config.numsections ? sections.find((section) => section.section == 1) : undefined;
+            this.section = config.numsections ? sections.find((section) => section.section === 1) : undefined;
             if (this.section) {
                 const result = await CoreCourseHelper.addHandlerDataForModules(
                     [this.section],
@@ -151,7 +163,7 @@ export class CoreSiteHomeIndexPage implements OnInit, OnDestroy {
 
             this.logView();
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'core.course.couldnotloadsectioncontent', true);
+            CoreAlerts.showError(error, { default: Translate.instant('core.course.couldnotloadsectioncontent') });
         }
 
         this.hasBlocks = await CoreBlockHelper.hasCourseBlocks(this.siteHomeId);
@@ -176,9 +188,12 @@ export class CoreSiteHomeIndexPage implements OnInit, OnDestroy {
 
         promises.push(CoreCourse.invalidateCourseBlocks(this.siteHomeId));
 
-        if (this.section && this.section.modules) {
+        if (this.section?.contents.length) {
             // Invalidate modules prefetch data.
-            promises.push(CoreCourseModulePrefetchDelegate.invalidateModules(this.section.modules, this.siteHomeId));
+            promises.push(CoreCourseModulePrefetchDelegate.invalidateModules(
+                CoreCourse.getSectionsModules([this.section]),
+                this.siteHomeId,
+            ));
         }
 
         Promise.all(promises).finally(async () => {
@@ -226,19 +241,22 @@ export class CoreSiteHomeIndexPage implements OnInit, OnDestroy {
     /**
      * Check whether there is a focused instance in the page parameters and open it.
      */
-    private openFocusedInstance() {
+    private async openFocusedInstance() {
         const blockInstanceId = CoreNavigator.getRouteNumberParam('blockInstanceId');
-
-        if (blockInstanceId) {
-            CoreDomUtils.openSideModal({
-                component: CoreBlockSideBlocksComponent,
-                componentProps: {
-                    contextLevel: 'course',
-                    instanceId: this.siteHomeId,
-                    initialBlockInstanceId: blockInstanceId,
-                },
-            });
+        if (!blockInstanceId) {
+            return;
         }
+
+        const { CoreBlockSideBlocksComponent } = await import('@features/block/components/side-blocks/side-blocks');
+
+        CoreModals.openSideModal({
+            component: CoreBlockSideBlocksComponent,
+            componentProps: {
+                contextLevel: ContextLevel.COURSE,
+                instanceId: this.siteHomeId,
+                initialBlockInstanceId: blockInstanceId,
+            },
+        });
     }
 
 }

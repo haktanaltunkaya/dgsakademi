@@ -23,12 +23,11 @@ import {
 import { AddonModAssignOffline } from '@addons/mod/assign/services/assign-offline';
 import { AddonModAssignFeedbackHandler } from '@addons/mod/assign/services/feedback-delegate';
 import { Injectable, Type } from '@angular/core';
-import { CoreSites } from '@services/sites';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreText, CoreTextFormat, DEFAULT_TEXT_FORMAT } from '@singletons/text';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { CoreWSFile } from '@services/ws';
 import { makeSingleton } from '@singletons';
-import { AddonModAssignFeedbackCommentsComponent } from '../component/comments';
+import { CoreFileHelper } from '@services/file-helper';
 
 /**
  * Handler for comments feedback plugin.
@@ -39,8 +38,12 @@ export class AddonModAssignFeedbackCommentsHandlerService implements AddonModAss
     name = 'AddonModAssignFeedbackCommentsHandler';
     type = 'comments';
 
-    // Store the data in this service so it isn't lost if the user performs a PTR in the page.
-    protected drafts: { [draftId: string]: AddonModAssignFeedbackCommentsDraftData } = {};
+    /**
+     * @inheritdoc
+     */
+    async canContainFiltersWhenEditing(): Promise<boolean> {
+        return true;
+    }
 
     /**
      * Get the text to submit.
@@ -56,71 +59,20 @@ export class AddonModAssignFeedbackCommentsHandlerService implements AddonModAss
 
         const files = plugin.fileareas && plugin.fileareas[0] ? plugin.fileareas[0].files : [];
 
-        return CoreTextUtils.restorePluginfileUrls(inputData.assignfeedbackcomments_editor, files || []);
+        return CoreFileHelper.restorePluginfileUrls(inputData.assignfeedbackcomments_editor, files || []);
     }
 
     /**
-     * Discard the draft data of the feedback plugin.
-     *
-     * @param assignId The assignment ID.
-     * @param userId User ID.
-     * @param siteId Site ID. If not defined, current site.
+     * @inheritdoc
      */
-    discardDraft(assignId: number, userId: number, siteId?: string): void {
-        const id = this.getDraftId(assignId, userId, siteId);
-        if (this.drafts[id] !== undefined) {
-            delete this.drafts[id];
-        }
-    }
+    async getComponent(): Promise<Type<IAddonModAssignFeedbackPluginComponent>> {
+        const { AddonModAssignFeedbackCommentsComponent } = await import('../component/comments');
 
-    /**
-     * Return the Component to use to display the plugin data.
-     * It's recommended to return the class of the component, but you can also return an instance of the component.
-     *
-     * @returns The component (or promise resolved with component) to use, undefined if not found.
-     */
-    getComponent(): Type<IAddonModAssignFeedbackPluginComponent> {
         return AddonModAssignFeedbackCommentsComponent;
     }
 
     /**
-     * Return the draft saved data of the feedback plugin.
-     *
-     * @param assignId The assignment ID.
-     * @param userId User ID.
-     * @param siteId Site ID. If not defined, current site.
-     * @returns Data (or promise resolved with the data).
-     */
-    getDraft(assignId: number, userId: number, siteId?: string): AddonModAssignFeedbackCommentsDraftData | undefined {
-        const id = this.getDraftId(assignId, userId, siteId);
-
-        if (this.drafts[id] !== undefined) {
-            return this.drafts[id];
-        }
-    }
-
-    /**
-     * Get a draft ID.
-     *
-     * @param assignId The assignment ID.
-     * @param userId User ID.
-     * @param siteId Site ID. If not defined, current site.
-     * @returns Draft ID.
-     */
-    protected getDraftId(assignId: number, userId: number, siteId?: string): string {
-        siteId = siteId || CoreSites.getCurrentSiteId();
-
-        return siteId + '#' + assignId + '#' + userId;
-    }
-
-    /**
-     * Get files used by this plugin.
-     * The files returned by this function will be prefetched when the user prefetches the assign.
-     *
-     * @param assign The assignment.
-     * @param submission The submission.
-     * @param plugin The plugin object.
-     * @returns The files (or promise resolved with the files).
+     * @inheritdoc
      */
     getPluginFiles(
         assign: AddonModAssignAssign,
@@ -131,14 +83,7 @@ export class AddonModAssignFeedbackCommentsHandlerService implements AddonModAss
     }
 
     /**
-     * Check if the feedback data has changed for this plugin.
-     *
-     * @param assign The assignment.
-     * @param submission The submission.
-     * @param plugin The plugin object.
-     * @param inputData Data entered by the user for the feedback.
-     * @param userId User ID of the submission.
-     * @returns Boolean (or promise resolved with boolean): whether the data has changed.
+     * @inheritdoc
      */
     async hasDataChanged(
         assign: AddonModAssignAssign,
@@ -148,19 +93,16 @@ export class AddonModAssignFeedbackCommentsHandlerService implements AddonModAss
         userId: number,
     ): Promise<boolean> {
         // Get it from plugin or offline.
-        const offlineData = await CoreUtils.ignoreErrors(
+        const offlineData = await CorePromiseUtils.ignoreErrors(
             AddonModAssignOffline.getSubmissionGrade(assign.id, userId),
             undefined,
         );
 
-        if (offlineData?.plugindata?.assignfeedbackcomments_editor) {
-            const pluginData = <AddonModAssignFeedbackCommentsPluginData>offlineData.plugindata;
+        // Get the initial text from the offline data, or from the plugin data if no offline data.
+        const initialText = offlineData?.plugindata?.assignfeedbackcomments_editor ?
+            (<AddonModAssignFeedbackCommentsPluginData> offlineData.plugindata).assignfeedbackcomments_editor.text :
+            AddonModAssign.getSubmissionPluginText(plugin);
 
-            return !!pluginData.assignfeedbackcomments_editor.text;
-        }
-
-        // No offline data found, get text from plugin.
-        const initialText = AddonModAssign.getSubmissionPluginText(plugin);
         const newText = AddonModAssignFeedbackCommentsHandler.getTextFromInputData(plugin, inputData);
 
         if (newText === undefined) {
@@ -168,27 +110,11 @@ export class AddonModAssignFeedbackCommentsHandlerService implements AddonModAss
         }
 
         // Check if text has changed.
-        return initialText != newText;
+        return initialText !== newText;
     }
 
     /**
-     * Check whether the plugin has draft data stored.
-     *
-     * @param assignId The assignment ID.
-     * @param userId User ID.
-     * @param siteId Site ID. If not defined, current site.
-     * @returns Boolean or promise resolved with boolean: whether the plugin has draft data.
-     */
-    hasDraftData(assignId: number, userId: number, siteId?: string): boolean | Promise<boolean> {
-        const draft = this.getDraft(assignId, userId, siteId);
-
-        return !!draft;
-    }
-
-    /**
-     * Whether or not the handler is enabled on a site level.
-     *
-     * @returns True or promise resolved with true if enabled.
+     * @inheritdoc
      */
     async isEnabled(): Promise<boolean> {
         // In here we should check if comments is not disabled in site.
@@ -198,52 +124,25 @@ export class AddonModAssignFeedbackCommentsHandlerService implements AddonModAss
     }
 
     /**
-     * Prepare and add to pluginData the data to send to the server based on the draft data saved.
-     *
-     * @param assignId The assignment ID.
-     * @param userId User ID.
-     * @param plugin The plugin object.
-     * @param pluginData Object where to store the data to send.
-     * @param siteId Site ID. If not defined, current site.
+     * @inheritdoc
      */
     prepareFeedbackData(
         assignId: number,
         userId: number,
         plugin: AddonModAssignPlugin,
         pluginData: AddonModAssignSavePluginData,
-        siteId?: string,
+        inputData: AddonModAssignFeedbackCommentsTextData,
     ): void {
-
-        const draft = this.getDraft(assignId, userId, siteId);
-
-        if (draft) {
-            // Add some HTML to the text if needed.
-            draft.text = CoreTextUtils.formatHtmlLines(draft.text);
-
-            pluginData.assignfeedbackcomments_editor = draft;
+        const text = AddonModAssignFeedbackCommentsHandler.getTextFromInputData(plugin, inputData);
+        if (!text) {
+            return;
         }
-    }
 
-    /**
-     * Save draft data of the feedback plugin.
-     *
-     * @param assignId The assignment ID.
-     * @param userId User ID.
-     * @param plugin The plugin object.
-     * @param data The data to save.
-     * @param siteId Site ID. If not defined, current site.
-     */
-    saveDraft(
-        assignId: number,
-        userId: number,
-        plugin: AddonModAssignPlugin,
-        data: AddonModAssignFeedbackCommentsDraftData,
-        siteId?: string,
-    ): void {
-
-        if (data) {
-            this.drafts[this.getDraftId(assignId, userId, siteId)] = data;
-        }
+        const data: AddonModAssignFeedbackCommentsInputData = {
+            text: CoreText.formatHtmlLines(text),
+            format: DEFAULT_TEXT_FORMAT,
+        };
+        pluginData.assignfeedbackcomments_editor = data;
     }
 
 }
@@ -254,13 +153,13 @@ export type AddonModAssignFeedbackCommentsTextData = {
     assignfeedbackcomments_editor: string; // eslint-disable-line @typescript-eslint/naming-convention
 };
 
-export type AddonModAssignFeedbackCommentsDraftData = {
+type AddonModAssignFeedbackCommentsInputData = {
     text: string; // The text for this feedback.
-    format: number; // The format for this feedback.
+    format: CoreTextFormat; // The format for this feedback.
 };
 
 export type AddonModAssignFeedbackCommentsPluginData = {
     // Editor structure.
     // eslint-disable-next-line @typescript-eslint/naming-convention
-    assignfeedbackcomments_editor: AddonModAssignFeedbackCommentsDraftData;
+    assignfeedbackcomments_editor: AddonModAssignFeedbackCommentsInputData;
 };

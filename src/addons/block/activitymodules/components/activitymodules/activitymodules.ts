@@ -17,12 +17,15 @@ import { CoreCourse } from '@features/course/services/course';
 import { CoreCourseModuleDelegate } from '@features/course/services/module-delegate';
 import { CoreBlockBaseComponent } from '@features/block/classes/base-block-component';
 import { CoreSites } from '@services/sites';
-import { ContextLevel, CoreConstants } from '@/core/constants';
+import { ContextLevel } from '@/core/constants';
 import { Translate } from '@singletons';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreObject } from '@singletons/object';
 import { CoreNavigator } from '@services/navigator';
 import { CoreCourseHelper } from '@features/course/services/course-helper';
-import { CoreUrlUtils } from '@services/utils/url';
+import { CoreUrl } from '@singletons/url';
+import { CoreSharedModule } from '@/core/shared.module';
+import { ModFeature, ModArchetype } from '@addons/mod/constants';
+import { CoreCourseModuleHelper } from '@features/course/services/course-module-helper';
 
 /**
  * Component to render an "activity modules" block.
@@ -30,7 +33,11 @@ import { CoreUrlUtils } from '@services/utils/url';
 @Component({
     selector: 'addon-block-activitymodules',
     templateUrl: 'addon-block-activitymodules.html',
-    styleUrls: ['activitymodules.scss'],
+    styleUrl: 'activitymodules.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class AddonBlockActivityModulesComponent extends CoreBlockBaseComponent implements OnInit {
 
@@ -63,44 +70,45 @@ export class AddonBlockActivityModulesComponent extends CoreBlockBaseComponent i
         const archetypes: Record<string, number> = {};
         const modIcons: Record<string, string> = {};
         let modFullNames: Record<string, string> = {};
-        sections.forEach((section) => {
-            if (!section.modules) {
+        const brandedIcons: Record<string, boolean|undefined> = {};
+
+        const modules = CoreCourse.getSectionsModules(sections, {
+            ignoreSection: section => !CoreCourseHelper.canUserViewSection(section),
+            ignoreModule: module => !CoreCourseHelper.canUserViewModule(module) || !CoreCourseModuleHelper.moduleHasView(module),
+        });
+
+        modules.forEach((mod) => {
+            if (archetypes[mod.modname] !== undefined) {
                 return;
             }
 
-            section.modules.forEach((mod) => {
-                if (archetypes[mod.modname] !== undefined ||
-                    !CoreCourseHelper.canUserViewModule(mod, section) ||
-                    !CoreCourse.moduleHasView(mod)) {
-                    // Ignore this module.
-                    return;
-                }
+            // Get the archetype of the module type.
+            archetypes[mod.modname] = CoreCourseModuleDelegate.supportsFeature<number>(
+                mod.modname,
+                ModFeature.MOD_ARCHETYPE,
+                ModArchetype.OTHER,
+            );
 
-                // Get the archetype of the module type.
-                archetypes[mod.modname] = CoreCourseModuleDelegate.supportsFeature<number>(
-                    mod.modname,
-                    CoreConstants.FEATURE_MOD_ARCHETYPE,
-                    CoreConstants.MOD_ARCHETYPE_OTHER,
-                );
-
-                // Get the full name of the module type.
-                if (archetypes[mod.modname] === CoreConstants.MOD_ARCHETYPE_RESOURCE) {
-                    // All resources are gathered in a single "Resources" option.
-                    if (!modFullNames['resources']) {
-                        modFullNames['resources'] = Translate.instant('core.resources');
-                    }
-                } else {
-                    modFullNames[mod.modname] = mod.modplural;
+            // Get the full name of the module type.
+            if (archetypes[mod.modname] === ModArchetype.RESOURCE) {
+                // All resources are gathered in a single "Resources" option.
+                if (!modFullNames['resources']) {
+                    modFullNames['resources'] = Translate.instant('core.resources');
                 }
+            } else {
+                modFullNames[mod.modname] = mod.modplural;
+            }
 
-                // If this is not a theme image, leave it undefined to avoid having specific activity icons.
-                if (CoreUrlUtils.isThemeImageUrl(mod.modicon)) {
-                    modIcons[mod.modname] = mod.modicon;
-                }
-            });
+            brandedIcons[mod.modname] = mod.branded;
+
+            // If this is not a theme image, leave it undefined to avoid having specific activity icons.
+            if (CoreUrl.isThemeImageUrl(mod.modicon)) {
+                modIcons[mod.modname] = mod.modicon;
+            }
         });
+
         // Sort the modnames alphabetically.
-        modFullNames = CoreUtils.sortValues(modFullNames);
+        modFullNames = CoreObject.sortValues(modFullNames);
         for (const modName in modFullNames) {
             const iconModName = modName === 'resources' ? 'page' : modName;
 
@@ -111,6 +119,7 @@ export class AddonBlockActivityModulesComponent extends CoreBlockBaseComponent i
                 iconModName,
                 name: modFullNames[modName],
                 modName,
+                branded: brandedIcons[iconModName],
             });
         }
     }
@@ -149,4 +158,5 @@ type AddonBlockActivityModuleEntry = {
     name: string;
     modName: string;
     iconModName: string;
+    branded?: boolean;
 };

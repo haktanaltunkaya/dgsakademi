@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, signal } from '@angular/core';
 
 import { CoreConfig } from '@services/config';
 import { CoreLocalNotifications } from '@services/local-notifications';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { CoreUser } from '@features/user/services/user';
 import { AddonMessageOutputDelegate, AddonMessageOutputHandlerData } from '@addons/messageoutput/services/messageoutput-delegate';
 import { CoreConstants } from '@/core/constants';
@@ -39,6 +38,10 @@ import { CoreNavigator } from '@services/navigator';
 import { CoreTime } from '@singletons/time';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
 import { Translate } from '@singletons';
+import { CoreErrorHelper } from '@services/error-helper';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays notifications settings.
@@ -46,9 +49,13 @@ import { Translate } from '@singletons';
 @Component({
     selector: 'page-addon-notifications-settings',
     templateUrl: 'settings.html',
-    styleUrls: ['settings.scss'],
+    styleUrl: 'settings.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
-export class AddonNotificationsSettingsPage implements OnInit, OnDestroy {
+export default class AddonNotificationsSettingsPage implements OnInit, OnDestroy {
 
     preferences?: AddonNotificationsPreferencesFormatted;
     components?: AddonNotificationsPreferencesComponentFormatted[];
@@ -58,6 +65,7 @@ export class AddonNotificationsSettingsPage implements OnInit, OnDestroy {
     canChangeSound: boolean;
     processorHandlers: AddonMessageOutputHandlerData[] = [];
     loggedInOffLegacyMode = false;
+    warningMessage = signal<string | undefined>(undefined);
 
     protected updateTimeout?: number;
     protected logView: () => void;
@@ -99,6 +107,8 @@ export class AddonNotificationsSettingsPage implements OnInit, OnDestroy {
         try {
             const preferences = await AddonNotifications.getNotificationPreferences();
 
+            this.warningMessage.set(undefined);
+
             // Initialize current processor. Load "Mobile" (airnotifier) if available.
             let currentProcessor = preferences.processors.find((processor) => processor.name == this.currentProcessorName);
             if (!currentProcessor) {
@@ -116,7 +126,13 @@ export class AddonNotificationsSettingsPage implements OnInit, OnDestroy {
 
             this.logView();
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
+            if (error.errorcode === 'nopermissions') {
+                this.warningMessage.set(CoreErrorHelper.getErrorMessageFromError(error));
+
+                return;
+            }
+
+            CoreAlerts.showError(error);
         } finally {
             this.preferencesLoaded = true;
         }
@@ -168,7 +184,7 @@ export class AddonNotificationsSettingsPage implements OnInit, OnDestroy {
      * @returns Promise resolved when done.
      */
     protected async updatePreferences(): Promise<void> {
-        await CoreUtils.ignoreErrors(AddonNotifications.invalidateNotificationPreferences());
+        await CorePromiseUtils.ignoreErrors(AddonNotifications.invalidateNotificationPreferences());
 
         await AddonNotifications.getNotificationPreferences();
     }
@@ -193,7 +209,7 @@ export class AddonNotificationsSettingsPage implements OnInit, OnDestroy {
      */
     async refreshPreferences(refresher?: HTMLIonRefresherElement): Promise<void> {
         try {
-            await CoreUtils.ignoreErrors(AddonNotifications.invalidateNotificationPreferences());
+            await CorePromiseUtils.ignoreErrors(AddonNotifications.invalidateNotificationPreferences());
 
             await this.fetchPreferences();
         } finally {
@@ -224,7 +240,7 @@ export class AddonNotificationsSettingsPage implements OnInit, OnDestroy {
         }
 
         const processorState: ProcessorStateFormatted = processor[state];
-        const preferenceName = notification.preferencekey + '_' + processorState.name;
+        const preferenceName = `${notification.preferencekey}_${processorState.name}`;
 
         let value = notification.processors
             .filter((processor) => processor[state].checked)
@@ -244,7 +260,7 @@ export class AddonNotificationsSettingsPage implements OnInit, OnDestroy {
             this.updatePreferencesAfterDelay();
         } catch (error) {
             // Show error and revert change.
-            CoreDomUtils.showErrorModal(error);
+            CoreAlerts.showError(error);
             processor[state].checked = !processor[state].checked;
         } finally {
             processorState.updating = false;
@@ -263,7 +279,7 @@ export class AddonNotificationsSettingsPage implements OnInit, OnDestroy {
             return;
         }
 
-        const preferenceName = notification.preferencekey + '_enabled';
+        const preferenceName = `${notification.preferencekey}_enabled`;
 
         let value = notification.processors
             .filter((processor) => processor.enabled)
@@ -283,7 +299,7 @@ export class AddonNotificationsSettingsPage implements OnInit, OnDestroy {
             this.updatePreferencesAfterDelay();
         } catch (error) {
             // Show error and revert change.
-            CoreDomUtils.showErrorModal(error);
+            CoreAlerts.showError(error);
             processor.enabled = !processor.enabled;
         } finally {
             processor.updating = false;
@@ -301,7 +317,7 @@ export class AddonNotificationsSettingsPage implements OnInit, OnDestroy {
             return;
         }
 
-        const modal = await CoreDomUtils.showModalLoading('core.sending', true);
+        const modal = await CoreLoadings.show('core.sending', true);
 
         try {
             CoreUser.updateUserPreferences([], !enable);
@@ -310,7 +326,7 @@ export class AddonNotificationsSettingsPage implements OnInit, OnDestroy {
             this.updatePreferencesAfterDelay();
         } catch (error) {
             // Show error and revert change.
-            CoreDomUtils.showErrorModal(error);
+            CoreAlerts.showError(error);
             this.preferences.enableall = !this.preferences.enableall;
         } finally {
             modal.dismiss();
@@ -323,7 +339,7 @@ export class AddonNotificationsSettingsPage implements OnInit, OnDestroy {
      * @param enabled True to enable the notification sound, false to disable it.
      */
     async changeNotificationSound(enabled: boolean): Promise<void> {
-        await CoreUtils.ignoreErrors(CoreConfig.set(CoreConstants.SETTINGS_NOTIFICATION_SOUND, enabled ? 1 : 0));
+        await CorePromiseUtils.ignoreErrors(CoreConfig.set(CoreConstants.SETTINGS_NOTIFICATION_SOUND, enabled ? 1 : 0));
 
         const siteId = CoreSites.getCurrentSiteId();
         CoreEvents.trigger(CoreEvents.NOTIFICATION_SOUND_CHANGED, { enabled }, siteId);

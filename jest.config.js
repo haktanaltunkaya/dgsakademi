@@ -6,9 +6,13 @@ module.exports = {
     setupFilesAfterEnv: ['<rootDir>/src/testing/setup.ts'],
     testMatch: ['**/?(*.)test.ts'],
     collectCoverageFrom: [
-        'src/**/*.{ts,html}',
+        'src/**/*.ts',
+        '!src/**/*.test.ts',
+        '!src/assets/**/*',
         '!src/testing/**/*',
+        '!src/core/initializers/index.ts',
+        '!src/core/features/emulators/services/zip.ts',
     ],
-    transformIgnorePatterns: ['node_modules/(?!@stencil|@angular|@ionic|@moodlehq|@ngx-translate|swiper)'],
+    transformIgnorePatterns: ['node_modules/(?!@stencil|@angular|@ionic|@moodlehq|@ngx-translate|@awesome-cordova-plugins|swiper)'],
     moduleNameMapper: pathsToModuleNameMapper(compilerOptions.paths, { prefix: '<rootDir>/src/' }),
 };

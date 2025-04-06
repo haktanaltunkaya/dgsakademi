@@ -18,9 +18,10 @@ import { CoreContentLinksAction } from '@features/contentlinks/services/contentl
 import { CoreCourse } from '@features/course/services/course';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSitesReadingStrategy } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { makeSingleton } from '@singletons';
-import { AddonModGlossaryModuleHandlerService } from './module';
+import { makeSingleton, Translate } from '@singletons';
+import { ADDON_MOD_GLOSSARY_FEATURE_NAME, ADDON_MOD_GLOSSARY_PAGE_NAME } from '../../constants';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreAlerts } from '@services/overlays/alerts';
 
 /**
  * Content links handler for glossary new entry.
@@ -31,7 +32,7 @@ import { AddonModGlossaryModuleHandlerService } from './module';
 export class AddonModGlossaryEditLinkHandlerService extends CoreContentLinksHandlerBase {
 
     name = 'AddonModGlossaryEditLinkHandler';
-    featureName = 'CoreCourseModuleDelegate_AddonModGlossary';
+    featureName = ADDON_MOD_GLOSSARY_FEATURE_NAME;
     pattern = /\/mod\/glossary\/edit\.php.*([?&](cmid)=\d+)/;
 
     /**
@@ -40,7 +41,7 @@ export class AddonModGlossaryEditLinkHandlerService extends CoreContentLinksHand
     getActions(siteIds: string[], url: string, params: Record<string, string>): CoreContentLinksAction[] {
         return [{
             action: async (siteId: string) => {
-                const modal = await CoreDomUtils.showModalLoading();
+                const modal = await CoreLoadings.show();
 
                 const cmId = Number(params.cmid);
 
@@ -51,11 +52,11 @@ export class AddonModGlossaryEditLinkHandlerService extends CoreContentLinksHand
                     );
 
                     await CoreNavigator.navigateToSitePath(
-                        AddonModGlossaryModuleHandlerService.PAGE_NAME + `/${module.course}/${module.id}/entry/new`,
+                        `${ADDON_MOD_GLOSSARY_PAGE_NAME}/${module.course}/${module.id}/entry/new`,
                         { siteId },
                     );
                 } catch (error) {
-                    CoreDomUtils.showErrorModalDefault(error, 'addon.mod_glossary.errorloadingglossary', true);
+                    CoreAlerts.showError(error, { default: Translate.instant('addon.mod_glossary.errorloadingglossary') });
                 } finally {
                     // Just in case. In fact we need to dismiss the modal before showing a toast or error message.
                     modal.dismiss();

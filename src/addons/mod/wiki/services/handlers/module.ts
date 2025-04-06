@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreConstants, ModPurpose } from '@/core/constants';
 import { Injectable, Type } from '@angular/core';
 import { CoreModuleHandlerBase } from '@features/course/classes/module-base-handler';
 import { CoreCourseModuleHandler } from '@features/course/services/module-delegate';
 import { makeSingleton } from '@singletons';
-import { AddonModWikiIndexComponent } from '../../components/index';
+import { ADDON_MOD_WIKI_MODNAME, ADDON_MOD_WIKI_PAGE_NAME } from '../../constants';
+import { ModFeature, ModPurpose } from '@addons/mod/constants';
 
 /**
  * Handler to support wiki modules.
@@ -25,30 +25,30 @@ import { AddonModWikiIndexComponent } from '../../components/index';
 @Injectable({ providedIn: 'root' })
 export class AddonModWikiModuleHandlerService extends CoreModuleHandlerBase implements CoreCourseModuleHandler {
 
-    static readonly PAGE_NAME = 'mod_wiki';
-
     name = 'AddonModWiki';
-    modName = 'wiki';
-    protected pageName = AddonModWikiModuleHandlerService.PAGE_NAME;
+    modName = ADDON_MOD_WIKI_MODNAME;
+    protected pageName = ADDON_MOD_WIKI_PAGE_NAME;
 
     supportedFeatures = {
-        [CoreConstants.FEATURE_GROUPS]: true,
-        [CoreConstants.FEATURE_GROUPINGS]: true,
-        [CoreConstants.FEATURE_MOD_INTRO]: true,
-        [CoreConstants.FEATURE_COMPLETION_TRACKS_VIEWS]: true,
-        [CoreConstants.FEATURE_GRADE_HAS_GRADE]: false,
-        [CoreConstants.FEATURE_GRADE_OUTCOMES]: false,
-        [CoreConstants.FEATURE_BACKUP_MOODLE2]: true,
-        [CoreConstants.FEATURE_SHOW_DESCRIPTION]: true,
-        [CoreConstants.FEATURE_RATE]: false,
-        [CoreConstants.FEATURE_COMMENT]: true,
-        [CoreConstants.FEATURE_MOD_PURPOSE]: ModPurpose.MOD_PURPOSE_COLLABORATION,
+        [ModFeature.GROUPS]: true,
+        [ModFeature.GROUPINGS]: true,
+        [ModFeature.MOD_INTRO]: true,
+        [ModFeature.COMPLETION_TRACKS_VIEWS]: true,
+        [ModFeature.GRADE_HAS_GRADE]: false,
+        [ModFeature.GRADE_OUTCOMES]: false,
+        [ModFeature.BACKUP_MOODLE2]: true,
+        [ModFeature.SHOW_DESCRIPTION]: true,
+        [ModFeature.RATE]: false,
+        [ModFeature.COMMENT]: true,
+        [ModFeature.MOD_PURPOSE]: ModPurpose.COLLABORATION,
     };
 
     /**
      * @inheritdoc
      */
     async getMainComponent(): Promise<Type<unknown>> {
+        const { AddonModWikiIndexComponent } = await import('../../components/index');
+
         return AddonModWikiIndexComponent;
     }
 

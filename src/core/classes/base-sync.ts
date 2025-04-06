@@ -15,11 +15,12 @@
 import { CoreNetwork } from '@services/network';
 import { CoreSites } from '@services/sites';
 import { CoreSync } from '@services/sync';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreTimeUtils } from '@services/utils/time';
+import { CoreText } from '@singletons/text';
+import { CoreTime } from '@singletons/time';
 import { Translate } from '@singletons';
 import { CoreLogger } from '@singletons/logger';
 import { CoreAnyError, CoreError } from '@classes/errors/error';
+import { CoreErrorHelper } from '@services/error-helper';
 
 /**
  * Blocked sync error.
@@ -120,7 +121,7 @@ export class CoreSyncBaseProvider<T = void> {
         return Translate.instant('core.warningofflinedatadeleted', {
             component: this.componentTranslate,
             name: name,
-            error: CoreTextUtils.getErrorMessageFromError(error),
+            error: CoreErrorHelper.getErrorMessageFromError(error),
         });
     }
 
@@ -163,7 +164,7 @@ export class CoreSyncBaseProvider<T = void> {
         if (!timestamp) {
             return Translate.instant('core.never');
         } else {
-            return CoreTimeUtils.userDate(timestamp);
+            return CoreTime.userDate(timestamp);
         }
     }
 
@@ -195,7 +196,7 @@ export class CoreSyncBaseProvider<T = void> {
         try {
             const entry = await CoreSync.getSyncRecord(this.component, id, siteId);
 
-            return <string[]> CoreTextUtils.parseJSON(entry.warnings, []);
+            return <string[]> CoreText.parseJSON(entry.warnings, []);
         } catch {
             return [];
         }
@@ -208,7 +209,7 @@ export class CoreSyncBaseProvider<T = void> {
      * @returns Unique identifier from component and id.
      */
     protected getUniqueSyncId(id: string | number): string {
-        return this.component + '#' + id;
+        return `${this.component}#${id}`;
     }
 
     /**
@@ -246,7 +247,7 @@ export class CoreSyncBaseProvider<T = void> {
     async setSyncTime(id: string | number, siteId?: string, time?: number): Promise<void> {
         time = time !== undefined ? time : Date.now();
 
-        await CoreSync.insertOrUpdateSyncRecord(this.component, id, { time: time }, siteId);
+        await CoreSync.insertOrUpdateSyncRecord(this.component, id, { time }, siteId);
     }
 
     /**

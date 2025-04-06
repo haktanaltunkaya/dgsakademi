@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { CorePlatform } from '@services/platform';
-import { CoreMimetypeUtils } from '@services/utils/mimetype';
+import { CoreMimetype } from '@singletons/mimetype';
 
 /**
  * Singleton with helper functions for media.
@@ -54,13 +54,13 @@ export class CoreMedia {
      * @returns Whether needs conversion.
      */
     static sourceNeedsConversion(source: CoreMediaSource): boolean {
-        if (!CorePlatform.isIOS()) {
+        if (!CorePlatform.isMobile()) {
             return false;
         }
 
-        let extension = source.type ? CoreMimetypeUtils.getExtension(source.type) : undefined;
+        let extension = source.type ? CoreMimetype.getExtension(source.type) : undefined;
         if (!extension) {
-            extension = CoreMimetypeUtils.guessExtensionFromUrl(source.src);
+            extension = CoreMimetype.guessExtensionFromUrl(source.src);
         }
 
         return !!extension && ['ogv', 'webm', 'oga', 'ogg'].includes(extension);
@@ -84,13 +84,31 @@ export class CoreMedia {
      * @returns Whether JS player should be used.
      */
     static mediaUsesJavascriptPlayer(mediaElement: HTMLVideoElement | HTMLAudioElement): boolean {
-        if (!CorePlatform.isIOS()) {
+        if (!CorePlatform.isMobile()) {
             return false;
         }
 
         const sources = CoreMedia.getMediaSources(mediaElement);
 
         return sources.some(source => CoreMedia.sourceUsesJavascriptPlayer(source));
+    }
+
+    /**
+     * Check if the browser supports mediaDevices.getUserMedia.
+     *
+     * @returns Whether the function is supported.
+     */
+    static canGetUserMedia(): boolean {
+        return !!(navigator && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    }
+
+    /**
+     * Check if the browser supports MediaRecorder.
+     *
+     * @returns Whether the function is supported.
+     */
+    static canRecordMedia(): boolean {
+        return !!window.MediaRecorder;
     }
 
 }

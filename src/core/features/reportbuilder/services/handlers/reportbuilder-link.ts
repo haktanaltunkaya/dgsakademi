@@ -13,13 +13,12 @@
 // limitations under the License.
 
 import { Injectable } from '@angular/core';
-import { Params } from '@angular/router';
 import { CoreContentLinksHandlerBase } from '@features/contentlinks/classes/base-handler';
 import { CoreContentLinksAction } from '@features/contentlinks/services/contentlinks-delegate';
 import { CoreNavigator } from '@services/navigator';
 import { makeSingleton } from '@singletons';
 import { CoreReportBuilder } from '../reportbuilder';
-import { CoreReportBuilderHandlerService } from './reportbuilder';
+import { CORE_REPORT_BUILDER_PAGE_NAME } from '@features/reportbuilder/constants';
 
 /**
  * Content links handler for report builder
@@ -34,10 +33,13 @@ export class CoreReportBuilderLinkHandlerService extends CoreContentLinksHandler
     /**
      * @inheritdoc
      */
-    getActions(siteIds: string[], url: string, params: Params): CoreContentLinksAction[] {
+    getActions(siteIds: string[], url: string, params: Record<string, string>): CoreContentLinksAction[] {
         return [{
             action: async (siteId): Promise<void> => {
-                CoreNavigator.navigateToSitePath(`${CoreReportBuilderHandlerService.PAGE_NAME}/${params.id || ''}`, { siteId });
+                await CoreNavigator.navigateToSitePath(
+                    `${CORE_REPORT_BUILDER_PAGE_NAME}/${params.id || ''}`,
+                    { siteId },
+                );
             },
         }];
     }

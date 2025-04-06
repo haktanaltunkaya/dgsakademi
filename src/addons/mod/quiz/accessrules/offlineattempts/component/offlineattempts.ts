@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { toBoolean } from '@/core/transforms/boolean';
 import { AddonModQuizAttemptWSData, AddonModQuizQuizWSData } from '@addons/mod/quiz/services/quiz';
 import { AddonModQuizSync } from '@addons/mod/quiz/services/quiz-sync';
 import { Component, OnInit, Input } from '@angular/core';
 import { FormGroup, FormBuilder } from '@angular/forms';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component to render the preflight for offline attempts.
@@ -23,13 +25,17 @@ import { FormGroup, FormBuilder } from '@angular/forms';
 @Component({
     selector: 'addon-mod-quiz-access-offline-attempts',
     templateUrl: 'addon-mod-quiz-access-offline-attempts.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class AddonModQuizAccessOfflineAttemptsComponent implements OnInit {
 
     @Input() rule?: string; // The name of the rule.
     @Input() quiz?: AddonModQuizQuizWSData; // The quiz the rule belongs to.
     @Input() attempt?: AddonModQuizAttemptWSData; // The attempt being started/continued.
-    @Input() prefetch?: boolean; // Whether the user is prefetching the quiz.
+    @Input({ transform: toBoolean }) prefetch = false; // Whether the user is prefetching the quiz.
     @Input() siteId?: string; // Site ID.
     @Input() form?: FormGroup; // Form where to add the form control.
 

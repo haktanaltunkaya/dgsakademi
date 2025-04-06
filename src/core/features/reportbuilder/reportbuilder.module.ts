@@ -15,16 +15,25 @@
 import { APP_INITIALIZER, NgModule } from '@angular/core';
 import { Routes } from '@angular/router';
 import { CoreContentLinksDelegate } from '@features/contentlinks/services/contentlinks-delegate';
-import { CoreMainMenuRoutingModule } from '@features/mainmenu/mainmenu-routing.module';
 import { CoreMainMenuTabRoutingModule } from '@features/mainmenu/mainmenu-tab-routing.module';
 import { CoreUserDelegate } from '@features/user/services/user-delegate';
 import { CoreReportBuilderLinkHandler } from './services/handlers/reportbuilder-link';
-import { CoreReportBuilderHandler, CoreReportBuilderHandlerService } from './services/handlers/reportbuilder';
+import { CoreReportBuilderHandler } from './services/handlers/reportbuilder';
+import { CORE_REPORT_BUILDER_PAGE_NAME } from './constants';
 
 const routes: Routes = [
     {
-        path: CoreReportBuilderHandlerService.PAGE_NAME,
-        loadChildren: () => import('./reportbuilder-lazy.module').then(m => m.CoreReportBuilderLazyModule),
+        path: CORE_REPORT_BUILDER_PAGE_NAME,
+        loadChildren: () => [
+            {
+                path: '',
+                loadComponent: () => import('@features/reportbuilder/pages/list/list'),
+            },
+            {
+                path: ':id',
+                loadComponent: () => import('@features/reportbuilder/pages/report/report'),
+            },
+        ],
     },
 ];
 
@@ -32,7 +41,6 @@ const routes: Routes = [
     imports: [
         CoreMainMenuTabRoutingModule.forChild(routes),
     ],
-    exports: [CoreMainMenuRoutingModule],
     providers: [
         {
             provide: APP_INITIALIZER,

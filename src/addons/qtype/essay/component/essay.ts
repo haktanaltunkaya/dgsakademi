@@ -19,16 +19,24 @@ import { FileEntry } from '@awesome-cordova-plugins/file/ngx';
 import { CoreFileUploaderStoreFilesResult } from '@features/fileuploader/services/fileuploader';
 import { AddonModQuizEssayQuestion, CoreQuestionBaseComponent } from '@features/question/classes/base-question-component';
 import { CoreQuestionHelper } from '@features/question/services/question-helper';
-import { CoreTextUtils } from '@services/utils/text';
+import { CoreText } from '@singletons/text';
 import { CoreFileSession } from '@services/file-session';
 import { CoreQuestion } from '@features/question/services/question';
 import { CoreFileEntry } from '@services/file-helper';
+import { CoreEditorRichTextEditorComponent } from '@features/editor/components/rich-text-editor/rich-text-editor';
+import { CoreSharedModule } from '@/core/shared.module';
+
 /**
  * Component to render an essay question.
  */
 @Component({
     selector: 'addon-qtype-essay',
     templateUrl: 'addon-qtype-essay.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreEditorRichTextEditorComponent,
+    ],
 })
 export class AddonQtypeEssayComponent extends CoreQuestionBaseComponent<AddonModQuizEssayQuestion> {
 
@@ -45,6 +53,8 @@ export class AddonQtypeEssayComponent extends CoreQuestionBaseComponent<AddonMod
      */
     init(): void {
         if (!this.question) {
+            this.onReadyPromise.resolve();
+
             return;
         }
 
@@ -57,6 +67,7 @@ export class AddonQtypeEssayComponent extends CoreQuestionBaseComponent<AddonMod
         if (this.question?.allowsAttachments && this.uploadFilesSupported && !this.review) {
             this.loadAttachments();
         }
+        this.onReadyPromise.resolve();
     }
 
     /**
@@ -71,7 +82,7 @@ export class AddonQtypeEssayComponent extends CoreQuestionBaseComponent<AddonMod
 
         if (this.offlineEnabled && this.question.localAnswers?.attachments_offline) {
 
-            const attachmentsData: CoreFileUploaderStoreFilesResult = CoreTextUtils.parseJSON(
+            const attachmentsData: CoreFileUploaderStoreFilesResult = CoreText.parseJSON(
                 this.question.localAnswers.attachments_offline,
                 {
                     online: [],

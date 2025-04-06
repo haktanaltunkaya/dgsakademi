@@ -19,14 +19,24 @@ import { CoreIonLoadingElement } from '@classes/ion-loading';
 import { CoreFile } from '@services/file';
 import { CoreFileHelper } from '@services/file-helper';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreMimetypeUtils } from '@services/utils/mimetype';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreTimeUtils } from '@services/utils/time';
-import { CoreUtils, CoreUtilsOpenFileOptions, OpenFileAction } from '@services/utils/utils';
+import { CoreMimetype } from '@singletons/mimetype';
+import { CoreText } from '@singletons/text';
+import { CoreTime } from '@singletons/time';
+import { CoreOpener, CoreOpenerOpenFileOptions, OpenFileAction } from '@singletons/opener';
 import { CoreForms } from '@singletons/form';
 import { CorePath } from '@singletons/path';
 import { CorePlatform } from '@services/platform';
+import { toBoolean } from '@/core/transforms/boolean';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreFileUtils } from '@singletons/file-utils';
+import { Translate } from '@singletons';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreBaseModule } from '@/core/base.module';
+import { CoreAriaButtonClickDirective } from '@directives/aria-button';
+import { CoreAutoFocusDirective } from '@directives/auto-focus';
+import { CoreFaIconDirective } from '@directives/fa-icon';
+import { CoreSupressEventsDirective } from '@directives/supress-events';
+import { CoreUpdateNonReactiveAttributesDirective } from '@directives/update-non-reactive-attributes';
 
 /**
  * Component to handle a local file. Only files inside the app folder can be managed.
@@ -37,12 +47,22 @@ import { CorePlatform } from '@services/platform';
 @Component({
     selector: 'core-local-file',
     templateUrl: 'core-local-file.html',
+    styleUrl: 'core-local-file.scss',
+    standalone: true,
+    imports: [
+        CoreBaseModule,
+        CoreAriaButtonClickDirective,
+        CoreAutoFocusDirective,
+        CoreUpdateNonReactiveAttributesDirective,
+        CoreFaIconDirective,
+        CoreSupressEventsDirective,
+    ],
 })
 export class CoreLocalFileComponent implements OnInit {
 
     @Input() file?: FileEntry; // A fileEntry retrieved using CoreFileProvider.getFile or similar.
-    @Input() manage?: boolean | string; // Whether the user can manage the file (edit and delete).
-    @Input() overrideClick?: boolean | string; // Whether the default item click should be overridden.
+    @Input({ transform: toBoolean }) manage = false; // Whether the user can manage the file (edit and delete).
+    @Input({ transform: toBoolean }) overrideClick = false; // Whether the default item click should be overridden.
     @Output() onDelete = new EventEmitter<void>(); // Will notify when the file is deleted.
     @Output() onRename = new EventEmitter<{ file: FileEntry }>(); // Will notify when the file is renamed.
     @Output() onClick = new EventEmitter<void>(); // Will notify when the file is clicked. Only if overrideClick is true.
@@ -67,8 +87,6 @@ export class CoreLocalFileComponent implements OnInit {
      * @inheritdoc
      */
     async ngOnInit(): Promise<void> {
-        this.manage = CoreUtils.isTrueOrOne(this.manage);
-
         if (!this.file) {
             return;
         }
@@ -78,15 +96,15 @@ export class CoreLocalFileComponent implements OnInit {
         // Get the size and timemodified.
         const metadata = await CoreFile.getMetadata(this.file);
         if (metadata.size >= 0) {
-            this.size = CoreTextUtils.bytesToSize(metadata.size, 2);
+            this.size = CoreText.bytesToSize(metadata.size, 2);
         }
 
-        this.timemodified = CoreTimeUtils.userDate(metadata.modificationTime.getTime(), 'core.strftimedatetimeshort');
+        this.timemodified = CoreTime.userDate(metadata.modificationTime.getTime(), 'core.strftimedatetimeshort');
 
         this.isIOS = CorePlatform.isIOS();
         this.defaultIsOpenWithPicker = CoreFileHelper.defaultIsOpenWithPicker();
         this.openButtonIcon = this.defaultIsOpenWithPicker ? 'fas-file' : 'fas-share-from-square';
-        this.openButtonLabel = this.defaultIsOpenWithPicker ? 'core.openfile' : 'core.openwith';
+        this.openButtonLabel = this.defaultIsOpenWithPicker ? 'core.openfile' : 'core.share';
     }
 
     /**
@@ -94,8 +112,9 @@ export class CoreLocalFileComponent implements OnInit {
      */
     protected loadFileBasicData(file: FileEntry): void {
         this.fileName = file.name;
-        this.fileIcon = CoreMimetypeUtils.getFileIcon(file.name);
-        this.fileExtension = CoreMimetypeUtils.getFileExtension(file.name);
+
+        this.fileIcon = CoreMimetype.getFileIcon(file.name, CoreSites.getCurrentSite());
+        this.fileExtension = CoreMimetype.getFileExtension(file.name);
 
         // Let's calculate the relative path for the file.
         this.relativePath = CoreFile.removeBasePath(CoreFile.getFileEntryURL(file));
@@ -119,7 +138,7 @@ export class CoreLocalFileComponent implements OnInit {
         e.preventDefault();
         e.stopPropagation();
 
-        if (!isOpenButton && CoreUtils.isTrueOrOne(this.overrideClick) && this.onClick.observed) {
+        if (!isOpenButton && this.overrideClick && this.onClick.observed) {
             this.onClick.emit();
 
             return;
@@ -133,13 +152,13 @@ export class CoreLocalFileComponent implements OnInit {
             }
         }
 
-        const options: CoreUtilsOpenFileOptions = {};
+        const options: CoreOpenerOpenFileOptions = {};
         if (isOpenButton) {
             // Use the non-default method.
             options.iOSOpenFileAction = this.defaultIsOpenWithPicker ? OpenFileAction.OPEN : OpenFileAction.OPEN_WITH;
         }
 
-        CoreUtils.openFile(CoreFile.getFileEntryURL(this.file), options);
+        CoreOpener.openFile(CoreFile.getFileEntryURL(this.file), options);
     }
 
     /**
@@ -181,8 +200,8 @@ export class CoreLocalFileComponent implements OnInit {
             return;
         }
 
-        const modal = await CoreDomUtils.showModalLoading();
-        const fileAndDir = CoreFile.getFileAndDirectoryFromPath(this.relativePath);
+        const modal = await CoreLoadings.show();
+        const fileAndDir = CoreFileUtils.getFileAndDirectoryFromPath(this.relativePath);
         const newPath = CorePath.concatenatePaths(fileAndDir.directory, newName);
 
         try {
@@ -190,7 +209,7 @@ export class CoreLocalFileComponent implements OnInit {
             await CoreFile.getFile(newPath);
 
             // There's a file with this name, show error and stop.
-            CoreDomUtils.showErrorModal('core.errorfileexistssamename', true);
+            CoreAlerts.showError(Translate.instant('core.errorfileexistssamename'));
         } catch {
             try {
                 // File doesn't exist, move it.
@@ -203,7 +222,7 @@ export class CoreLocalFileComponent implements OnInit {
                 this.loadFileBasicData(this.file);
                 this.onRename.emit({ file: this.file });
             } catch (error) {
-                CoreDomUtils.showErrorModalDefault(error, 'core.errorrenamefile', true);
+                CoreAlerts.showError(error, { default: Translate.instant('core.errorrenamefile') });
             }
         } finally {
             modal.dismiss();
@@ -223,15 +242,15 @@ export class CoreLocalFileComponent implements OnInit {
 
         try {
             // Ask confirmation.
-            await CoreDomUtils.showDeleteConfirm('core.confirmdeletefile');
+            await CoreAlerts.confirmDelete(Translate.instant('core.confirmdeletefile'));
 
-            modal = await CoreDomUtils.showModalLoading('core.deleting', true);
+            modal = await CoreLoadings.show('core.deleting', true);
 
             await CoreFile.removeFile(this.relativePath);
 
             this.onDelete.emit();
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'core.errordeletefile', true);
+            CoreAlerts.showError(error, { default: Translate.instant('core.errordeletefile') });
         } finally {
             modal?.dismiss();
         }

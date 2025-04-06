@@ -14,9 +14,12 @@
 
 import { Component } from '@angular/core';
 import { AddonModDataFieldPluginBaseComponent } from '../../../classes/base-field-plugin-component';
-import { AddonModDataEntryField, AddonModDataProvider } from '@addons/mod/data/services/data';
-import { CoreTextUtils } from '@services/utils/text';
+import { AddonModDataEntryField } from '@addons/mod/data/services/data';
+import { CoreFileHelper } from '@services/file-helper';
 import { CoreWSFile } from '@services/ws';
+import { ADDON_MOD_DATA_COMPONENT_LEGACY } from '@addons/mod/data/constants';
+import { CoreEditorRichTextEditorComponent } from '@features/editor/components/rich-text-editor/rich-text-editor';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component to render data number field.
@@ -24,6 +27,11 @@ import { CoreWSFile } from '@services/ws';
 @Component({
     selector: 'addon-mod-data-field-textarea',
     templateUrl: 'addon-mod-data-field-textarea.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreEditorRichTextEditorComponent,
+    ],
 })
 export class AddonModDataFieldTextareaComponent extends AddonModDataFieldPluginBaseComponent {
 
@@ -39,14 +47,14 @@ export class AddonModDataFieldTextareaComponent extends AddonModDataFieldPluginB
     format(value?: Partial<AddonModDataEntryField>): string {
         const files: CoreWSFile[] = (value && <CoreWSFile[]>value.files) || [];
 
-        return value ? CoreTextUtils.replacePluginfileUrls(value.content || '', files) : '';
+        return value ? CoreFileHelper.replacePluginfileUrls(value.content || '', files) : '';
     }
 
     /**
      * Initialize field.
      */
     protected init(): void {
-        this.component = AddonModDataProvider.COMPONENT;
+        this.component = ADDON_MOD_DATA_COMPONENT_LEGACY;
         this.componentId = this.database?.coursemodule;
 
         if (this.displayMode) {
@@ -59,7 +67,7 @@ export class AddonModDataFieldTextareaComponent extends AddonModDataFieldPluginB
             text = this.format(this.value);
         }
 
-        this.addControl('f_' + this.field.id, text);
+        this.addControl(`f_${this.field.id}`, text);
     }
 
 }

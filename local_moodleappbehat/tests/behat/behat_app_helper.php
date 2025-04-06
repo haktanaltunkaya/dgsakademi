@@ -18,7 +18,9 @@
 
 require_once(__DIR__ . '/../../../../lib/behat/behat_base.php');
 
+use Behat\Behat\Hook\Scope\ScenarioScope;
 use Behat\Mink\Exception\DriverException;
+use Behat\Mink\Exception\ExpectationException;
 use Moodle\BehatExtension\Exception\SkippedException;
 
 /**
@@ -241,7 +243,7 @@ class behat_app_helper extends behat_base {
             // Assert initial page.
             $this->spin(function($context) {
                 $page = $context->getSession()->getPage();
-                $element = $page->find('xpath', '//page-core-login-site//input[@name="url"]');
+                $element = $page->find('xpath', '//page-core-login-site');
 
                 if ($element) {
                     // Login screen found.
@@ -356,7 +358,7 @@ class behat_app_helper extends behat_base {
      * @return mixed Result.
      */
     protected function runtime_js(string $script) {
-        return $this->evaluate_script("window.behat.$script");
+        return $this->evaluate_script("window.behat?.$script");
     }
 
     /**
@@ -364,12 +366,15 @@ class behat_app_helper extends behat_base {
      *
      * @param string $script
      * @param bool $blocking
+     * @param string $texttofind If set, when this text is found the operation is considered finished. This is useful for
+     *                           operations that might expect user input before finishing, like a confirm modal.
      * @return mixed Result.
      */
-    protected function zone_js(string $script, bool $blocking = false) {
+    protected function zone_js(string $script, bool $blocking = false, string $texttofind = '') {
         $blockingjson = json_encode($blocking);
+        $locatortofind = !empty($texttofind) ? json_encode((object) ['text' => $texttofind]) : null;
 
-        return $this->runtime_js("runInZone(() => window.behat.$script, $blockingjson)");
+        return $this->runtime_js("runInZone(() => window.behat.$script, $blockingjson, $locatortofind)");
     }
 
     /**
@@ -409,16 +414,14 @@ class behat_app_helper extends behat_base {
             $privatetoken = $usertoken->privatetoken;
         }
 
-        // Generate custom URL.
-        $parsed_url = parse_url($CFG->behat_wwwroot);
-        $site = $parsed_url['host'] ?? '';
-        $site .= isset($parsed_url['port']) ? ':' . $parsed_url['port'] : '';
-        $site .= $parsed_url['path'] ?? '';
-        $url = $this->get_mobile_url_scheme() . "://$username@$site?token=$token&privatetoken=$privatetoken";
+        $url = $this->generate_custom_url([
+            'username' => $username,
+            'token' => $token,
+            'privatetoken' => $privatetoken,
+            'redirect' => $path,
+        ]);
 
-        if (!empty($path)) {
-            $url .= '&redirect='.urlencode($CFG->behat_wwwroot.$path);
-        } else {
+        if (empty($path)) {
             $successXPath = '//page-core-mainmenu';
         }
 
@@ -432,14 +435,54 @@ class behat_app_helper extends behat_base {
      *
      * @param string $path To navigate.
      * @param string $successXPath The XPath of the element to lookat after navigation.
+     * @param string $username The username to use.
      */
-    protected function open_moodleapp_custom_url(string $path, string $successXPath = '') {
+    protected function open_moodleapp_custom_url(string $path, string $successXPath = '', string $username = '') {
         global $CFG;
 
-        $urlscheme = $this->get_mobile_url_scheme();
-        $url = "$urlscheme://link=" . urlencode($CFG->behat_wwwroot.$path);
+        $url = $this->generate_custom_url([
+            'username' => $username,
+            'redirect' => $path,
+        ]);
 
-        $this->handle_url($url);
+        $this->handle_url($url, $successXPath, $username ? 'This link belongs to another site' : '');
+    }
+
+    /**
+     * Generates a custom URL to be treated by the app.
+     *
+     * @param array $data Data to generate the URL.
+     */
+    protected function generate_custom_url(array $data): string {
+        global $CFG;
+
+        $parsed_url = parse_url($CFG->behat_wwwroot);
+        $parameters = [];
+
+        $url = $this->get_mobile_url_scheme() . '://' . ($parsed_url['scheme'] ?? 'http') . '://';
+        if (!empty($data['username'])) {
+            $url .= $data['username'] . '@';
+        }
+        $url .= $parsed_url['host'] ?? '';
+        $url .= isset($parsed_url['port']) ? ':' . $parsed_url['port'] : '';
+        $url .= $parsed_url['path'] ?? '';
+
+        if (!empty($data['token'])) {
+            $parameters[] = 'token=' . $data['token'];
+            if (!empty($data['privatetoken'])) {
+                $parameters[] = 'privatetoken=' . $data['privatetoken'];
+            }
+        }
+
+        if (!empty($data['redirect'])) {
+            $parameters[] = 'redirect=' . urlencode($data['redirect']);
+        }
+
+        if (!empty($parameters)) {
+            $url .= '?' . implode('&', $parameters);
+        }
+
+        return $url;
     }
 
     /**
@@ -447,12 +490,14 @@ class behat_app_helper extends behat_base {
      *
      * @param string $customurl To navigate.
      * @param string $successXPath The XPath of the element to lookat after navigation.
+     * @param string $texttofind If set, when this text is found the operation is considered finished. This is useful for
+     *                           operations that might expect user input before finishing, like a confirm modal.
      */
-    protected function handle_url(string $customurl, string $successXPath = '') {
-        $result = $this->zone_js("customUrlSchemes.handleCustomURL('$customurl')");
+    protected function handle_url(string $customurl, string $successXPath = '', string $texttofind = '') {
+        $result = $this->zone_js("customUrlSchemes.handleCustomURL('$customurl')", false, $texttofind);
 
         if ($result !== 'OK') {
-            throw new DriverException('Error handling url - ' . $result);
+            throw new DriverException('Error handling url - ' . $customurl . ' - '.$result);
         }
         if (!empty($successXPath)) {
             // Wait until the page appears.
@@ -472,12 +517,128 @@ class behat_app_helper extends behat_base {
     }
 
     /**
+     * Get scenario slug.
+     *
+     * @param ScenarioScope $scope Scenario scope.
+     * @return string Slug.
+     */
+    protected function get_scenario_slug(ScenarioScope $scope): string {
+        $text = $scope->getFeature()->getTitle() . ' ' . $scope->getScenario()->getTitle();
+        $text = trim($text);
+        $text = strtolower($text);
+        $text = preg_replace('/\s+/', '-', $text);
+        $text = preg_replace('/[^a-z0-9-]/', '', $text);
+
+        return $text;
+    }
+
+    /**
      * Returns the current mobile url scheme of the site.
      */
     protected function get_mobile_url_scheme() {
         $mobilesettings = get_config('tool_mobile');
 
         return !empty($mobilesettings->forcedurlscheme) ? $mobilesettings->forcedurlscheme : 'moodlemobile';
+    }
+
+    /**
+     * Get user id corresponding to the given username in event logs.
+     *
+     * @param string $username User name, or "the system" to refer to a non-user actor such as the system, the cli, or a cron job.
+     * @return int Event user id.
+     */
+    protected function get_event_userid(string $username): int {
+        global $DB;
+
+        if ($username === 'the system') {
+            return \core\event\base::USER_OTHER;
+        }
+
+        if (str_starts_with($username, '"')) {
+            $username = substr($username, 1, -1);
+        }
+
+        $user = $DB->get_record('user', compact('username'));
+
+        if (is_null($user)) {
+            throw new ExpectationException("'$username' user not found", $this->getSession()->getDriver());
+        }
+
+        return $user->id;
+    }
+
+    /**
+     * Given event logs matching the given restrictions.
+     *
+     * @param array $event Event restrictions.
+     * @return array Event logs.
+     */
+    protected function get_event_logs(int $userid, array $event): array {
+        global $DB;
+
+        $filters = [
+            'origin' => 'ws',
+            'eventname' => $event['name'],
+            'userid' => $userid,
+            'courseid' => empty($event['course']) ? 0 : $this->get_course_id($event['course']),
+        ];
+
+        if (!empty($event['relateduser'])) {
+            $relateduser = $DB->get_record('user', ['username' => $event['relateduser']]);
+
+            $filters['relateduserid'] = $relateduser->id;
+        }
+
+        if (!empty($event['activity'])) {
+            $cm = $this->get_cm_by_activity_name_and_course($event['activity'], $event['activityname'], $event['course']);
+
+            $filters['contextinstanceid'] = $cm->id;
+        }
+
+        if (!empty($event['object'])) {
+            $namecolumns = [
+                'book_chapters' => 'title',
+                'glossary_entries' => 'concept',
+                'lesson_pages' => 'title',
+                'notifications' => 'subject',
+            ];
+
+            $field = $namecolumns[$event['object']] ?? 'shortname';
+            $object = $DB->get_record_select(
+                $event['object'],
+                $DB->sql_compare_text($field) . ' = ' . $DB->sql_compare_text('?'),
+                [$event['objectname']]
+            );
+
+            $filters['objectid'] = $object->id;
+        }
+
+        return $DB->get_records('logstore_standard_log', $filters);
+    }
+
+    /**
+     * Find a log matching the given other data.
+     *
+     * @param array $logs Event logs.
+     * @param array $other Other data.
+     * @return object Log matching the given other data, or null otherwise.
+     */
+    protected function find_event_log_with_other(array $logs, array $other): ?object {
+        foreach ($logs as $log) {
+            $logother = json_decode($log->other, true);
+
+            if (empty($logother)) {
+                continue;
+            }
+
+            if (!empty(array_diff_assoc($other, array_intersect_assoc($other, $logother)))) {
+                continue;
+            }
+
+            return $log;
+        }
+
+        return null;
     }
 
     /**
@@ -620,25 +781,36 @@ EOF;
      * This function is similar to the arg_time_to_string transformation, but it allows the time to be a sub-text of the string.
      *
      * @param string $text
-     * @return string Transformed text.
+     * @return string|string[] Transformed text.
      */
-    protected function transform_time_to_string(string $text): string {
+    protected function transform_time_to_string(string $text) {
         if (!preg_match('/##(.*)##/', $text, $matches)) {
             // No time found, return the original text.
             return $text;
         }
 
         $timepassed = explode('##', $matches[1]);
+        $basetime = time();
 
         // If not a valid time string, then just return what was passed.
-        if ((($timestamp = strtotime($timepassed[0])) === false)) {
+        if ((($timestamp = strtotime($timepassed[0], $basetime)) === false)) {
             return $text;
         }
 
         $count = count($timepassed);
         if ($count === 2) {
             // If timestamp with specified strftime format, then return formatted date string.
-            return str_replace($matches[0], userdate($timestamp, $timepassed[1]), $text);
+            $result = [str_replace($matches[0], userdate($timestamp, $timepassed[1]), $text)];
+
+            // If it's a relative date, allow a difference of 1 minute for the base time used to calculate the timestampt.
+            if ($timestamp !== strtotime($timepassed[0], 0)) {
+                $timestamp = strtotime($timepassed[0], $basetime - 60);
+                $result[] = str_replace($matches[0], userdate($timestamp, $timepassed[1]), $text);
+            }
+
+            $result = array_unique($result);
+
+            return count($result) == 1 ? $result[0] : $result;
         } else if ($count === 1) {
             return str_replace($matches[0], $timestamp, $text);
         } else {
@@ -656,5 +828,28 @@ EOF;
         // Ideally, we wouldn't wait a fixed amount of time. But it is not straightforward to wait for animations
         // to finish, so for now we'll just wait 300ms.
         usleep(300000);
+    }
+
+    /**
+     * Get window names, excluding Chrome extensions.
+     * Workaround for bug: https://github.com/SeleniumHQ/selenium/issues/15330
+     *
+     * @return array
+     */
+    protected function get_window_names(): array {
+        $activeWindowName = $this->getSession()->getWindowName();
+
+        $windowNames = [];
+        foreach ($this->getSession()->getWindowNames() as $windowName) {
+            $this->getSession()->switchToWindow($windowName);
+            $windowUrl = $this->getSession()->getCurrentUrl();
+            if (strpos($windowUrl, 'chrome-extension://') !== 0) {
+                $windowNames[] = $windowName;
+            }
+        }
+
+        $this->getSession()->switchToWindow($activeWindowName);
+
+        return $windowNames;
     }
 }

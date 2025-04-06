@@ -20,19 +20,18 @@ import { sep } from 'path';
 
 import { CORE_SITE_SCHEMAS } from '@services/sites';
 import { ApplicationInit, CoreSingletonProxy, Translate } from '@singletons';
-import { CoreTextUtilsProvider } from '@services/utils/text';
+import { CoreText } from '@singletons/text';
 
 import { CoreExternalContentDirectiveStub } from './stubs/directives/core-external-content';
 import { CoreNetwork } from '@services/network';
 import { CorePlatform } from '@services/platform';
 import { CoreDB } from '@services/db';
 import { CoreNavigator, CoreNavigatorService } from '@services/navigator';
-import { CoreDomUtils } from '@services/utils/dom';
+import { CoreLoadings } from '@services/overlays/loadings';
 import { TranslateModule, TranslateService, TranslateStore } from '@ngx-translate/core';
 import { CoreIonLoadingElement } from '@classes/ion-loading';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { DefaultUrlSerializer, UrlSerializer } from '@angular/router';
-import { CoreUtils, CoreUtilsProvider } from '@services/utils/utils';
 import { Equal } from '@/core/utils/types';
 
 abstract class WrapperComponent<U> {
@@ -44,7 +43,6 @@ abstract class WrapperComponent<U> {
 type ServiceInjectionToken = AbstractType<unknown> | Type<unknown> | string;
 
 let testBedInitialized = false;
-const textUtils = new CoreTextUtilsProvider();
 const DEFAULT_SERVICE_SINGLETON_MOCKS: [CoreSingletonProxy, unknown][] = [
     [Translate, mock({
         instant: key => key,
@@ -71,11 +69,8 @@ const DEFAULT_SERVICE_SINGLETON_MOCKS: [CoreSingletonProxy, unknown][] = [
         isOnline: () => true,
         onChange: () => new Observable(),
     })],
-    [CoreDomUtils, mock({
-        showModalLoading: () => Promise.resolve(mock<CoreIonLoadingElement>({ dismiss: jest.fn() })),
-    })],
-    [CoreUtils, mock(new CoreUtilsProvider(), {
-        nextTick: () => Promise.resolve(),
+    [CoreLoadings, mock({
+        show: () => Promise.resolve(mock<CoreIonLoadingElement>({ dismiss: jest.fn() })),
     })],
 ];
 
@@ -87,25 +82,40 @@ const DEFAULT_SERVICE_SINGLETON_MOCKS: [CoreSingletonProxy, unknown][] = [
  * @returns A promise that resolves to the testing component fixture.
  */
 async function renderAngularComponent<T>(component: Type<T>, config: RenderConfig): Promise<TestingComponentFixture<T>> {
-    config.declarations.push(component);
+    if (!config.standalone) {
+        config.declarations.push(component);
 
-    TestBed.configureTestingModule({
-        declarations: [
-            ...getDefaultDeclarations(),
-            ...config.declarations,
-        ],
-        providers: [
-            ...getDefaultProviders(config),
-            ...config.providers,
-        ],
-        schemas: [CUSTOM_ELEMENTS_SCHEMA],
-        imports: [
-            BrowserModule,
-            NoopAnimationsModule,
-            TranslateModule.forChild(),
-            ...config.imports,
-        ],
-    });
+        TestBed.configureTestingModule({
+            declarations: [
+                ...config.declarations,
+            ],
+            providers: [
+                ...getDefaultProviders(config),
+                ...config.providers,
+            ],
+            schemas: [CUSTOM_ELEMENTS_SCHEMA],
+            imports: [
+                BrowserModule,
+                NoopAnimationsModule,
+                TranslateModule.forChild(),
+                CoreExternalContentDirectiveStub,
+                ...config.imports,
+            ],
+        });
+    } else {
+        TestBed.configureTestingModule({
+            providers: [
+                ...getDefaultProviders(config),
+                ...config.providers,
+            ],
+            imports: [
+                component,
+                NoopAnimationsModule,
+                CoreExternalContentDirectiveStub,
+                ...config.imports,
+            ],
+        });
+    }
 
     testBedInitialized = true;
 
@@ -129,7 +139,13 @@ async function renderAngularComponent<T>(component: Type<T>, config: RenderConfi
  * @returns The wrapper component class.
  */
 function createWrapperComponent<U>(template: string, componentClass: Type<U>): Type<WrapperComponent<U>> {
-    @Component({ template })
+    @Component({
+        template,
+        standalone: true,
+        imports: [
+            componentClass,
+        ],
+    })
     class HostComponent extends WrapperComponent<U> {
 
         @ViewChild(componentClass) child!: U;
@@ -137,17 +153,6 @@ function createWrapperComponent<U>(template: string, componentClass: Type<U>): T
     }
 
     return HostComponent;
-}
-
-/**
- * Gets the default declarations for testing.
- *
- * @returns An array of default declarations.
- */
-function getDefaultDeclarations(): unknown[] {
-    return [
-        CoreExternalContentDirectiveStub,
-    ];
 }
 
 /**
@@ -208,7 +213,7 @@ function createNewServiceInstance(injectionToken: Exclude<ServiceInjectionToken,
         const constructor = injectionToken as { new (): Record<string, unknown> };
 
         return new constructor();
-    } catch (e) {
+    } catch {
         return null;
     }
 }
@@ -218,6 +223,7 @@ export interface RenderConfig {
     providers: unknown[];
     imports: unknown[];
     translations?: Record<string, string>;
+    standalone?: boolean;
 }
 
 export interface RenderPageConfig extends RenderConfig {
@@ -448,8 +454,10 @@ export async function renderTemplate<T>(
     template: string,
     config: Partial<RenderConfig> = {},
 ): Promise<WrapperComponentFixture<T>> {
-    config.declarations = config.declarations ?? [];
-    config.declarations.push(component);
+    if (!config.standalone) {
+        config.declarations = config.declarations ?? [];
+        config.declarations.push(component);
+    }
 
     return renderAngularComponent(
         createWrapperComponent(template, component),
@@ -479,7 +487,7 @@ export async function renderWrapperComponent<T>(
 ): Promise<WrapperComponentFixture<T>> {
     const inputAttributes = Object
         .entries(inputs)
-        .map(([name, value]) => `[${name}]="${textUtils.escapeHTML(JSON.stringify(value)).replace(/\//g, '\\/')}"`)
+        .map(([name, value]) => `[${name}]="${CoreText.escapeHTML(JSON.stringify(value)).replace(/\//g, '\\/')}"`)
         .join(' ');
 
     return renderTemplate(component, `<${tag} ${inputAttributes}></${tag}>`, config);

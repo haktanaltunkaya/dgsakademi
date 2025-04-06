@@ -16,18 +16,18 @@ import { Component, Input, Optional, ViewChild, OnInit, OnDestroy } from '@angul
 import { CoreError } from '@classes/errors/error';
 import { CoreTabsComponent } from '@components/tabs/tabs';
 import { CoreCourseModuleMainActivityComponent } from '@features/course/classes/main-activity-component';
-import { CoreCourseContentsPage } from '@features/course/pages/contents/contents';
+import CoreCourseContentsPage from '@features/course/pages/contents/contents';
 import { IonContent } from '@ionic/angular';
 import { CoreGroupInfo, CoreGroups } from '@services/groups';
 import { CoreNavigator } from '@services/navigator';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreTimeUtils } from '@services/utils/time';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreSites } from '@services/sites';
+import { CoreText } from '@singletons/text';
+import { CoreTime } from '@singletons/time';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
 import {
     AddonModFeedback,
     AddonModFeedbackGetFeedbackAccessInformationWSResponse,
-    AddonModFeedbackProvider,
     AddonModFeedbackWSFeedback,
     AddonModFeedbackWSItem,
 } from '../../services/feedback';
@@ -35,11 +35,22 @@ import { AddonModFeedbackOffline } from '../../services/feedback-offline';
 import {
     AddonModFeedbackAutoSyncData,
     AddonModFeedbackSync,
-    AddonModFeedbackSyncProvider,
     AddonModFeedbackSyncResult,
 } from '../../services/feedback-sync';
-import { AddonModFeedbackModuleHandlerService } from '../../services/handlers/module';
-import { AddonModFeedbackPrefetchHandler } from '../../services/handlers/prefetch';
+import {
+    ADDON_MOD_FEEDBACK_AUTO_SYNCED,
+    ADDON_MOD_FEEDBACK_COMPONENT_LEGACY,
+    ADDON_MOD_FEEDBACK_FORM_SUBMITTED,
+    ADDON_MOD_FEEDBACK_PAGE_NAME,
+    AddonModFeedbackAnalysisTemplateNames,
+    AddonModFeedbackIndexTabName,
+    AddonModFeedbackMultichoiceSubtype,
+    AddonModFeedbackQuestionType,
+} from '../../constants';
+import { CoreCourseModuleNavigationComponent } from '@features/course/components/module-navigation/module-navigation';
+import { CoreCourseModuleInfoComponent } from '@features/course/components/module-info/module-info';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreChartType } from '@components/chart/chart';
 
 /**
  * Component that displays a feedback index page.
@@ -47,15 +58,21 @@ import { AddonModFeedbackPrefetchHandler } from '../../services/handlers/prefetc
 @Component({
     selector: 'addon-mod-feedback-index',
     templateUrl: 'addon-mod-feedback-index.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCourseModuleInfoComponent,
+        CoreCourseModuleNavigationComponent,
+    ],
 })
 export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivityComponent implements OnInit, OnDestroy {
 
     @ViewChild(CoreTabsComponent) tabsComponent?: CoreTabsComponent;
 
-    @Input() tab = 'overview';
+    @Input() selectedTab: AddonModFeedbackIndexTabName = AddonModFeedbackIndexTabName.OVERVIEW;
     @Input() group = 0;
 
-    component = AddonModFeedbackProvider.COMPONENT;
+    component = ADDON_MOD_FEEDBACK_COMPONENT_LEGACY;
     pluginName = 'feedback';
     feedback?: AddonModFeedbackWSFeedback;
     goPage?: number;
@@ -76,13 +93,13 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
         closeTimeReadable: '',
     };
 
-    tabsLoaded = {
-        overview: false,
-        analysis: false,
+    tabs = {
+        overview: { name: AddonModFeedbackIndexTabName.OVERVIEW, label: 'addon.mod_feedback.overview', loaded: false },
+        analysis: { name: AddonModFeedbackIndexTabName.ANALYSIS, label: 'addon.mod_feedback.analysis', loaded: false },
     };
 
     protected submitObserver: CoreEventObserver;
-    protected syncEventName = AddonModFeedbackSyncProvider.AUTO_SYNCED;
+    protected syncEventName = ADDON_MOD_FEEDBACK_AUTO_SYNCED;
     protected checkCompletionAfterLog = false;
 
     constructor(
@@ -92,26 +109,25 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
         super('AddonModLessonIndexComponent', content, courseContentsPage);
 
         // Listen for form submit events.
-        this.submitObserver = CoreEvents.on(AddonModFeedbackProvider.FORM_SUBMITTED, async (data) => {
-            if (!this.feedback || data.feedbackId != this.feedback.id) {
+        this.submitObserver = CoreEvents.on(ADDON_MOD_FEEDBACK_FORM_SUBMITTED, async (data) => {
+            if (!this.feedback || data.feedbackId !== this.feedback.id) {
                 return;
             }
 
-            this.tabsLoaded.analysis = false;
-            this.tabsLoaded.overview = false;
+            this.tabs.analysis.loaded = false;
+            this.tabs.overview.loaded = false;
             this.showLoading = true;
 
             // Prefetch data if needed.
             if (!data.offline && this.isPrefetched()) {
-                await CoreUtils.ignoreErrors(AddonModFeedbackSync.prefetchAfterUpdate(
-                    AddonModFeedbackPrefetchHandler.instance,
+                await CorePromiseUtils.ignoreErrors(AddonModFeedbackSync.prefetchModuleAfterUpdate(
                     this.module,
                     this.courseId,
                 ));
             }
 
             // Load the right tab.
-            if (data.tab != this.tab) {
+            if (data.tab !== this.selectedTab) {
                 this.tabChanged(data.tab);
             } else {
                 this.loadContent(true);
@@ -150,7 +166,9 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
      */
     protected callAnalyticsLogEvent(): void {
         this.analyticsLogEvent('mod_feedback_view_feedback', {
-            url: this.tab === 'analysis' ? `/mod/feedback/analysis.php?id=${this.module.id}` : undefined,
+            url: this.selectedTab === AddonModFeedbackIndexTabName.ANALYSIS
+                ? `/mod/feedback/analysis.php?id=${this.module.id}`
+                : undefined,
         });
     }
 
@@ -169,8 +187,8 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
             promises.push(AddonModFeedback.invalidateResumePageData(this.feedback.id));
         }
 
-        this.tabsLoaded.analysis = false;
-        this.tabsLoaded.overview = false;
+        this.tabs.analysis.loaded = false;
+        this.tabs.overview.loaded = false;
 
         await Promise.all(promises);
     }
@@ -179,7 +197,7 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
      * @inheritdoc
      */
     protected isRefreshSyncNeeded(syncEventData: AddonModFeedbackAutoSyncData): boolean {
-        if (this.feedback && syncEventData.feedbackId == this.feedback.id) {
+        if (syncEventData.feedbackId === this.feedback?.id) {
             // Refresh the data.
             this.content?.scrollToTop();
 
@@ -196,6 +214,8 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
         try {
             this.feedback = await AddonModFeedback.getFeedback(this.courseId, this.module.id);
 
+            await this.fixPageAfterSubmitFileUrls();
+
             this.description = this.feedback.intro;
             this.dataRetrieved.emit(this.feedback);
 
@@ -208,12 +228,17 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
             this.access = await AddonModFeedback.getFeedbackAccessInformation(this.feedback.id, { cmId: this.module.id });
 
             this.showAnalysis = (this.access.canviewreports || this.access.canviewanalysis) && !this.access.isempty;
+
+            this.tabs.analysis.label = this.access.canviewreports
+                ? 'addon.mod_feedback.analysis'
+                : 'addon.mod_feedback.completed_feedbacks';
+
             this.firstSelectedTab = 0;
             if (!this.showAnalysis) {
-                this.tab = 'overview';
+                this.selectedTab = AddonModFeedbackIndexTabName.OVERVIEW;
             }
 
-            if (this.tab == 'analysis') {
+            if (this.selectedTab === AddonModFeedbackIndexTabName.ANALYSIS) {
                 this.firstSelectedTab = 1;
 
                 return await this.fetchFeedbackAnalysisData();
@@ -228,34 +253,59 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
 
             if (this.tabsReady) {
                 // Make sure the right tab is selected.
-                this.tabsComponent?.selectTab(this.tab || 'overview');
+                this.tabsComponent?.selectTab(this.selectedTab ?? AddonModFeedbackIndexTabName.OVERVIEW);
             }
         }
     }
 
     /**
-     * Convenience function to get feedback overview data.
+     * Fix incorrect file URLs in page after submit text.
      *
-     * @returns Resolved when done.
+     * See bug MDL-83474.
+     */
+    protected async fixPageAfterSubmitFileUrls(): Promise<void> {
+        const site = await CoreSites.getSite(this.siteId);
+
+        if (!site.isVersionGreaterEqualThan('4.2')
+                || !this.feedback?.page_after_submit
+                || !this.feedback.pageaftersubmitfiles) {
+            return;
+        }
+
+        // Replace file URLs that do not have the /0/ in the path.
+        // Subdirectories are not allowed in this file area, so the sets of correct and incorrect URLs will never overlap.
+        for (const file of this.feedback.pageaftersubmitfiles) {
+            const incorrectUrl = file.fileurl.replace('/page_after_submit/0/', '/page_after_submit/');
+            const incorrectUrlRegex = new RegExp(CoreText.escapeForRegex(incorrectUrl), 'g');
+            this.feedback.page_after_submit = this.feedback.page_after_submit.replace(incorrectUrlRegex, file.fileurl);
+        }
+    }
+
+    /**
+     * Convenience function to get feedback overview data.
      */
     protected async fetchFeedbackOverviewData(): Promise<void> {
+        if (!this.access || !this.feedback) {
+            return;
+        }
+
         const promises: Promise<void>[] = [];
 
-        if (this.access!.cancomplete && this.access!.cansubmit && this.access!.isopen) {
-            promises.push(AddonModFeedback.getResumePage(this.feedback!.id, { cmId: this.module.id }).then((goPage) => {
+        if (this.access.cancomplete && this.access.cansubmit && this.access.isopen) {
+            promises.push(AddonModFeedback.getResumePage(this.feedback.id, { cmId: this.module.id }).then((goPage) => {
                 this.goPage = goPage > 0 ? goPage : undefined;
 
                 return;
             }));
         }
 
-        if (this.access!.canedititems) {
-            this.overview.timeopen = (this.feedback!.timeopen || 0) * 1000;
-            this.overview.openTimeReadable = this.overview.timeopen ? CoreTimeUtils.userDate(this.overview.timeopen) : '';
-            this.overview.timeclose = (this.feedback!.timeclose || 0) * 1000;
-            this.overview.closeTimeReadable = this.overview.timeclose ? CoreTimeUtils.userDate(this.overview.timeclose) : '';
+        if (this.access.canedititems) {
+            this.overview.timeopen = (this.feedback.timeopen || 0) * 1000;
+            this.overview.openTimeReadable = this.overview.timeopen ? CoreTime.userDate(this.overview.timeopen) : '';
+            this.overview.timeclose = (this.feedback.timeclose || 0) * 1000;
+            this.overview.closeTimeReadable = this.overview.timeclose ? CoreTime.userDate(this.overview.timeclose) : '';
         }
-        if (this.access!.canviewanalysis) {
+        if (this.access.canviewanalysis) {
             // Get groups (only for teachers).
             promises.push(this.fetchGroupInfo(this.module.id));
         }
@@ -263,7 +313,7 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
         try {
             await Promise.all(promises);
         } finally {
-            this.tabsLoaded.overview = true;
+            this.tabs.overview.loaded = true;
         }
     }
 
@@ -274,15 +324,14 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
      */
     protected async fetchFeedbackAnalysisData(): Promise<void> {
         try {
-            if (this.access!.canviewanalysis) {
+            if (this.access?.canviewanalysis) {
                 // Get groups (only for teachers).
                 await this.fetchGroupInfo(this.module.id);
             } else {
-                this.tabChanged('overview');
+                this.tabChanged(AddonModFeedbackIndexTabName.OVERVIEW);
             }
-
         } finally {
-            this.tabsLoaded.analysis = true;
+            this.tabs.analysis.loaded = true;
         }
     }
 
@@ -306,27 +355,27 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
      */
     protected parseAnalysisInfo(item: AddonModFeedbackItem): AddonModFeedbackItem {
         switch (item.typ) {
-            case 'numeric':
+            case AddonModFeedbackQuestionType.NUMERIC:
                 item.average = item.data.reduce((prev, current) => prev + Number(current), 0) / item.data.length;
-                item.templateName = 'numeric';
+                item.templateName = AddonModFeedbackAnalysisTemplateNames.NUMERIC;
                 break;
 
-            case 'info':
+            case AddonModFeedbackQuestionType.INFO:
                 item.data = <string[]> item.data.map((dataItem) => {
-                    const parsed = <Record<string, string>> CoreTextUtils.parseJSON(dataItem);
+                    const parsed = <Record<string, string>> CoreText.parseJSON(dataItem);
 
                     return parsed.show !== undefined ? parsed.show : false;
                 }).filter((dataItem) => dataItem); // Filter false entries.
 
-            case 'textfield':
-            case 'textarea':
-                item.templateName = 'list';
+            case AddonModFeedbackQuestionType.TEXTFIELD:
+            case AddonModFeedbackQuestionType.TEXTAREA:
+                item.templateName = AddonModFeedbackAnalysisTemplateNames.LIST;
                 break;
 
-            case 'multichoicerated':
-            case 'multichoice': {
+            case AddonModFeedbackQuestionType.MULTICHOICERATED:
+            case AddonModFeedbackQuestionType.MULTICHOICE: {
                 const parsedData = <Record<string, string | number>[]> item.data.map((dataItem) => {
-                    const parsed = <Record<string, string | number>> CoreTextUtils.parseJSON(dataItem);
+                    const parsed = <Record<string, string | number>> CoreText.parseJSON(dataItem);
 
                     return parsed.answertext !== undefined ? parsed : false;
                 }).filter((dataItem) => dataItem); // Filter false entries.
@@ -337,26 +386,26 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
                     let label = '';
 
                     if (dataItem.value !== undefined) {
-                        label = '(' + dataItem.value + ') ';
+                        label = `(${dataItem.value}) `;
                     }
                     label += dataItem.answertext;
-                    label += Number(dataItem.quotient) > 0 ? ' (' + dataItem.quotient + '%)' : '';
+                    label += Number(dataItem.quotient) > 0 ? ` (${dataItem.quotient}%)` : '';
 
                     return label;
                 });
 
                 item.chartData = parsedData.map((dataItem) => Number(dataItem.answercount));
 
-                if (item.typ === 'multichoicerated') {
+                if (item.typ === AddonModFeedbackQuestionType.MULTICHOICERATED) {
                     item.average = parsedData.reduce((prev, current) => prev + Number(current.avg), 0.0);
                 }
 
-                const subtype = item.presentation.charAt(0);
+                const subtype = item.presentation.charAt(0) as AddonModFeedbackMultichoiceSubtype;
 
                 // Display bar chart if there are no answers to avoid division by 0 error.
-                const single = subtype !== 'c' && item.chartData.some((count) => count > 0);
+                const single = subtype !== AddonModFeedbackMultichoiceSubtype.CHECKBOX && item.chartData.some((count) => count > 0);
                 item.chartType = single ? 'doughnut' : 'bar';
-                item.templateName = 'chart';
+                item.templateName = AddonModFeedbackAnalysisTemplateNames.CHART;
                 break;
             }
 
@@ -374,7 +423,7 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
      */
     gotoAnswerQuestions(preview: boolean = false): void {
         CoreNavigator.navigateToSitePath(
-            AddonModFeedbackModuleHandlerService.PAGE_NAME + `/${this.courseId}/${this.module.id}/form`,
+            `${ADDON_MOD_FEEDBACK_PAGE_NAME}/${this.courseId}/${this.module.id}/form`,
             {
                 params: {
                     preview,
@@ -407,7 +456,7 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
      */
     openNonRespondents(): void {
         CoreNavigator.navigateToSitePath(
-            AddonModFeedbackModuleHandlerService.PAGE_NAME + `/${this.courseId}/${this.module.id}/nonrespondents`,
+            `${ADDON_MOD_FEEDBACK_PAGE_NAME}/${this.courseId}/${this.module.id}/nonrespondents`,
             {
                 params: {
                     group: this.group,
@@ -420,12 +469,12 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
      * Open attempts page.
      */
     openAttempts(): void {
-        if (!this.access!.canviewreports || this.completedCount <= 0) {
+        if (!this.access || !this.access.canviewreports || this.completedCount <= 0) {
             return;
         }
 
         CoreNavigator.navigateToSitePath(
-            AddonModFeedbackModuleHandlerService.PAGE_NAME + `/${this.courseId}/${this.module.id}/attempts`,
+            `${ADDON_MOD_FEEDBACK_PAGE_NAME}/${this.courseId}/${this.module.id}/attempts`,
             {
                 params: {
                     group: this.group,
@@ -439,11 +488,11 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
      *
      * @param tabName New tab name.
      */
-    tabChanged(tabName: string): void {
-        const tabHasChanged = this.tab !== undefined && this.tab !== tabName;
-        this.tab = tabName;
+    tabChanged(tabName: AddonModFeedbackIndexTabName): void {
+        const tabHasChanged = this.selectedTab !== undefined && this.selectedTab !== tabName;
+        this.selectedTab = tabName;
 
-        if (!this.tabsLoaded[this.tab]) {
+        if (!this.tabs[this.selectedTab].loaded) {
             this.loadContent(false, false, true);
         }
 
@@ -456,17 +505,20 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
      * Set group to see the analysis.
      *
      * @param groupId Group ID.
-     * @returns Resolved when done.
      */
     async setGroup(groupId: number): Promise<void> {
+        if (!this.feedback) {
+            return;
+        }
+
         this.group = groupId;
 
-        const analysis = await AddonModFeedback.getAnalysis(this.feedback!.id, { groupId, cmId: this.module.id });
+        const analysis = await AddonModFeedback.getAnalysis(this.feedback.id, { groupId, cmId: this.module.id });
 
         this.completedCount = analysis.completedcount;
         this.itemsCount = analysis.itemscount;
 
-        if (this.tab == 'analysis') {
+        if (this.selectedTab === AddonModFeedbackIndexTabName.ANALYSIS) {
             let num = 1;
 
             this.items = <AddonModFeedbackItem[]> analysis.itemsdata.map((itemData) => {
@@ -515,9 +567,9 @@ export class AddonModFeedbackIndexComponent extends CoreCourseModuleMainActivity
 type AddonModFeedbackItem = AddonModFeedbackWSItem & {
     data: string[];
     num: number;
-    templateName?: string;
+    templateName?: AddonModFeedbackAnalysisTemplateNames;
     average?: number;
     labels?: string[];
     chartData?: number[];
-    chartType?: string;
+    chartType?: CoreChartType;
 };

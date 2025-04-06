@@ -18,8 +18,10 @@ import { CoreFilterDefaultHandler } from '@features/filter/services/handlers/def
 import { CoreFilterFilter, CoreFilterFormatTextOptions } from '@features/filter/services/filter';
 import { makeSingleton } from '@singletons';
 import { CoreH5PPlayerComponent } from '@features/h5p/components/h5p-player/h5p-player';
-import { CoreUrlUtils } from '@services/utils/url';
+import { CoreUrl } from '@singletons/url';
 import { CoreH5PHelper } from '@features/h5p/classes/helper';
+import { CoreText } from '@singletons/text';
+import { CoreUtils } from '@singletons/utils';
 
 /**
  * Handler to support the Display H5P filter.
@@ -30,47 +32,45 @@ export class AddonFilterDisplayH5PHandlerService extends CoreFilterDefaultHandle
     name = 'AddonFilterDisplayH5PHandler';
     filterName = 'displayh5p';
 
-    protected template = document.createElement('template'); // A template element to convert HTML to element.
-
     /**
      * @inheritdoc
      */
     filter(
         text: string,
-    ): string | Promise<string> {
-        this.template.innerHTML = text;
+    ): string {
+        return CoreText.processHTML(text, (element) => {
+            const h5pIframes = <HTMLIFrameElement[]> Array.from(element.querySelectorAll('iframe.h5p-iframe'));
 
-        const h5pIframes = <HTMLIFrameElement[]> Array.from(this.template.content.querySelectorAll('iframe.h5p-iframe'));
+            // Replace all iframes with an empty div that will be treated in handleHtml.
+            h5pIframes.forEach((iframe) => {
+                const placeholder = document.createElement('div');
 
-        // Replace all iframes with an empty div that will be treated in handleHtml.
-        h5pIframes.forEach((iframe) => {
-            const placeholder = document.createElement('div');
+                placeholder.classList.add('core-h5p-tmp-placeholder');
+                placeholder.setAttribute('data-player-src', iframe.src);
 
-            placeholder.classList.add('core-h5p-tmp-placeholder');
-            placeholder.setAttribute('data-player-src', iframe.src);
+                iframe.parentElement?.replaceChild(placeholder, iframe);
+            });
 
-            iframe.parentElement?.replaceChild(placeholder, iframe);
+            // Handle H5P iframes embedded using the embed HTML code.
+            const embeddedH5PIframes = <HTMLIFrameElement[]> Array.from(
+                element.querySelectorAll('iframe.h5p-player'),
+            );
+
+            embeddedH5PIframes.forEach((iframe) => {
+                // Add the preventredirect param to allow authenticating if auto-login fails.
+                iframe.src = CoreUrl.addParamsToUrl(iframe.src, { preventredirect: false });
+
+                // Add resizer script so the H5P has the right height.
+                CoreH5PHelper.addResizerScript();
+
+                // If the iframe has a small height, add some minimum initial height so it's seen if auto-login fails.
+                const styleHeight = Number(iframe.style.height);
+                const height = Number(iframe.getAttribute('height'));
+                if ((!height || height < 400) && (!styleHeight || styleHeight < 400)) {
+                    iframe.style.height = '400px';
+                }
+            });
         });
-
-        // Handle H5P iframes embedded using the embed HTML code.
-        const embeddedH5PIframes = <HTMLIFrameElement[]> Array.from(this.template.content.querySelectorAll('iframe.h5p-player'));
-
-        embeddedH5PIframes.forEach((iframe) => {
-            // Add the preventredirect param to allow authenticating if auto-login fails.
-            iframe.src = CoreUrlUtils.addParamsToUrl(iframe.src, { preventredirect: false });
-
-            // Add resizer script so the H5P has the right height.
-            CoreH5PHelper.addResizerScript();
-
-            // If the iframe has a small height, add some minimum initial height so it's seen if auto-login fails.
-            const styleHeight = Number(iframe.style.height);
-            const height = Number(iframe.getAttribute('height'));
-            if ((!height || height < 400) && (!styleHeight || styleHeight < 400)) {
-                iframe.style.height = '400px';
-            }
-        });
-
-        return this.template.innerHTML;
     }
 
     /**
@@ -83,22 +83,28 @@ export class AddonFilterDisplayH5PHandlerService extends CoreFilterDefaultHandle
         viewContainerRef: ViewContainerRef,
         component?: string,
         componentId?: string | number,
-    ): void | Promise<void> {
+    ): void {
 
         const placeholders = <HTMLElement[]> Array.from(container.querySelectorAll('div.core-h5p-tmp-placeholder'));
 
         placeholders.forEach((placeholder) => {
-            const url = placeholder.getAttribute('data-player-src') || '';
+            if (!placeholder.parentElement) {
+                return;
+            }
 
             // Create the component to display the player.
-            const componentRef = viewContainerRef.createComponent<CoreH5PPlayerComponent>(CoreH5PPlayerComponent);
+            const h5pInstance = viewContainerRef.createComponent<CoreH5PPlayerComponent>(CoreH5PPlayerComponent).instance;
 
-            componentRef.instance.src = url;
-            componentRef.instance.component = component;
-            componentRef.instance.componentId = componentId;
+            const url = placeholder.getAttribute('data-player-src') || '';
+            h5pInstance.src = url;
+            h5pInstance.component = component;
+            h5pInstance.componentId = componentId;
+
+            // Check if auto-play was enabled when inserting the iframe using the TinyMCE editor.
+            h5pInstance.autoPlay = CoreUtils.isTrueOrOne(placeholder.parentElement.dataset.mobileappAutoplay);
 
             // Move the component to its right position.
-            placeholder.parentElement?.replaceChild(componentRef.instance.elementRef.nativeElement, placeholder);
+            placeholder.parentElement.replaceChild(h5pInstance.getElement(), placeholder);
         });
     }
 

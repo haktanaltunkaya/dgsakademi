@@ -1,5 +1,5 @@
-<?xml version='1.0' encoding='utf-8'?>
-<widget android-versionCode="103" id="com.akademiprogramlari.dgsakademi" ios-CFBundleVersion="4.4.0.0" version="1.0.3" versionCode="103" xmlns="http://www.w3.org/ns/widgets" xmlns:android="http://schemas.android.com/apk/res/android" xmlns:cdv="http://cordova.apache.org/ns/1.0">
+<?xml version='1.1' encoding='utf-8'?>
+<widget android-versionCode="110" id="com.akademiprogramlari.dgsakademi" ios-CFBundleVersion="1.1.0.0" version="1.1.0" versionCode="110" xmlns="http://www.w3.org/ns/widgets" xmlns:android="http://schemas.android.com/apk/res/android" xmlns:cdv="http://cordova.apache.org/ns/1.0">
     <name>DGS Akademi</name>
     <description>DGS Akademi E-Kurs Mobil Uygulaması</description>
     <author email="haktanaltunkaya@gmail.com" href="http://dgsakademi.com">Akademi Programları</author>
@@ -28,31 +28,34 @@
     <preference name="UIWebViewBounce" value="false" />
     <preference name="DisallowOverscroll" value="true" />
     <preference name="prerendered-icon" value="true" />
-    <preference name="AppendUserAgent" value="MoodleMobile 4.4.0 (44000)" />
+    <preference name="AppendUserAgent" value="MoodleMobile 5.0.0 (50001)" />
     <preference name="BackupWebStorage" value="none" />
-    <preference name="ScrollEnabled" value="false" />
+    <preference name="ScrollEnabled" value="true" />
     <preference name="KeyboardDisplayRequiresUserAction" value="false" />
     <preference name="HideKeyboardFormAccessoryBar" value="false" />
+    <preference name="KeyboardResizeMode" value="ionic" />
     <preference name="AllowInlineMediaPlayback" value="true" />
     <preference name="LoadUrlTimeoutValue" value="60000" />
     <preference name="load-url-timeout" value="60000" />
     <preference name="AutoHideSplashScreen" value="false" />
     <preference name="android-minSdkVersion" value="24" />
-    <preference name="android-targetSdkVersion" value="33" />
+    <preference name="android-targetSdkVersion" value="35" />
     <preference name="AndroidPersistentFileLocation" value="Compatibility" />
     <preference name="AndroidInsecureFileModeEnabled" value="true" />
     <preference name="CustomURLSchemePluginClearsAndroidIntent" value="true" />
+    <preference name="deployment-target" value="13.0" />
     <preference name="iosPersistentFileLocation" value="Compatibility" />
     <preference name="iosScheme" value="moodleappfs" />
     <preference name="WKWebViewOnly" value="true" />
-    <preference name="WKFullScreenEnabled" value="false" />
+    <preference name="WKFullScreenEnabled" value="true" />
     <preference name="AndroidXEnabled" value="true" />
     <preference name="GradlePluginGoogleServicesEnabled" value="true" />
-    <preference name="GradlePluginGoogleServicesVersion" value="4.3.15" />
-    <preference name="GradlePluginKotlinVersion" value="1.7.21" />
+    <preference name="GradlePluginGoogleServicesVersion" value="4.4.2" />
+    <preference name="GradlePluginKotlinVersion" value="1.9.24" />
     <preference name="StatusBarOverlaysWebView" value="false" />
     <preference name="StatusBarBackgroundColor" value="#FFFFFF" />
     <preference name="NavigationBarBackgroundColor" value="#FFFFFF" />
+    <preference name="AndroidEdgeToEdge" value="false" />
     <feature name="StatusBar">
         <param name="ios-package" onload="true" value="CDVStatusBar" />
     </feature>
@@ -70,9 +73,8 @@
         <icon src="resources/android/icon/icon.png" density="hdpi" />
         <icon src="resources/android/icon/icon.png" density="xhdpi" />
         <resource-file src="resources/android/xml/network_security_config.xml" target="app/src/main/res/xml/network_security_config.xml" />
-        <resource-file src="resources/android/xml/backup_rules.xml" target="app/src/main/res/xml/backup_rules.xml" />
         <edit-config file="AndroidManifest.xml" mode="merge" target="/manifest/application">
-            <application android:allowBackup="true" android:dataExtractionRules="@xml/backup_rules" android:largeHeap="true" android:networkSecurityConfig="@xml/network_security_config" />
+            <application android:allowBackup="false" android:largeHeap="true" android:networkSecurityConfig="@xml/network_security_config" />
         </edit-config>
         <config-file parent="/manifest/application" target="AndroidManifest.xml">
             <meta-data android:name="firebase_analytics_collection_deactivated" android:value="true" />
@@ -85,16 +87,16 @@
     <platform name="ios">
         <resource-file src="GoogleService-Info.plist" />
         <edit-config file="*-Info.plist" mode="merge" target="NSCameraUsageDescription">
-            <string>We need camera access to take pictures so you can attach them as part of your submissions.</string>
+            <string>We need camera access to take pictures so you can use them for changing your profile picture, attach them in your tasks submission and share them with the teachers.</string>
         </edit-config>
         <edit-config file="*-Info.plist" mode="merge" target="NSPhotoLibraryUsageDescription">
-            <string>We need photo library access to get pictures from there so you can attach them as part of your submissions.</string>
+            <string>We need photo library access to get pictures from there so you can use them for changing your profile picture, attach them in your tasks submission and share them with the teachers.</string>
         </edit-config>
         <edit-config file="*-Info.plist" mode="merge" target="UISupportsDocumentBrowser">
             <true />
         </edit-config>
         <edit-config file="*-Info.plist" mode="merge" target="CFBundleShortVersionString">
-            <string>4.4.0</string>
+            <string>5.0.0</string>
         </edit-config>
         <edit-config file="*-Info.plist" mode="overwrite" target="CFBundleLocalizations">
             <array>

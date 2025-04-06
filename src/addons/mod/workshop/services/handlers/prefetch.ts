@@ -14,19 +14,20 @@
 
 import { asyncInstance } from '@/core/utils/async-instance';
 import {
-    ADDON_MOD_WORKSHOP_PREFETCH_COMPONENT,
-    ADDON_MOD_WORKSHOP_PREFETCH_MODNAME,
-    ADDON_MOD_WORKSHOP_PREFETCH_NAME,
+    ADDON_MOD_WORKSHOP_COMPONENT,
+    ADDON_MOD_WORKSHOP_COMPONENT_LEGACY,
+    ADDON_MOD_WORKSHOP_MODNAME,
     ADDON_MOD_WORKSHOP_PREFETCH_UPDATE_NAMES,
 } from '@addons/mod/workshop/constants';
 import { CoreCourseActivityPrefetchHandlerBase } from '@features/course/classes/activity-prefetch-handler';
 import { CoreCourseModulePrefetchHandler } from '@features/course/services/module-prefetch-delegate';
+import type { AddonModWorkshopPrefetchHandlerLazyService } from './prefetch-lazy';
 
 export class AddonModWorkshopPrefetchHandlerService extends CoreCourseActivityPrefetchHandlerBase {
 
-    name = ADDON_MOD_WORKSHOP_PREFETCH_NAME;
-    modName = ADDON_MOD_WORKSHOP_PREFETCH_MODNAME;
-    component = ADDON_MOD_WORKSHOP_PREFETCH_COMPONENT;
+    name = ADDON_MOD_WORKSHOP_COMPONENT;
+    modName = ADDON_MOD_WORKSHOP_MODNAME;
+    component = ADDON_MOD_WORKSHOP_COMPONENT_LEGACY;
     updatesNames = ADDON_MOD_WORKSHOP_PREFETCH_UPDATE_NAMES;
 
 }
@@ -37,13 +38,23 @@ export class AddonModWorkshopPrefetchHandlerService extends CoreCourseActivityPr
  * @returns Prefetch handler.
  */
 export function getPrefetchHandlerInstance(): CoreCourseModulePrefetchHandler {
-    const lazyHandler = asyncInstance(async () => {
+    const lazyHandler = asyncInstance<
+        AddonModWorkshopPrefetchHandlerLazyService,
+        AddonModWorkshopPrefetchHandlerService
+    >(async () => {
         const { AddonModWorkshopPrefetchHandler } = await import('./prefetch-lazy');
 
         return AddonModWorkshopPrefetchHandler.instance;
     });
 
     lazyHandler.setEagerInstance(new AddonModWorkshopPrefetchHandlerService());
+    lazyHandler.setLazyMethods(['sync']);
+    lazyHandler.setLazyOverrides([
+        'getFiles',
+        'invalidateContent',
+        'isDownloadable',
+        'prefetch',
+    ]);
 
     return lazyHandler;
 }

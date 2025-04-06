@@ -17,9 +17,10 @@ import { CoreContentLinksHandlerBase } from '@features/contentlinks/classes/base
 import { CoreContentLinksAction } from '@features/contentlinks/services/contentlinks-delegate';
 import { CoreCourse } from '@features/course/services/course';
 import { CoreNavigator } from '@services/navigator';
-import { CoreDomUtils } from '@services/utils/dom';
 import { makeSingleton } from '@singletons';
-import { AddonModFeedbackModuleHandlerService } from './module';
+import { ADDON_MOD_FEEDBACK_FEATURE_NAME, ADDON_MOD_FEEDBACK_PAGE_NAME, AddonModFeedbackIndexTabName } from '../../constants';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreAlerts } from '@services/overlays/alerts';
 
 /**
  * Content links handler for a feedback analysis.
@@ -29,7 +30,7 @@ import { AddonModFeedbackModuleHandlerService } from './module';
 export class AddonModFeedbackAnalysisLinkHandlerService extends CoreContentLinksHandlerBase {
 
     name = 'AddonModFeedbackAnalysisLinkHandler';
-    featureName = 'CoreCourseModuleDelegate_AddonModFeedback';
+    featureName = ADDON_MOD_FEEDBACK_FEATURE_NAME;
     pattern = /\/mod\/feedback\/analysis\.php.*([&?]id=\d+)/;
 
     /**
@@ -38,7 +39,7 @@ export class AddonModFeedbackAnalysisLinkHandlerService extends CoreContentLinks
     getActions(siteIds: string[], url: string, params: Record<string, string>): CoreContentLinksAction[] {
         return [{
             action: async (siteId: string) => {
-                const modal = await CoreDomUtils.showModalLoading();
+                const modal = await CoreLoadings.show();
 
                 const moduleId = Number(params.id);
 
@@ -53,18 +54,18 @@ export class AddonModFeedbackAnalysisLinkHandlerService extends CoreContentLinks
                         siteId,
                     );
 
-                    CoreNavigator.navigateToSitePath(
-                        AddonModFeedbackModuleHandlerService.PAGE_NAME + `/${module.course}/${module.id}`,
+                    await CoreNavigator.navigateToSitePath(
+                        `${ADDON_MOD_FEEDBACK_PAGE_NAME}/${module.course}/${module.id}`,
                         {
                             params: {
                                 module,
-                                tab: 'analysis',
+                                tab: AddonModFeedbackIndexTabName.ANALYSIS,
                             },
                             siteId,
                         },
                     );
                 } catch (error) {
-                    CoreDomUtils.showErrorModalDefault(error, 'Error opening link.');
+                    CoreAlerts.showError(error, { default: 'Error opening link.' });
                 } finally {
                     modal.dismiss();
                 }

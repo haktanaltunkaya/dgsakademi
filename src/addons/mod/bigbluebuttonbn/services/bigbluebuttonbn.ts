@@ -16,16 +16,16 @@ import { Injectable } from '@angular/core';
 import { CoreError } from '@classes/errors/error';
 import { CoreWSError } from '@classes/errors/wserror';
 import { CoreSiteWSPreSets } from '@classes/sites/authenticated-site';
-import { CoreSite } from '@classes/sites/site';
 import { CoreCourseCommonModWSOptions } from '@features/course/services/course';
 import { CoreCourseLogHelper } from '@features/course/services/log-helper';
 import { CoreSites, CoreSitesCommonWSOptions } from '@services/sites';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreText } from '@singletons/text';
+import { CoreObject } from '@singletons/object';
 import { CoreWSExternalFile, CoreWSExternalWarning } from '@services/ws';
 import { makeSingleton, Translate } from '@singletons';
-
-const ROOT_CACHE_KEY = 'AddonModBBB:';
+import { ADDON_MOD_BBB_COMPONENT_LEGACY } from '../constants';
+import { CoreCacheUpdateFrequency } from '@/core/constants';
+import { CoreCourseModuleHelper, CoreCourseModuleStandardElements } from '@features/course/services/course-module-helper';
 
 /**
  * Service that provides some features for Big Blue Button activity.
@@ -33,7 +33,7 @@ const ROOT_CACHE_KEY = 'AddonModBBB:';
 @Injectable({ providedIn: 'root' })
 export class AddonModBBBService {
 
-    static readonly COMPONENT = 'mmaModBigBlueButtonBN';
+    protected static readonly ROOT_CACHE_KEY = 'AddonModBBB:';
 
     /**
      * End a meeting.
@@ -74,8 +74,8 @@ export class AddonModBBBService {
         };
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getBBBsCacheKey(courseId),
-            updateFrequency: CoreSite.FREQUENCY_RARELY,
-            component: AddonModBBBService.COMPONENT,
+            updateFrequency: CoreCacheUpdateFrequency.RARELY,
+            component: ADDON_MOD_BBB_COMPONENT_LEGACY,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
 
@@ -85,12 +85,7 @@ export class AddonModBBBService {
             preSets,
         );
 
-        const bbb = response.bigbluebuttonbns.find((bbb) => bbb.coursemodule == cmId);
-        if (bbb) {
-            return bbb;
-        }
-
-        throw new CoreError(Translate.instant('core.course.modulenotfound'));
+        return CoreCourseModuleHelper.getActivityByCmId(response.bigbluebuttonbns, cmId);
     }
 
     /**
@@ -100,7 +95,7 @@ export class AddonModBBBService {
      * @returns Cache key.
      */
     protected getBBBsCacheKey(courseId: number): string {
-        return ROOT_CACHE_KEY + 'bbb:' + courseId;
+        return `${AddonModBBBService.ROOT_CACHE_KEY}bbb:${courseId}`;
     }
 
     /**
@@ -166,7 +161,7 @@ export class AddonModBBBService {
             cacheKey: this.getMeetingInfoCacheKey(id, groupId),
             getCacheUsingCacheKey: true,
             uniqueCacheKey: true,
-            component: AddonModBBBService.COMPONENT,
+            component: ADDON_MOD_BBB_COMPONENT_LEGACY,
             componentId: options.cmId,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
@@ -183,7 +178,12 @@ export class AddonModBBBService {
 
         return {
             ...meetingInfo,
-            features: meetingInfo.features ? CoreUtils.objectToKeyValueMap(meetingInfo.features, 'name', 'isenabled') : undefined,
+            features: meetingInfo.features ? CoreObject.toKeyValueMap(meetingInfo.features, 'name', 'isenabled') : undefined,
+            presentations: (meetingInfo.presentations ?? []).map((presentation) => ({
+                fileurl: presentation.url,
+                filename: presentation.name,
+            })),
+            showpresentations: meetingInfo.showpresentations ?? true, // For sites that don't support the setting, show the file.
         };
     }
 
@@ -205,7 +205,7 @@ export class AddonModBBBService {
      * @returns Cache key prefix.
      */
     protected getMeetingInfoCacheKeyPrefix(id: number): string {
-        return ROOT_CACHE_KEY + 'meetingInfo:' + id + ':';
+        return `${AddonModBBBService.ROOT_CACHE_KEY}meetingInfo:${id}:`;
     }
 
     /**
@@ -229,7 +229,7 @@ export class AddonModBBBService {
         };
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getRecordingsCacheKey(id, groupId),
-            component: AddonModBBBService.COMPONENT,
+            component: ADDON_MOD_BBB_COMPONENT_LEGACY,
             componentId: options.cmId,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
@@ -248,7 +248,7 @@ export class AddonModBBBService {
 
         return {
             ...result.tabledata,
-            parsedData: CoreTextUtils.parseJSON(result.tabledata?.data, []),
+            parsedData: CoreText.parseJSON(result.tabledata?.data, []),
         };
     }
 
@@ -270,7 +270,7 @@ export class AddonModBBBService {
      * @returns Cache key prefix.
      */
     protected getRecordingsCacheKeyPrefix(id: number): string {
-        return ROOT_CACHE_KEY + 'recordings:' + id + ':';
+        return `${AddonModBBBService.ROOT_CACHE_KEY}recordings:${id}:`;
     }
 
     /**
@@ -288,7 +288,7 @@ export class AddonModBBBService {
         await CoreCourseLogHelper.log(
             'mod_bigbluebuttonbn_view_bigbluebuttonbn',
             params,
-            AddonModBBBService.COMPONENT,
+            ADDON_MOD_BBB_COMPONENT_LEGACY,
             id,
             siteId,
         );
@@ -299,7 +299,6 @@ export class AddonModBBBService {
      *
      * @param courseId Course ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateBBBs(courseId: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -313,7 +312,6 @@ export class AddonModBBBService {
      * @param id BBB ID.
      * @param groupId Group ID, 0 means that the function will determine the user group.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateMeetingInfo(id: number, groupId: number = 0, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -326,7 +324,6 @@ export class AddonModBBBService {
      *
      * @param id BBB ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateAllGroupsMeetingInfo(id: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -340,7 +337,6 @@ export class AddonModBBBService {
      * @param id BBB ID.
      * @param groupId Group ID, 0 means that the function will determine the user group.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateRecordings(id: number, groupId: number = 0, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -353,7 +349,6 @@ export class AddonModBBBService {
      *
      * @param id BBB ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateAllGroupsRecordings(id: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -375,13 +370,12 @@ export class AddonModBBBService {
     }
 
 }
-
 export const AddonModBBB = makeSingleton(AddonModBBBService);
 
 /**
  * Params of mod_bigbluebuttonbn_get_bigbluebuttonbns_by_courses WS.
  */
-export type AddonModBBBGetBigBlueButtonBNsByCoursesWSParams = {
+type AddonModBBBGetBigBlueButtonBNsByCoursesWSParams = {
     courseids?: number[]; // Array of course ids.
 };
 
@@ -396,20 +390,9 @@ export type AddonModBBBGetBigBlueButtonBNsByCoursesWSResponse = {
 /**
  * BBB data returned by mod_bigbluebuttonbn_get_bigbluebuttonbns_by_courses.
  */
-export type AddonModBBBData = {
-    id: number; // Module id.
-    coursemodule: number; // Course module id.
-    course: number; // Course id.
-    name: string; // Name.
-    intro: string; // Description.
+export type AddonModBBBData = CoreCourseModuleStandardElements & {
     meetingid: string; // Meeting id.
-    introformat?: number; // Intro format (1 = HTML, 0 = MOODLE, 2 = PLAIN or 4 = MARKDOWN).
-    introfiles: CoreWSExternalFile[];
     timemodified: number; // Last time the instance was modified.
-    section: number; // Course section id.
-    visible: number; // Module visibility.
-    groupmode: number; // Group mode.
-    groupingid: number; // Grouping id.
 };
 
 /**
@@ -453,13 +436,16 @@ export type AddonModBBBMeetingInfoWSResponse = {
         name: string;
         isenabled: boolean;
     }[];
+    showpresentations?: boolean; // @since 4.5. Whether to show presentation files.
 };
 
 /**
  * Meeting info with some calculated data.
  */
-export type AddonModBBBMeetingInfo = Omit<AddonModBBBMeetingInfoWSResponse, 'features'> & {
+export type AddonModBBBMeetingInfo = Omit<AddonModBBBMeetingInfoWSResponse, 'features'|'presentations'|'showpresentations'> & {
     features?: Record<string, boolean>;
+    presentations: CoreWSExternalFile[];
+    showpresentations: boolean;
 };
 
 /**

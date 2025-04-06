@@ -1,8 +1,9 @@
-@core_grades @app @javascript
+@core_grades @app @app @core @javascript
 Feature: Grades navigation
 
   Background:
-    Given the following "users" exist:
+    Given the Moodle site is compatible with this feature
+    And the following "users" exist:
       | username  | firstname | lastname |
       | student1  | Student   | first    |
       | student2  | Student   | second    |
@@ -82,14 +83,13 @@ Feature: Grades navigation
     Then I should find "Blog entries" in the app
     And I should find "Grades" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Student second" in the app
     Then I should find "Blog entries" in the app
     But I should not find "Grades" in the app
 
     # User grades
-    When I press the back button in the app
-    And I press the back button in the app
+    When I go back to the root page in the app
     And I press the user menu button in the app
     And I press "Grades" in the app
     Then the header should be "Grades" in the app
@@ -147,9 +147,25 @@ Feature: Grades navigation
     Then I should find "Course 1" in the app
     But I should not find "Course 2" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     Then I should find "Course 1" in the app
     And I should find "Course 2" in the app
+    And the following events should have been logged for "student1" in the app:
+      | name                                            | course               | other                    |
+      | \gradereport_overview\event\grade_report_viewed | Acceptance test site |                          |
+      | \gradereport_user\event\grade_report_viewed     | Course 1             |                          |
+      | \gradereport_user\event\grade_report_viewed     | Course 2             |                          |
+      | \core\event\user_list_viewed                    | Course 2             |                          |
+      | \core\event\grade_item_updated                  | Course 1             | {"itemname":"GI C1"}     |
+      | \core\event\grade_item_updated                  | Course 2             | {"itemname":"GI C2.1.1"} |
+      | \core\event\grade_item_updated                  | Course 2             | {"itemname":"GI C2.1.2"} |
+      | \core\event\grade_item_updated                  | Course 2             | {"itemname":"GI C2.2.1"} |
+    And the following events should have been logged for the system in the app:
+      | name                                            | relateduser | course   | other              |
+      | \core\event\user_graded                         | student1    | Course 1 | {"finalgrade":30}  |
+      | \core\event\user_graded                         | student1    | Course 2 | {"finalgrade":40}  |
+      | \core\event\user_graded                         | student1    | Course 2 | {"finalgrade":90}  |
+      | \core\event\user_graded                         | student1    | Course 2 | {"finalgrade":130} |
 
   @lms_from4.2
   Scenario: Mobile navigation (teacher)
@@ -195,7 +211,7 @@ Feature: Grades navigation
     And I should not find "Percentage" in the app
 
     # Profile grades
-    When I press the back button in the app
+    When I go back in the app
     And I press "Participants" in the app
     And I press "Student first" in the app
     And I press "Grades" in the app

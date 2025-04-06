@@ -19,11 +19,8 @@ import {
     AddonMessages,
     AddonMessagesDiscussion,
     AddonMessagesMessageAreaContact,
-    AddonMessagesProvider,
 } from '../../services/messages';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
-import { CoreApp } from '@services/app';
+import { CoreUtils } from '@singletons/utils';
 import { ActivatedRoute, Params } from '@angular/router';
 import { CorePushNotificationsNotificationBasicData } from '@features/pushnotifications/services/pushnotifications';
 import { CorePushNotificationsDelegate } from '@features/pushnotifications/services/push-delegate';
@@ -31,9 +28,15 @@ import { Subscription } from 'rxjs';
 import { Translate } from '@singletons';
 import { CoreNavigator } from '@services/navigator';
 import { CoreScreen } from '@services/screen';
-import { CoreMainMenuDeepLinkManager } from '@features/mainmenu/classes/deep-link-manager';
 import { CorePlatform } from '@services/platform';
 import { CoreSplitViewComponent } from '@components/split-view/split-view';
+import { CoreKeyboard } from '@singletons/keyboard';
+import { ADDON_MESSAGES_NEW_MESSAGE_EVENT, ADDON_MESSAGES_READ_CHANGED_EVENT } from '@addons/messages/constants';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreSearchBoxComponent } from '@features/search/components/search-box/search-box';
+import { CoreMainMenuUserButtonComponent } from '@features/mainmenu/components/user-menu-button/user-menu-button';
 
 /**
  * Page that displays the list of discussions.
@@ -41,9 +44,15 @@ import { CoreSplitViewComponent } from '@components/split-view/split-view';
 @Component({
     selector: 'addon-messages-discussions',
     templateUrl: 'discussions.html',
-    styleUrls: ['../../messages-common.scss'],
+    styleUrl: '../../messages-common.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreSearchBoxComponent,
+        CoreMainMenuUserButtonComponent,
+    ],
 })
-export class AddonMessagesDiscussions35Page implements OnInit, OnDestroy {
+export default class AddonMessagesDiscussions35Page implements OnInit, OnDestroy {
 
     @ViewChild(CoreSplitViewComponent) splitView!: CoreSplitViewComponent;
 
@@ -76,7 +85,7 @@ export class AddonMessagesDiscussions35Page implements OnInit, OnDestroy {
 
         // Update discussions when new message is received.
         this.newMessagesObserver = CoreEvents.on(
-            AddonMessagesProvider.NEW_MESSAGE_EVENT,
+            ADDON_MESSAGES_NEW_MESSAGE_EVENT,
             (data) => {
                 if (data.userId && this.discussions) {
                     const discussion = this.discussions.find((disc) => disc.message?.user === data.userId);
@@ -98,7 +107,7 @@ export class AddonMessagesDiscussions35Page implements OnInit, OnDestroy {
 
         // Update discussions when a message is read.
         this.readChangedObserver = CoreEvents.on(
-            AddonMessagesProvider.READ_CHANGED_EVENT,
+            ADDON_MESSAGES_READ_CHANGED_EVENT,
             (data) => {
                 if (data.userId && this.discussions) {
                     const discussion = this.discussions.find((disc) => disc.message?.user === data.userId);
@@ -145,8 +154,6 @@ export class AddonMessagesDiscussions35Page implements OnInit, OnDestroy {
             this.discussionUserId = CoreNavigator.getRouteNumberParam('userId', { params }) ?? this.discussionUserId;
         });
 
-        const deepLinkManager = new CoreMainMenuDeepLinkManager();
-
         await this.fetchData();
 
         if (!this.discussionUserId && this.discussions.length > 0 && CoreScreen.isTablet && this.discussions[0].message) {
@@ -154,8 +161,8 @@ export class AddonMessagesDiscussions35Page implements OnInit, OnDestroy {
             await this.gotoDiscussion(this.discussions[0].message.user);
         }
 
-        // Treat deep link now that the conversation route has been loaded if needed.
-        deepLinkManager.treatLink();
+        // Mark login navigation finished now that the conversation route has been loaded if needed.
+        CoreSites.loginNavigationFinished();
     }
 
     /**
@@ -173,7 +180,7 @@ export class AddonMessagesDiscussions35Page implements OnInit, OnDestroy {
             promises.push(AddonMessages.invalidateUnreadConversationCounts(this.siteId));
         }
 
-        await CoreUtils.allPromises(promises).finally(() => this.fetchData().finally(() => {
+        await CorePromiseUtils.allPromises(promises).finally(() => this.fetchData().finally(() => {
             if (refresher) {
                 refresher?.complete();
             }
@@ -209,7 +216,7 @@ export class AddonMessagesDiscussions35Page implements OnInit, OnDestroy {
         try {
             await Promise.all(promises);
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'addon.messages.errorwhileretrievingdiscussions', true);
+            CoreAlerts.showError(error, { default: Translate.instant('addon.messages.errorwhileretrievingdiscussions') });
         }
 
         this.loaded = true;
@@ -234,7 +241,7 @@ export class AddonMessagesDiscussions35Page implements OnInit, OnDestroy {
      * @returns Resolved when done.
      */
     async searchMessage(query: string): Promise<void> {
-        CoreApp.closeKeyboard();
+        CoreKeyboard.close();
         this.loaded = false;
         this.loadingMessage = this.search.loading;
 
@@ -243,7 +250,7 @@ export class AddonMessagesDiscussions35Page implements OnInit, OnDestroy {
             this.search.showResults = true;
             this.search.results = searchResults.messages;
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'addon.messages.errorwhileretrievingmessages', true);
+            CoreAlerts.showError(error, { default: Translate.instant('addon.messages.errorwhileretrievingmessages') });
         }
 
         this.loaded = true;

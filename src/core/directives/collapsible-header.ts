@@ -20,13 +20,15 @@ import { CoreTabsOutletComponent } from '@components/tabs-outlet/tabs-outlet';
 import { CoreTabsComponent } from '@components/tabs/tabs';
 import { CoreSettingsHelper } from '@features/settings/services/settings-helper';
 import { ScrollDetail } from '@ionic/core';
-import { CoreUtils } from '@services/utils/utils';
 import { CoreDirectivesRegistry } from '@singletons/directives-registry';
 import { CoreDom } from '@singletons/dom';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
 import { CoreMath } from '@singletons/math';
 import { Subscription } from 'rxjs';
 import { CoreFormatTextDirective } from './format-text';
+import { CoreWait } from '@singletons/wait';
+import { toBoolean } from '../transforms/boolean';
+import { AsyncDirective } from '@classes/async-directive';
 
 declare module '@singletons/events' {
 
@@ -71,10 +73,11 @@ export const COLLAPSIBLE_HEADER_UPDATED = 'collapsible_header_updated';
  */
 @Directive({
     selector: 'ion-header[collapsible]',
+    standalone: true,
 })
-export class CoreCollapsibleHeaderDirective implements OnInit, OnChanges, OnDestroy {
+export class CoreCollapsibleHeaderDirective implements OnInit, OnChanges, OnDestroy, AsyncDirective {
 
-    @Input() collapsible = true;
+    @Input({ transform: toBoolean }) collapsible = true;
 
     protected page?: HTMLElement;
     protected collapsedHeader: HTMLIonHeaderElement;
@@ -96,17 +99,17 @@ export class CoreCollapsibleHeaderDirective implements OnInit, OnChanges, OnDest
     protected mutationObserver?: MutationObserver;
     protected loadingFloatingTitle = false;
     protected visiblePromise?: CoreCancellablePromise<void>;
+    protected onReadyPromise = new CorePromisedValue<void>();
 
     constructor(el: ElementRef) {
         this.collapsedHeader = el.nativeElement;
+        CoreDirectivesRegistry.register(this.collapsedHeader, this);
     }
 
     /**
      * @inheritdoc
      */
     ngOnInit(): void {
-        this.collapsible = !CoreUtils.isFalseOrZero(this.collapsible);
-
         if (CoreDom.closest(this.collapsedHeader, 'core-tabs-outlet')) {
             this.collapsible = false;
         }
@@ -119,6 +122,8 @@ export class CoreCollapsibleHeaderDirective implements OnInit, OnChanges, OnDest
      */
     async init(): Promise<void> {
         if (!this.collapsible || this.expandedHeader) {
+            this.onReadyPromise.resolve();
+
             return;
         }
 
@@ -133,7 +138,9 @@ export class CoreCollapsibleHeaderDirective implements OnInit, OnChanges, OnDest
         this.listenEvents();
 
         await this.initializeFloatingTitle();
-        this.initializeContent();
+        await this.initializeContent();
+
+        this.onReadyPromise.resolve();
     }
 
     /**
@@ -141,7 +148,6 @@ export class CoreCollapsibleHeaderDirective implements OnInit, OnChanges, OnDest
      */
     async ngOnChanges(changes: {[name: string]: SimpleChange}): Promise<void> {
         if (changes.collapsible && !changes.collapsible.firstChange) {
-            this.collapsible = !CoreUtils.isFalseOrZero(changes.collapsible.currentValue);
             this.enabled = this.collapsible;
 
             await this.init();
@@ -344,7 +350,7 @@ export class CoreCollapsibleHeaderDirective implements OnInit, OnChanges, OnDest
         await this.visiblePromise;
 
         this.page.classList.remove('collapsible-header-page-is-active');
-        await CoreUtils.nextTick();
+        await CoreWait.nextTick();
 
         // Add floating title and measure initial position.
         const collapsedHeaderTitle = this.collapsedHeader.querySelector('h1') as HTMLHeadingElement;
@@ -429,7 +435,7 @@ export class CoreCollapsibleHeaderDirective implements OnInit, OnChanges, OnDest
         }
 
         // Make sure elements have been added to the DOM.
-        await CoreUtils.nextTick();
+        await CoreWait.nextTick();
 
         // Wait all loadings and tabs to finish loading.
         await CoreDirectivesRegistry.waitMultipleDirectivesReady(this.page, [
@@ -512,9 +518,7 @@ export class CoreCollapsibleHeaderDirective implements OnInit, OnChanges, OnDest
         this.content = content;
 
         const page = this.page;
-        const scrollingHeight = this.scrollingHeight;
         const expandedHeader = this.expandedHeader;
-        const expandedHeaderHeight = this.expandedHeaderHeight;
         const expandedFontStyles = this.expandedFontStyles;
         const collapsedFontStyles = this.collapsedFontStyles;
         const floatingTitle = this.floatingTitle;
@@ -522,9 +526,7 @@ export class CoreCollapsibleHeaderDirective implements OnInit, OnChanges, OnDest
 
         if (
             !page ||
-            !scrollingHeight ||
             !expandedHeader ||
-            !expandedHeaderHeight ||
             !expandedFontStyles ||
             !collapsedFontStyles ||
             !floatingTitle
@@ -543,22 +545,15 @@ export class CoreCollapsibleHeaderDirective implements OnInit, OnChanges, OnDest
 
         this.content.scrollEvents = true;
         this.content.addEventListener('ionScroll', this.contentScrollListener = ({ target }: CustomEvent<ScrollDetail>): void => {
-            if (target !== this.content || !this.enabled) {
+            if (target !== this.content || !this.enabled || !this.scrollingHeight) {
                 return;
             }
 
-            const scrollableHeight = contentScroll.scrollHeight - contentScroll.clientHeight;
+            const frozen = this.isFrozen(contentScroll);
 
-            let frozen = false;
-            if (this.isWithinContent) {
-                frozen = scrollableHeight <= scrollingHeight;
-            } else {
-                const collapsedHeight = expandedHeaderHeight - (expandedHeader.clientHeight ?? 0);
-                frozen = scrollableHeight + collapsedHeight <= 2 * expandedHeaderHeight;
-            }
             const progress = frozen
                 ? 0
-                : CoreMath.clamp(contentScroll.scrollTop / scrollingHeight, 0, 1);
+                : CoreMath.clamp(contentScroll.scrollTop / this.scrollingHeight, 0, 1);
 
             this.setCollapsed(progress === 1);
             page.style.setProperty('--collapsible-header-progress', `${progress}`);
@@ -577,7 +572,14 @@ export class CoreCollapsibleHeaderDirective implements OnInit, OnChanges, OnDest
                 }
 
                 if (page.classList.contains('collapsible-header-page-is-frozen')) {
-                    return;
+                    // Check it has to be frozen.
+                    const frozen = this.isFrozen(contentScroll);
+
+                    if (frozen) {
+                        return;
+                    }
+
+                    page.classList.toggle('collapsible-header-page-is-frozen', frozen);
                 }
 
                 const progress = parseFloat(page.style.getPropertyValue('--collapsible-header-progress'));
@@ -596,6 +598,36 @@ export class CoreCollapsibleHeaderDirective implements OnInit, OnChanges, OnDest
                 }
             },
         );
+    }
+
+    /**
+     * Check if the header is frozen.
+     *
+     * @param contentScroll Content scroll element.
+     * @returns Whether the header is frozen or not.
+     */
+    protected isFrozen(contentScroll: HTMLElement): boolean {
+        const scrollingHeight = this.scrollingHeight ?? 0;
+        const expandedHeaderClientHeight = this.expandedHeader?.clientHeight ?? 0;
+        const expandedHeaderHeight = this.expandedHeaderHeight ?? 0;
+        const scrollableHeight = contentScroll.scrollHeight - contentScroll.clientHeight;
+
+        let frozen = false;
+        if (this.isWithinContent) {
+            frozen = scrollableHeight <= scrollingHeight;
+        } else {
+            const collapsedHeight = expandedHeaderHeight - (expandedHeaderClientHeight);
+            frozen = scrollableHeight + collapsedHeight <= 2 * expandedHeaderHeight;
+        }
+
+        return frozen;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    async ready(): Promise<void> {
+        return this.onReadyPromise;
     }
 
 }

@@ -15,8 +15,9 @@
 import { CoreContentLinksAction } from '../services/contentlinks-delegate';
 import { CoreContentLinksHandlerBase } from './base-handler';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
+import { CoreLoadings } from '@services/overlays/loadings';
 import { CoreCourseHelper } from '@features/course/services/course-helper';
+import { CORE_COURSE_MODULE_FEATURE_PREFIX } from '@features/course/constants';
 
 /**
  * Handler to handle URLs pointing to the grade of a module.
@@ -47,8 +48,8 @@ export class CoreContentLinksModuleGradeHandler extends CoreContentLinksHandlerB
         super();
 
         // Match the grade.php URL with an id param.
-        this.pattern = new RegExp('/mod/' + modName + '/grade.php.*([&?]id=\\d+)');
-        this.featureName = 'CoreCourseModuleDelegate_' + addon;
+        this.pattern = new RegExp(`/mod/${modName}/grade.php.*([&?]id=\\d+)`);
+        this.featureName = CORE_COURSE_MODULE_FEATURE_PREFIX + addon;
     }
 
     /**
@@ -72,11 +73,11 @@ export class CoreContentLinksModuleGradeHandler extends CoreContentLinksHandlerB
         return [{
             action: async (siteId): Promise<void> => {
                 // Check if userid is the site's current user.
-                const modal = await CoreDomUtils.showModalLoading();
+                const modal = await CoreLoadings.show();
                 const site = await CoreSites.getSite(siteId);
                 if (!params.userid || Number(params.userid) == site.getUserId()) {
                     // No user specified or current user. Navigate to module.
-                    CoreCourseHelper.navigateToModule(
+                    await CoreCourseHelper.navigateToModule(
                         Number(params.id),
                         {
                             courseId: courseIdentifier,
@@ -86,10 +87,10 @@ export class CoreContentLinksModuleGradeHandler extends CoreContentLinksHandlerB
                     );
                 } else if (this.canReview) {
                     // Use the goToReview function.
-                    this.goToReview(url, params, courseIdentifier, siteId);
+                    await this.goToReview(url, params, courseIdentifier, siteId);
                 } else {
                     // Not current user and cannot review it in the app, open it in browser.
-                    site.openInBrowserWithAutoLogin(url);
+                    await site.openInBrowserWithAutoLogin(url);
                 }
 
                 modal.dismiss();

@@ -13,12 +13,13 @@
 // limitations under the License.
 
 import { CoreSitesReadingStrategy } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { Subscription } from 'rxjs';
 import { AsyncDirective } from './async-directive';
 import { PageLoadsManager } from './page-loads-manager';
 import { CorePromisedValue } from './promised-value';
 import { WSObservable } from './sites/authenticated-site';
+import { CoreWait } from '@singletons/wait';
 
 /**
  * Class to watch requests from a page load (including requests from page sub-components).
@@ -111,7 +112,7 @@ export class PageLoadWatcher {
             this.checkHasLoaded();
 
             // Subscription variable might not be set because the observable completed immediately. Wait for next tick.
-            await CoreUtils.nextTick();
+            await CoreWait.nextTick();
             subscription?.unsubscribe();
         };
 
@@ -129,7 +130,7 @@ export class PageLoadWatcher {
                     return;
                 }
 
-                this.hasChangesPromises.push(CoreUtils.ignoreErrors(hasMeaningfulChanges(firstValue, value), false));
+                this.hasChangesPromises.push(CorePromiseUtils.ignoreErrors(hasMeaningfulChanges(firstValue, value), false));
             },
             error: (error) => {
                 promisedValue.reject(error);

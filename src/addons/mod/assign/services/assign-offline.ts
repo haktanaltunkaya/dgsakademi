@@ -17,8 +17,8 @@ import { CoreError } from '@classes/errors/error';
 import { SQLiteDBRecordValues } from '@classes/sqlitedb';
 import { CoreFile } from '@services/file';
 import { CoreSites } from '@services/sites';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreTimeUtils } from '@services/utils/time';
+import { CoreText } from '@singletons/text';
+import { CoreTime } from '@singletons/time';
 import { makeSingleton } from '@singletons';
 import { CorePath } from '@singletons/path';
 import { AddonModAssignOutcomes, AddonModAssignSavePluginData } from './assign';
@@ -28,7 +28,6 @@ import {
     SUBMISSIONS_GRADES_TABLE,
     SUBMISSIONS_TABLE,
 } from './database/assign';
-import { CoreArray } from '@singletons/array';
 
 /**
  * Service to handle offline assign.
@@ -87,8 +86,7 @@ export class AddonModAssignOfflineProvider {
 
         const results = await Promise.all(promises);
         // Flatten array.
-        const flatten = CoreArray
-            .flatten<AddonModAssignSubmissionsDBRecordFormatted | AddonModAssignSubmissionsGradingDBRecordFormatted>(results);
+        const flatten = results.flat();
 
         // Get assign id.
         let assignIds: number[] = flatten.map((assign) => assign.assignid);
@@ -139,7 +137,7 @@ export class AddonModAssignOfflineProvider {
             assignid: submission.assignid,
             userid: submission.userid,
             courseid: submission.courseid,
-            plugindata: CoreTextUtils.parseJSON<AddonModAssignSavePluginData>(submission.plugindata, {}),
+            plugindata: CoreText.parseJSON<AddonModAssignSavePluginData>(submission.plugindata, {}),
             onlinetimemodified: submission.onlinetimemodified,
             timecreated: submission.timecreated,
             timemodified: submission.timemodified,
@@ -197,8 +195,8 @@ export class AddonModAssignOfflineProvider {
             addattempt: submission.addattempt,
             workflowstate: submission.workflowstate,
             applytoall: submission.applytoall,
-            outcomes: CoreTextUtils.parseJSON<AddonModAssignOutcomes>(submission.outcomes, {}),
-            plugindata: CoreTextUtils.parseJSON<AddonModAssignSavePluginData>(submission.plugindata, {}),
+            outcomes: CoreText.parseJSON<AddonModAssignOutcomes>(submission.outcomes, {}),
+            plugindata: CoreText.parseJSON<AddonModAssignSavePluginData>(submission.plugindata, {}),
             timemodified: submission.timemodified,
         }));
     }
@@ -236,7 +234,7 @@ export class AddonModAssignOfflineProvider {
 
         userId = userId || site.getUserId();
         const siteFolderPath = CoreFile.getSiteFolder(site.getId());
-        const submissionFolderPath = 'offlineassign/' + assignId + '/' + userId;
+        const submissionFolderPath = `offlineassign/${assignId}/${userId}`;
 
         return CorePath.concatenatePaths(siteFolderPath, submissionFolderPath);
     }
@@ -340,7 +338,7 @@ export class AddonModAssignOfflineProvider {
             });
         } catch {
             // No submission, create an empty one.
-            const now = CoreTimeUtils.timestamp();
+            const now = CoreTime.timestamp();
             submission = {
                 assignid: assignId,
                 courseid: courseId,
@@ -382,7 +380,7 @@ export class AddonModAssignOfflineProvider {
 
         userId = userId || site.getUserId();
 
-        const now = CoreTimeUtils.timestamp();
+        const now = CoreTime.timestamp();
         const entry: AddonModAssignSubmissionsDBRecord = {
             assignid: assignId,
             courseid: courseId,
@@ -428,7 +426,7 @@ export class AddonModAssignOfflineProvider {
     ): Promise<number> {
         const site = await CoreSites.getSite(siteId);
 
-        const now = CoreTimeUtils.timestamp();
+        const now = CoreTime.timestamp();
         const entry: AddonModAssignSubmissionsGradingDBRecord = {
             assignid: assignId,
             userid: userId,

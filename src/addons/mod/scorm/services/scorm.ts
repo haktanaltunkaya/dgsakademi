@@ -12,26 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreConstants } from '@/core/constants';
+import { CoreCacheUpdateFrequency, DownloadStatus } from '@/core/constants';
 import { Injectable } from '@angular/core';
-import { CoreError } from '@classes/errors/error';
-import { CoreSite } from '@classes/sites/site';
 import { CoreCourseCommonModWSOptions } from '@features/course/services/course';
 import { CoreCourseLogHelper } from '@features/course/services/log-helper';
 import { CoreFilepool } from '@services/filepool';
 import { CoreSites, CoreSitesCommonWSOptions, CoreSitesReadingStrategy } from '@services/sites';
 import { CoreSync } from '@services/sync';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreTimeUtils } from '@services/utils/time';
-import { CoreUrlUtils } from '@services/utils/url';
-import { CoreUtils } from '@services/utils/utils';
-import { CoreWS, CoreWSExternalFile, CoreWSExternalWarning, CoreWSFile, CoreWSPreSets } from '@services/ws';
+import { CoreText } from '@singletons/text';
+import { CoreTime } from '@singletons/time';
+import { CoreUrl } from '@singletons/url';
+import { CoreObject } from '@singletons/object';
+import { CoreWS, CoreWSExternalWarning, CoreWSFile, CoreWSPreSets } from '@services/ws';
 import { makeSingleton, Translate } from '@singletons';
 import { CoreEvents } from '@singletons/events';
 import { CorePath } from '@singletons/path';
 import { AddonModScormOffline } from './scorm-offline';
-import { AddonModScormAutoSyncEventData, AddonModScormSyncProvider } from './scorm-sync';
 import { CoreSiteWSPreSets } from '@classes/sites/authenticated-site';
+import {
+    ADDON_MOD_SCORM_COMPONENT_LEGACY,
+    AddonModScormForceAttempt,
+    AddonModScormGradingMethod,
+    AddonModScormMode,
+    AddonModScormAttemptsGradingMethod,
+    ADDON_MOD_SCORM_DATA_SENT_EVENT,
+    ADDON_MOD_SCORM_GO_OFFLINE_EVENT,
+    ADDON_MOD_SCORM_LAUNCH_NEXT_SCO_EVENT,
+    ADDON_MOD_SCORM_LAUNCH_PREV_SCO_EVENT,
+    ADDON_MOD_SCORM_UPDATE_TOC_EVENT,
+    ADDON_MOD_SCORM_COMPONENT,
+} from '../constants';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreCourseModuleHelper, CoreCourseModuleStandardElements } from '@features/course/services/course-module-helper';
 
 // Private constants.
 const VALID_STATUSES = ['notattempted', 'passed', 'completed', 'failed', 'incomplete', 'browsed', 'suspend'];
@@ -50,22 +62,15 @@ const STATUSES = {
     'n': 'notattempted',
 };
 const STATUS_TO_ICON = {
-    assetc: 'far-file-zipper',
-    asset: 'far-file-zipper',
-    browsed: 'fas-book',
-    completed: 'far-square-check',
+    asset: '', // Empty to show an space.
+    browsed: 'moodle-browsed',
+    completed: 'fas-check',
     failed: 'fas-xmark',
-    incomplete: 'far-pen-to-square',
-    minus: 'fas-minus',
+    incomplete: 'fas-pen-to-square',
     notattempted: 'far-square',
-    passed: 'fas-check',
-    plus: 'fas-plus',
-    popdown: 'far-rectangle-xmark',
-    popup: 'fas-window-restore',
+    passed: 'fas-check-double',
     suspend: 'fas-pause',
-    wait: 'far-clock',
 };
-const ROOT_CACHE_KEY = 'mmaModScorm:';
 
 /**
  * Service that provides some features for SCORM.
@@ -73,37 +78,7 @@ const ROOT_CACHE_KEY = 'mmaModScorm:';
 @Injectable({ providedIn: 'root' })
 export class AddonModScormProvider {
 
-    static readonly COMPONENT = 'mmaModScorm';
-
-    // Public constants.
-    static readonly GRADESCOES     = 0;
-    static readonly GRADEHIGHEST   = 1;
-    static readonly GRADEAVERAGE   = 2;
-    static readonly GRADESUM       = 3;
-
-    static readonly HIGHESTATTEMPT = 0;
-    static readonly AVERAGEATTEMPT = 1;
-    static readonly FIRSTATTEMPT   = 2;
-    static readonly LASTATTEMPT    = 3;
-
-    static readonly MODEBROWSE = 'browse';
-    static readonly MODENORMAL = 'normal';
-    static readonly MODEREVIEW = 'review';
-
-    static readonly SCORM_FORCEATTEMPT_NO         = 0;
-    static readonly SCORM_FORCEATTEMPT_ONCOMPLETE = 1;
-    static readonly SCORM_FORCEATTEMPT_ALWAYS     = 2;
-
-    static readonly SKIPVIEW_NEVER = 0;
-    static readonly SKIPVIEW_FIRST = 1;
-    static readonly SKIPVIEW_ALWAYS = 2;
-
-    // Events.
-    static readonly LAUNCH_NEXT_SCO_EVENT = 'addon_mod_scorm_launch_next_sco';
-    static readonly LAUNCH_PREV_SCO_EVENT = 'addon_mod_scorm_launch_prev_sco';
-    static readonly UPDATE_TOC_EVENT = 'addon_mod_scorm_update_toc';
-    static readonly GO_OFFLINE_EVENT = 'addon_mod_scorm_go_offline';
-    static readonly DATA_SENT_EVENT = 'addon_mod_scorm_data_sent';
+    protected static readonly ROOT_CACHE_KEY = 'mmaModScorm:';
 
     /**
      * Calculates the SCORM grade based on the grading method and the list of attempts scores.
@@ -119,10 +94,10 @@ export class AddonModScormProvider {
         }
 
         switch (scorm.whatgrade) {
-            case AddonModScormProvider.FIRSTATTEMPT:
+            case AddonModScormAttemptsGradingMethod.FIRSTATTEMPT:
                 return onlineAttempts[1] ? onlineAttempts[1].score : -1;
 
-            case AddonModScormProvider.LASTATTEMPT: {
+            case AddonModScormAttemptsGradingMethod.LASTATTEMPT: {
                 // Search the last completed attempt number.
                 let lastCompleted = 0;
                 for (const attemptNumber in onlineAttempts) {
@@ -141,7 +116,7 @@ export class AddonModScormProvider {
                 return -1;
             }
 
-            case AddonModScormProvider.HIGHESTATTEMPT: {
+            case AddonModScormAttemptsGradingMethod.HIGHESTATTEMPT: {
                 // Search the highest grade.
                 let grade = 0;
                 for (const attemptNumber in onlineAttempts) {
@@ -151,7 +126,7 @@ export class AddonModScormProvider {
                 return grade;
             }
 
-            case AddonModScormProvider.AVERAGEATTEMPT: {
+            case AddonModScormAttemptsGradingMethod.AVERAGEATTEMPT: {
                 // Calculate the average.
                 let sumGrades = 0;
                 let total = 0;
@@ -217,24 +192,24 @@ export class AddonModScormProvider {
      */
     determineAttemptAndMode(
         scorm: AddonModScormScorm,
-        mode: string,
+        mode: AddonModScormMode,
         attempt: number,
         newAttempt?: boolean,
         incomplete?: boolean,
         canSaveTracks = true,
-    ): {mode: string; attempt: number; newAttempt: boolean} {
+    ): {mode: AddonModScormMode; attempt: number; newAttempt: boolean} {
         if (!canSaveTracks) {
             return {
-                mode: scorm.hidebrowse ? AddonModScormProvider.MODENORMAL : mode,
+                mode: scorm.hidebrowse ? AddonModScormMode.NORMAL : mode,
                 attempt,
                 newAttempt: false,
             };
         }
 
-        if (mode == AddonModScormProvider.MODEBROWSE) {
+        if (mode == AddonModScormMode.BROWSE) {
             if (scorm.hidebrowse) {
                 // Prevent Browse mode if hidebrowse is set.
-                mode = AddonModScormProvider.MODENORMAL;
+                mode = AddonModScormMode.NORMAL;
             } else {
                 // We don't need to check attempts as browse mode is set.
                 if (attempt == 0) {
@@ -250,10 +225,10 @@ export class AddonModScormProvider {
             }
         }
 
-        if (scorm.forcenewattempt == AddonModScormProvider.SCORM_FORCEATTEMPT_ALWAYS) {
+        if (scorm.forcenewattempt === AddonModScormForceAttempt.ALWAYS) {
             // This SCORM is configured to force a new attempt on every re-entry.
             return {
-                mode: AddonModScormProvider.MODENORMAL,
+                mode: AddonModScormMode.NORMAL,
                 attempt: attempt + 1,
                 newAttempt: true,
             };
@@ -273,14 +248,14 @@ export class AddonModScormProvider {
         if (newAttempt && (!scorm.maxattempt || attempt < scorm.maxattempt)) {
             // Create a new attempt. Force mode normal.
             attempt++;
-            mode = AddonModScormProvider.MODENORMAL;
+            mode = AddonModScormMode.NORMAL;
         } else {
             if (incomplete) {
                 // We can't review an incomplete attempt.
-                mode = AddonModScormProvider.MODENORMAL;
+                mode = AddonModScormMode.NORMAL;
             } else {
                 // We aren't starting a new attempt and the current one is complete, force review mode.
-                mode = AddonModScormProvider.MODEREVIEW;
+                mode = AddonModScormMode.REVIEW;
             }
         }
 
@@ -380,7 +355,7 @@ export class AddonModScormProvider {
                             oper = '==';
                         }
 
-                        element = '(\'' + trackData[element].status + '\' ' + oper + ' \'' + value + '\')';
+                        element = `('${trackData[element].status}' ${oper} '${value}')`;
                     } else {
                         element = 'false';
                     }
@@ -396,11 +371,11 @@ export class AddonModScormProvider {
             }
 
             // Add the element to the list of prerequisites.
-            stack.push(' ' + element + ' ');
+            stack.push(` ${element} `);
         });
 
         // eslint-disable-next-line no-eval
-        return eval(stack.join('') + ';');
+        return eval(`${stack.join('')};`);
     }
 
     /**
@@ -415,10 +390,10 @@ export class AddonModScormProvider {
             return Translate.instant('core.none');
         }
 
-        if (scorm.grademethod !== AddonModScormProvider.GRADESCOES && scorm.maxgrade) {
+        if (scorm.grademethod !== AddonModScormGradingMethod.GRADESCOES && scorm.maxgrade) {
             grade = (grade / scorm.maxgrade) * 100;
 
-            return Translate.instant('core.percentagenumber', { $a: CoreTextUtils.roundToDecimals(grade, 2) });
+            return Translate.instant('core.percentagenumber', { $a: CoreText.roundToDecimals(grade, 2) });
         }
 
         return String(grade);
@@ -473,7 +448,7 @@ export class AddonModScormProvider {
         };
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getAccessInformationCacheKey(scormId),
-            component: AddonModScormProvider.COMPONENT,
+            component: ADDON_MOD_SCORM_COMPONENT_LEGACY,
             componentId: options.cmId,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
@@ -488,7 +463,7 @@ export class AddonModScormProvider {
      * @returns Cache key.
      */
     protected getAccessInformationCacheKey(scormId: number): string {
-        return ROOT_CACHE_KEY + 'accessInfo:' + scormId;
+        return `${AddonModScormProvider.ROOT_CACHE_KEY}accessInfo:${scormId}`;
     }
 
     /**
@@ -558,7 +533,7 @@ export class AddonModScormProvider {
      * @returns Cache key.
      */
     protected getAttemptCountCacheKey(scormId: number, userId: number): string {
-        return ROOT_CACHE_KEY + 'attemptcount:' + scormId + ':' + userId;
+        return `${AddonModScormProvider.ROOT_CACHE_KEY}attemptcount:${scormId}:${userId}`;
     }
 
     /**
@@ -579,8 +554,8 @@ export class AddonModScormProvider {
         };
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getAttemptCountCacheKey(scormId, userId),
-            updateFrequency: CoreSite.FREQUENCY_SOMETIMES,
-            component: AddonModScormProvider.COMPONENT,
+            updateFrequency: CoreCacheUpdateFrequency.SOMETIMES,
+            component: ADDON_MOD_SCORM_COMPONENT_LEGACY,
             componentId: options.cmId,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
@@ -641,11 +616,11 @@ export class AddonModScormProvider {
         let score = 0;
 
         switch (scorm.grademethod) {
-            case AddonModScormProvider.GRADEHIGHEST:
+            case AddonModScormGradingMethod.GRADEHIGHEST:
                 score = attemptScore.max;
                 break;
 
-            case AddonModScormProvider.GRADEAVERAGE:
+            case AddonModScormGradingMethod.GRADEAVERAGE:
                 if (attemptScore.values > 0) {
                     score = attemptScore.sum / attemptScore.values;
                 } else {
@@ -653,11 +628,11 @@ export class AddonModScormProvider {
                 }
                 break;
 
-            case AddonModScormProvider.GRADESUM:
+            case AddonModScormGradingMethod.GRADESUM:
                 score = attemptScore.sum;
                 break;
 
-            case AddonModScormProvider.GRADESCOES:
+            case AddonModScormGradingMethod.GRADESCOES:
                 score = attemptScore.scos;
                 break;
 
@@ -787,7 +762,7 @@ export class AddonModScormProvider {
      * @returns Cache key.
      */
     protected getScormUserDataCacheKey(scormId: number, attempt: number): string {
-        return this.getScormUserDataCommonCacheKey(scormId) + ':' + attempt;
+        return `${this.getScormUserDataCommonCacheKey(scormId)}:${attempt}`;
     }
 
     /**
@@ -797,7 +772,7 @@ export class AddonModScormProvider {
      * @returns Cache key.
      */
     protected getScormUserDataCommonCacheKey(scormId: number): string {
-        return ROOT_CACHE_KEY + 'userdata:' + scormId;
+        return `${AddonModScormProvider.ROOT_CACHE_KEY}userdata:${scormId}`;
     }
 
     /**
@@ -821,7 +796,7 @@ export class AddonModScormProvider {
         };
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getScormUserDataCacheKey(scormId, attempt),
-            component: AddonModScormProvider.COMPONENT,
+            component: ADDON_MOD_SCORM_COMPONENT_LEGACY,
             componentId: options.cmId,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
@@ -834,12 +809,12 @@ export class AddonModScormProvider {
         response.data.forEach((sco) => {
             data[sco.scoid] = {
                 scoid: sco.scoid,
-                defaultdata: <Record<string, AddonModScormDataValue>> CoreUtils.objectToKeyValueMap(
+                defaultdata: <Record<string, AddonModScormDataValue>> CoreObject.toKeyValueMap(
                     sco.defaultdata,
                     'element',
                     'value',
                 ),
-                userdata: <Record<string, AddonModScormDataValue>> CoreUtils.objectToKeyValueMap(sco.userdata, 'element', 'value'),
+                userdata: <Record<string, AddonModScormDataValue>> CoreObject.toKeyValueMap(sco.userdata, 'element', 'value'),
             };
 
         });
@@ -854,7 +829,7 @@ export class AddonModScormProvider {
      * @returns Cache key.
      */
     protected getScosCacheKey(scormId: number): string {
-        return ROOT_CACHE_KEY + 'scos:' + scormId;
+        return `${AddonModScormProvider.ROOT_CACHE_KEY}scos:${scormId}`;
     }
 
     /**
@@ -875,8 +850,8 @@ export class AddonModScormProvider {
         };
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getScosCacheKey(scormId),
-            updateFrequency: CoreSite.FREQUENCY_SOMETIMES,
-            component: AddonModScormProvider.COMPONENT,
+            updateFrequency: CoreCacheUpdateFrequency.SOMETIMES,
+            component: ADDON_MOD_SCORM_COMPONENT_LEGACY,
             componentId: options.cmId,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
@@ -989,6 +964,32 @@ export class AddonModScormProvider {
     }
 
     /**
+     * Given a SCORM and a SCO, returns the full launch URL for the SCO to be used in an online player.
+     *
+     * @param scorm SCORM.
+     * @param sco SCO.
+     * @param options Other options.
+     * @returns The URL.
+     */
+    async getScoSrcForOnlinePlayer(
+        scorm: AddonModScormScorm,
+        sco: AddonModScormWSSco,
+        options: AddonModScormGetScoSrcForOnlinePlayerOptions = {},
+    ): Promise<string> {
+        const site = await CoreSites.getSite(options.siteId);
+
+        // Use online player.
+        return CoreUrl.addParamsToUrl(CorePath.concatenatePaths(site.getURL(), '/mod/scorm/player.php'), {
+            a: scorm.id,
+            scoid: sco.id,
+            display: 'popup',
+            mode: options.mode,
+            currentorg: options.organization,
+            newattempt: options.newAttempt ? 'on' : 'off',
+        });
+    }
+
+    /**
      * Get the path to the folder where a SCORM is downloaded.
      *
      * @param moduleUrl Module URL (returned by get_course_contents).
@@ -1011,7 +1012,7 @@ export class AddonModScormProvider {
     getScormFileList(scorm: AddonModScormScorm): CoreWSFile[] {
         const files: CoreWSFile[] = [];
 
-        if (!this.isScormUnsupported(scorm) && !scorm.warningMessage) {
+        if (!this.useOnlinePlayer(scorm) && !scorm.warningMessage) {
             files.push({
                 fileurl: this.getPackageUrl(scorm),
                 filepath: '/',
@@ -1040,7 +1041,7 @@ export class AddonModScormProvider {
 
         if (sco.isvisible) {
             if (VALID_STATUSES.indexOf(status) >= 0) {
-                if (sco.scormtype == 'sco') {
+                if (sco.scormtype === 'sco') {
                     imageName = status;
                     descName = status;
                 } else {
@@ -1055,12 +1056,12 @@ export class AddonModScormProvider {
 
                 if (incomplete && sco.exitvalue == 'suspend') {
                     imageName = 'suspend';
-                    suspendedStr = ' - ' + Translate.instant('addon.mod_scorm.suspended');
+                    suspendedStr = ` - ${Translate.instant('addon.mod_scorm.suspended')}`;
                 }
             } else {
                 incomplete = true;
 
-                if (sco.scormtype == 'sco') {
+                if (sco.scormtype === 'sco') {
                     // Status empty or not valid, use 'notattempted'.
                     imageName = 'notattempted';
                 } else {
@@ -1080,7 +1081,7 @@ export class AddonModScormProvider {
 
         return {
             icon: STATUS_TO_ICON[imageName],
-            description: Translate.instant('addon.mod_scorm.' + descName) + suspendedStr,
+            description: Translate.instant(`addon.mod_scorm.${descName}`) + suspendedStr,
         };
     }
 
@@ -1091,7 +1092,7 @@ export class AddonModScormProvider {
      * @returns Cache key.
      */
     protected getScormDataCacheKey(courseId: number): string {
-        return ROOT_CACHE_KEY + 'scorm:' + courseId;
+        return `${AddonModScormProvider.ROOT_CACHE_KEY}scorm:${courseId}`;
     }
 
     /**
@@ -1105,8 +1106,8 @@ export class AddonModScormProvider {
      */
     protected async getScormByField(
         courseId: number,
-        key: string,
-        value: unknown,
+        key: 'coursemodule' | 'id',
+        value: number,
         options: AddonModScormGetScormOptions = {},
     ): Promise<AddonModScormScorm> {
 
@@ -1117,8 +1118,8 @@ export class AddonModScormProvider {
         };
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getScormDataCacheKey(courseId),
-            updateFrequency: CoreSite.FREQUENCY_RARELY,
-            component: AddonModScormProvider.COMPONENT,
+            updateFrequency: CoreCacheUpdateFrequency.RARELY,
+            component: ADDON_MOD_SCORM_COMPONENT_LEGACY,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
 
@@ -1128,28 +1129,24 @@ export class AddonModScormProvider {
             preSets,
         );
 
-        const currentScorm = <AddonModScormScorm> response.scorms.find(scorm => scorm[key] == value);
-        if (!currentScorm) {
-            throw new CoreError(Translate.instant('core.course.modulenotfound'));
-        }
-
+        const scorm: AddonModScormScorm = CoreCourseModuleHelper.getActivityByField(response.scorms, key, value);
         // If the SCORM isn't available the WS returns a warning and it doesn't return timeopen and timeclosed.
-        if (currentScorm.timeopen === undefined) {
-            const warning = response.warnings?.find(warning => warning.itemid === currentScorm.id);
-            currentScorm.warningMessage = warning?.message;
+        if (scorm.timeopen === undefined) {
+            const warning = response.warnings?.find(warning => warning.itemid === scorm.id);
+            scorm.warningMessage = warning?.message;
         }
 
         if (response.options) {
-            const scormOptions = CoreUtils.objectToKeyValueMap(response.options, 'name', 'value');
+            const scormOptions = CoreObject.toKeyValueMap(response.options, 'name', 'value');
 
             if (scormOptions.scormstandard) {
-                currentScorm.scormStandard = Number(scormOptions.scormstandard);
+                scorm.scormStandard = Number(scormOptions.scormstandard);
             }
         }
 
-        currentScorm.moduleurl = options.moduleUrl;
+        scorm.moduleurl = options.moduleUrl;
 
-        return currentScorm;
+        return scorm;
     }
 
     /**
@@ -1185,16 +1182,16 @@ export class AddonModScormProvider {
     getScormGradeMethod(scorm: AddonModScormScorm): string {
         if (scorm.maxattempt == 1) {
             switch (scorm.grademethod) {
-                case AddonModScormProvider.GRADEHIGHEST:
+                case AddonModScormGradingMethod.GRADEHIGHEST:
                     return Translate.instant('addon.mod_scorm.gradehighest');
 
-                case AddonModScormProvider.GRADEAVERAGE:
+                case AddonModScormGradingMethod.GRADEAVERAGE:
                     return Translate.instant('addon.mod_scorm.gradeaverage');
 
-                case AddonModScormProvider.GRADESUM:
+                case AddonModScormGradingMethod.GRADESUM:
                     return Translate.instant('addon.mod_scorm.gradesum');
 
-                case AddonModScormProvider.GRADESCOES:
+                case AddonModScormGradingMethod.GRADESCOES:
                     return Translate.instant('addon.mod_scorm.gradescoes');
                 default:
                     return '';
@@ -1202,16 +1199,16 @@ export class AddonModScormProvider {
         }
 
         switch (scorm.whatgrade) {
-            case AddonModScormProvider.HIGHESTATTEMPT:
+            case AddonModScormAttemptsGradingMethod.HIGHESTATTEMPT:
                 return Translate.instant('addon.mod_scorm.highestattempt');
 
-            case AddonModScormProvider.AVERAGEATTEMPT:
+            case AddonModScormAttemptsGradingMethod.AVERAGEATTEMPT:
                 return Translate.instant('addon.mod_scorm.averageattempt');
 
-            case AddonModScormProvider.FIRSTATTEMPT:
+            case AddonModScormAttemptsGradingMethod.FIRSTATTEMPT:
                 return Translate.instant('addon.mod_scorm.firstattempt');
 
-            case AddonModScormProvider.LASTATTEMPT:
+            case AddonModScormAttemptsGradingMethod.LASTATTEMPT:
                 return Translate.instant('addon.mod_scorm.lastattempt');
             default:
                 return '';
@@ -1223,7 +1220,6 @@ export class AddonModScormProvider {
      *
      * @param scormId SCORM ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateAccessInformation(scormId: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -1237,7 +1233,6 @@ export class AddonModScormProvider {
      * @param scormId SCORM ID.
      * @param siteId Site ID. If not defined, current site.
      * @param userId User ID. If not defined use site's current user.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateAllScormData(scormId: number, siteId?: string, userId?: number): Promise<void> {
         await Promise.all([
@@ -1254,7 +1249,6 @@ export class AddonModScormProvider {
      * @param scormId SCORM ID.
      * @param siteId Site ID. If not defined, current site.
      * @param userId User ID. If not defined use site's current user.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateAttemptCount(scormId: number, siteId?: string, userId?: number): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -1270,7 +1264,6 @@ export class AddonModScormProvider {
      * @param courseId Course ID of the module.
      * @param siteId Site ID. If not defined, current site.
      * @param userId User ID. If not defined use site's current user.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateContent(moduleId: number, courseId: number, siteId?: string, userId?: number): Promise<void> {
         siteId = siteId || CoreSites.getCurrentSiteId();
@@ -1279,7 +1272,7 @@ export class AddonModScormProvider {
 
         await Promise.all([
             this.invalidateAllScormData(scorm.id, siteId, userId),
-            CoreFilepool.invalidateFilesByComponent(siteId, AddonModScormProvider.COMPONENT, moduleId, true),
+            CoreFilepool.invalidateFilesByComponent(siteId, ADDON_MOD_SCORM_COMPONENT_LEGACY, moduleId, true),
         ]);
     }
 
@@ -1288,7 +1281,6 @@ export class AddonModScormProvider {
      *
      * @param courseId Course ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateScormData(courseId: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -1301,7 +1293,6 @@ export class AddonModScormProvider {
      *
      * @param scormId SCORM ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateScormUserData(scormId: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -1314,7 +1305,6 @@ export class AddonModScormProvider {
      *
      * @param scormId SCORM ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateScos(scormId: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -1346,7 +1336,7 @@ export class AddonModScormProvider {
     protected isExternalLink(link: string): boolean {
         link = link.toLowerCase();
 
-        if (link.match(/^https?:\/\//i) && !CoreUrlUtils.isLocalFileUrl(link)) {
+        if (link.match(/^https?:\/\//i) && !CoreUrl.isLocalFileUrl(link)) {
             return true;
         } else if (link.substring(0, 4) == 'www.') {
             return true;
@@ -1362,7 +1352,7 @@ export class AddonModScormProvider {
      * @returns Whether the SCORM is closed.
      */
     isScormClosed(scorm: AddonModScormScorm): boolean {
-        return !!(scorm.timeclose && CoreTimeUtils.timestamp() > scorm.timeclose);
+        return !!(scorm.timeclose && CoreTime.timestamp() > scorm.timeclose);
     }
 
     /**
@@ -1382,23 +1372,7 @@ export class AddonModScormProvider {
      * @returns Whether the SCORM is open.
      */
     isScormOpen(scorm: AddonModScormScorm): boolean {
-        return !!(scorm.timeopen && scorm.timeopen > CoreTimeUtils.timestamp());
-    }
-
-    /**
-     * Check if a SCORM is unsupported in the app. If it's not, returns the error code to show.
-     *
-     * @param scorm SCORM to check.
-     * @returns String with error code if unsupported, undefined if supported.
-     */
-    isScormUnsupported(scorm: AddonModScormScorm): string | undefined {
-        if (!this.isScormValidVersion(scorm)) {
-            return 'addon.mod_scorm.errorinvalidversion';
-        } else if (!this.isScormDownloadable(scorm)) {
-            return 'addon.mod_scorm.errornotdownloadable';
-        } else if (!this.isValidPackageUrl(this.getPackageUrl(scorm))) {
-            return 'addon.mod_scorm.errorpackagefile';
-        }
+        return !!(scorm.timeopen && scorm.timeopen > CoreTime.timestamp());
     }
 
     /**
@@ -1455,7 +1429,7 @@ export class AddonModScormProvider {
         return CoreCourseLogHelper.log(
             'mod_scorm_launch_sco',
             params,
-            AddonModScormProvider.COMPONENT,
+            ADDON_MOD_SCORM_COMPONENT_LEGACY,
             scormId,
             siteId,
         );
@@ -1476,7 +1450,7 @@ export class AddonModScormProvider {
         return CoreCourseLogHelper.log(
             'mod_scorm_view_scorm',
             params,
-            AddonModScormProvider.COMPONENT,
+            ADDON_MOD_SCORM_COMPONENT_LEGACY,
             id,
             siteId,
         );
@@ -1518,7 +1492,7 @@ export class AddonModScormProvider {
         // Tracks have been saved, update cached user data.
         this.updateUserDataAfterSave(scorm.id, attempt, tracks, { cmId: scorm.coursemodule, siteId });
 
-        CoreEvents.trigger(AddonModScormProvider.DATA_SENT_EVENT, {
+        CoreEvents.trigger(ADDON_MOD_SCORM_DATA_SENT_EVENT, {
             scormId: scorm.id,
             scoId: scoId,
             attempt: attempt,
@@ -1554,14 +1528,14 @@ export class AddonModScormProvider {
             tracks: tracks,
         };
 
-        CoreSync.blockOperation(AddonModScormProvider.COMPONENT, scormId, 'saveTracksOnline', site.id);
+        CoreSync.blockOperation(ADDON_MOD_SCORM_COMPONENT, scormId, 'saveTracksOnline', site.id);
 
         try {
             const response = await site.write<AddonModScormInsertScormTracksWSResponse>('mod_scorm_insert_scorm_tracks', params);
 
             return response.trackids;
         } finally {
-            CoreSync.unblockOperation(AddonModScormProvider.COMPONENT, scormId, 'saveTracksOnline', site.id);
+            CoreSync.unblockOperation(ADDON_MOD_SCORM_COMPONENT, scormId, 'saveTracksOnline', site.id);
         }
     }
 
@@ -1596,7 +1570,7 @@ export class AddonModScormProvider {
                 // Tracks have been saved, update cached user data.
                 this.updateUserDataAfterSave(scorm.id, attempt, tracks, { cmId: scorm.coursemodule });
 
-                CoreEvents.trigger(AddonModScormProvider.DATA_SENT_EVENT, {
+                CoreEvents.trigger(ADDON_MOD_SCORM_DATA_SENT_EVENT, {
                     scormId: scorm.id,
                     scoId: scoId,
                     attempt: attempt,
@@ -1658,26 +1632,26 @@ export class AddonModScormProvider {
     async shouldDownloadMainFile(scorm: AddonModScormScorm, isOutdated?: boolean, siteId?: string): Promise<boolean> {
         siteId = siteId || CoreSites.getCurrentSiteId();
 
-        const component = AddonModScormProvider.COMPONENT;
+        const component = ADDON_MOD_SCORM_COMPONENT_LEGACY;
 
         if (isOutdated === undefined) {
             // Calculate if it's outdated.
-            const data = await CoreUtils.ignoreErrors(CoreFilepool.getPackageData(siteId, component, scorm.coursemodule));
+            const data = await CorePromiseUtils.ignoreErrors(CoreFilepool.getPackageData(siteId, component, scorm.coursemodule));
 
             if (!data) {
                 // Package not found, not downloaded.
                 return false;
             }
 
-            const isOutdated = data.status == CoreConstants.OUTDATED ||
-                    (data.status == CoreConstants.DOWNLOADING && data.previous == CoreConstants.OUTDATED);
+            const isOutdated = data.status === DownloadStatus.OUTDATED ||
+                    (data.status === DownloadStatus.DOWNLOADING && data.previous === DownloadStatus.OUTDATED);
 
             // Package needs to be downloaded if it's not outdated (not downloaded) or if the hash has changed.
             return !isOutdated || data.extra != scorm.sha1hash;
 
         } else if (isOutdated) {
             // The package is outdated, but maybe the file hasn't changed.
-            const extra = await CoreUtils.ignoreErrors(CoreFilepool.getPackageExtra(siteId, component, scorm.coursemodule));
+            const extra = await CorePromiseUtils.ignoreErrors(CoreFilepool.getPackageExtra(siteId, component, scorm.coursemodule));
 
             if (!extra) {
                 // Package not found, not downloaded.
@@ -1722,6 +1696,17 @@ export class AddonModScormProvider {
             readingStrategy: CoreSitesReadingStrategy.ONLY_NETWORK,
             siteId: options.siteId,
         });
+    }
+
+    /**
+     * Check if a SCORM should use an online player.
+     *
+     * @param scorm SCORM to check.
+     * @returns True if it should use an online player.
+     */
+    useOnlinePlayer(scorm: AddonModScormScorm): boolean {
+        return !this.isScormValidVersion(scorm) || !this.isScormDownloadable(scorm) ||
+            !this.isValidPackageUrl(this.getPackageUrl(scorm));
     }
 
 }
@@ -1904,20 +1889,13 @@ export type AddonModScormOptions = {
 /**
  * Scorm data returned by mod_scorm_get_scorms_by_courses WS.
  */
-export type AddonModScormScormWSData = {
-    id: number; // SCORM id.
-    coursemodule: number; // Course module id.
-    course: number; // Course id.
-    name: string; // SCORM name.
-    intro: string; // The SCORM intro.
-    introformat: number; // Intro format (1 = HTML, 0 = MOODLE, 2 = PLAIN or 4 = MARKDOWN).
-    introfiles?: CoreWSExternalFile[];
+export type AddonModScormScormWSData = CoreCourseModuleStandardElements & {
     packagesize?: number; // SCORM zip package size.
     packageurl?: string; // SCORM zip package URL.
     version?: string; // SCORM version (SCORM_12, SCORM_13, SCORM_AICC).
     maxgrade?: number; // Max grade.
-    grademethod?: number; // Grade method.
-    whatgrade?: number; // What grade.
+    grademethod?: AddonModScormGradingMethod; // Grade method.
+    whatgrade?: AddonModScormAttemptsGradingMethod; // What grade.
     maxattempt?: number; // Maximum number of attemtps.
     forcecompleted?: boolean; // Status current attempt is forced to "completed".
     forcenewattempt?: number; // Controls re-entry behaviour.
@@ -1951,10 +1929,6 @@ export type AddonModScormScormWSData = {
     completionstatusallscos?: number; // Require all scos to return completion status.
     autocommit?: boolean; // Save track data automatically?.
     timemodified?: number; // Time of last modification.
-    section?: number; // Course section id.
-    visible?: boolean; // Visible.
-    groupmode?: number; // Group mode.
-    groupingid?: number; // Group id.
 };
 
 /**
@@ -2092,6 +2066,16 @@ export type AddonModScormScoIcon = {
     description: string;
 };
 
+/**
+ * Options to pass to getScoSrcForOnlinePlayer.
+ */
+export type AddonModScormGetScoSrcForOnlinePlayerOptions = {
+    siteId?: string;
+    mode?: string; // Navigation mode.
+    organization?: string; // Organization ID.
+    newAttempt?: boolean; // Whether to start a new attempt.
+};
+
 declare module '@singletons/events' {
 
     /**
@@ -2100,12 +2084,11 @@ declare module '@singletons/events' {
      * @see https://www.typescriptlang.org/docs/handbook/declaration-merging.html#module-augmentation
      */
     export interface CoreEventsData {
-        [AddonModScormProvider.LAUNCH_NEXT_SCO_EVENT]: AddonModScormCommonEventData;
-        [AddonModScormProvider.LAUNCH_PREV_SCO_EVENT]: AddonModScormCommonEventData;
-        [AddonModScormProvider.UPDATE_TOC_EVENT]: AddonModScormCommonEventData;
-        [AddonModScormProvider.GO_OFFLINE_EVENT]: AddonModScormCommonEventData;
-        [AddonModScormProvider.DATA_SENT_EVENT]: AddonModScormCommonEventData;
-        [AddonModScormSyncProvider.AUTO_SYNCED]: AddonModScormAutoSyncEventData;
+        [ADDON_MOD_SCORM_LAUNCH_NEXT_SCO_EVENT]: AddonModScormCommonEventData;
+        [ADDON_MOD_SCORM_LAUNCH_PREV_SCO_EVENT]: AddonModScormCommonEventData;
+        [ADDON_MOD_SCORM_UPDATE_TOC_EVENT]: AddonModScormCommonEventData;
+        [ADDON_MOD_SCORM_GO_OFFLINE_EVENT]: AddonModScormCommonEventData;
+        [ADDON_MOD_SCORM_DATA_SENT_EVENT]: AddonModScormCommonEventData;
     }
 
 }

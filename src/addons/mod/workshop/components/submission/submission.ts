@@ -18,9 +18,7 @@ import { CoreCourseModuleData } from '@features/course/services/course-helper';
 import { CoreUser, CoreUserProfile } from '@features/user/services/user';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSites } from '@services/sites';
-import { AddonModWorkshopSubmissionPage } from '../../pages/submission/submission';
 import {
-    AddonModWorkshopPhase,
     AddonModWorkshopData,
     AddonModWorkshopGetWorkshopAccessInformationWSResponse,
 } from '../../services/workshop';
@@ -30,7 +28,9 @@ import {
     AddonModWorkshopSubmissionDataWithOfflineData,
 } from '../../services/workshop-helper';
 import { AddonModWorkshopOffline } from '../../services/workshop-offline';
-import { ADDON_MOD_WORKSHOP_COMPONENT, ADDON_MOD_WORKSHOP_PAGE_NAME } from '@addons/mod/workshop/constants';
+import { ADDON_MOD_WORKSHOP_COMPONENT, ADDON_MOD_WORKSHOP_PAGE_NAME, AddonModWorkshopPhase } from '@addons/mod/workshop/constants';
+import { toBoolean } from '@/core/transforms/boolean';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component that displays workshop submission.
@@ -38,24 +38,28 @@ import { ADDON_MOD_WORKSHOP_COMPONENT, ADDON_MOD_WORKSHOP_PAGE_NAME } from '@add
 @Component({
     selector: 'addon-mod-workshop-submission',
     templateUrl: 'addon-mod-workshop-submission.html',
-    styleUrls: ['submission.scss'],
+    styleUrl: 'submission.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class AddonModWorkshopSubmissionComponent implements OnInit {
 
-    @Input() submission!: AddonModWorkshopSubmissionDataWithOfflineData;
-    @Input() module!: CoreCourseModuleData;
-    @Input() workshop!: AddonModWorkshopData;
-    @Input() access!: AddonModWorkshopGetWorkshopAccessInformationWSResponse;
-    @Input() courseId!: number;
+    @Input({ required: true }) submission!: AddonModWorkshopSubmissionDataWithOfflineData;
+    @Input({ required: true }) module!: CoreCourseModuleData;
+    @Input({ required: true }) workshop!: AddonModWorkshopData;
+    @Input({ required: true }) access!: AddonModWorkshopGetWorkshopAccessInformationWSResponse;
+    @Input({ required: true }) courseId!: number;
     @Input() assessment?: AddonModWorkshopSubmissionAssessmentWithFormData;
-    @Input() summary = false;
+    @Input({ transform: toBoolean }) summary = false;
+    @Input({ transform: toBoolean }) viewDetails = false;
 
     component = ADDON_MOD_WORKSHOP_COMPONENT;
     componentId?: number;
     userId: number;
     loaded = false;
     offline = false;
-    viewDetails = false;
     profile?: CoreUserProfile;
     showGrade: (grade?: number|string) => boolean;
     evaluateByProfile?: CoreUserProfile;
@@ -96,8 +100,7 @@ export class AddonModWorkshopSubmissionComponent implements OnInit {
             }));
         }
 
-        this.viewDetails = !this.summary && this.workshop.phase == AddonModWorkshopPhase.PHASE_CLOSED &&
-            CoreNavigator.getCurrentRoute().component != AddonModWorkshopSubmissionPage;
+        this.viewDetails = this.viewDetails && this.workshop.phase === AddonModWorkshopPhase.PHASE_CLOSED;
 
         if (this.viewDetails && this.submission.gradeoverby) {
             promises.push(CoreUser.getProfile(this.submission.gradeoverby, this.courseId, true).then((profile) => {

@@ -5,11 +5,12 @@
         </ion-buttons>
         <ion-title>
             <h1>
-                <img *ngIf="loaded && !otherMember && conversationImage" class="core-bar-button-image" [src]="conversationImage" alt=""
+                <img *ngIf="loaded && !otherMember && conversationImage" class="core-bar-button-image" [url]="conversationImage" alt=""
                     onError="this.src='assets/img/group-avatar.svg'" core-external-content role="presentation" [siteId]="siteId">
                 <core-user-avatar *ngIf="loaded && otherMember" class="core-bar-button-image" [user]="otherMember" [linkProfile]="false"
                     [checkOnline]="otherMember.showonlinestatus" />
-                <core-format-text [text]="title" contextLevel="system" [contextInstanceId]="0" />
+                <!-- WS didn't filter the conversation name, see MDL-81815. -->
+                <core-format-text [text]="title" contextLevel="system" [contextInstanceId]="0" [wsNotFiltered]="true" />
                 <ion-icon *ngIf="conversation && conversation.isfavourite" name="fas-star"
                     [attr.aria-label]="'core.favourites' | translate" />
                 <ion-icon *ngIf="conversation && conversation.ismuted" name="fas-bell-slash"
@@ -24,16 +25,26 @@
                 [content]="'addon.messages.info' | translate" (action)="viewInfo()" iconAction="fas-circle-info" />
             <core-context-menu-item [hidden]="isSelf || !showInfo || !isGroup" [priority]="1000"
                 [content]="'addon.messages.groupinfo' | translate" (action)="viewInfo()" iconAction="fas-circle-info" />
-            <core-context-menu-item [hidden]="!groupMessagingEnabled || !conversation" [priority]="800" (action)="changeFavourite($event)"
-                [closeOnClick]="false" [content]="(conversation && conversation.isfavourite ? 'addon.messages.removefromfavourites' :
-                'addon.messages.addtofavourites') | translate" [iconAction]="favouriteIcon" [iconSlash]="favouriteIconSlash" />
+
+            <core-context-menu-item [hidden]="!groupMessagingEnabled || !conversation || conversation.isfavourite" [priority]="800"
+                (action)="changeFavourite($event)" [closeOnClick]="false" [content]="'addon.messages.addtofavourites' | translate"
+                [iconAction]="favouriteIcon" />
+            <core-context-menu-item [hidden]="!groupMessagingEnabled || !conversation || !conversation.isfavourite" [priority]="800"
+                (action)="changeFavourite($event)" [closeOnClick]="false" [content]="'addon.messages.removefromfavourites' | translate"
+                [iconAction]="favouriteIcon" [iconSlash]="true" />
+
             <core-context-menu-item [hidden]="isSelf || !otherMember || otherMember.isblocked" [priority]="700"
                 [content]="'addon.messages.blockuser' | translate" (action)="blockUser()" [iconAction]="blockIcon" />
             <core-context-menu-item [hidden]="isSelf || !otherMember || !otherMember.isblocked" [priority]="700"
                 [content]="'addon.messages.unblockuser' | translate" (action)="unblockUser()" [iconAction]="blockIcon" />
-            <core-context-menu-item [hidden]="isSelf || !muteEnabled || !conversation" [priority]="600" (action)="changeMute($event)"
-                [closeOnClick]="false" [content]="(conversation && conversation.ismuted ? 'addon.messages.unmuteconversation' :
-                'addon.messages.muteconversation') | translate" [iconAction]="muteIcon" />
+
+            <core-context-menu-item [hidden]="isSelf || !muteEnabled || !conversation || conversation.ismuted" [priority]="600"
+                (action)="changeMute($event)" [closeOnClick]="false" [content]="'addon.messages.muteconversation' | translate"
+                [iconAction]="muteIcon" />
+            <core-context-menu-item [hidden]="isSelf || !muteEnabled || !conversation || !conversation.ismuted" [priority]="600"
+                (action)="changeMute($event)" [closeOnClick]="false" [content]="'addon.messages.unmuteconversation' | translate"
+                [iconAction]="muteIcon" />
+
             <core-context-menu-item [hidden]="!canDelete || !messages || !messages.length" [priority]="400"
                 [content]="'addon.messages.showdeletemessages' | translate" iconAction="toggle" [(toggle)]="showDelete" />
             <core-context-menu-item [hidden]="!groupMessagingEnabled || !conversationId || isGroup || !messages || !messages.length"
@@ -49,7 +60,7 @@
     </core-navbar-buttons>
 </ion-header>
 <ion-content (ionScroll)="scrollFunction()">
-    <core-loading [hideUntil]="loaded">
+    <core-loading [hideUntil]="loaded" placeholderType="column" placeholderHeight="36px">
         <!-- Load previous messages. -->
         <core-infinite-loading [enabled]="canLoadMore" (action)="loadPrevious($event)" position="top" [error]="loadMoreError" />
 
@@ -66,7 +77,7 @@
                     {{ message.timecreated | coreFormatDate: "strftimedayshort" }}
                 </h3>
 
-                <ion-chip class="addon-messages-unreadfrom" *ngIf="unreadMessageFrom > 0 && message.id === unreadMessageFrom" color="light">
+                <ion-chip class="addon-messages-unreadfrom" *ngIf="unreadMessageFrom > 0 && message.id === unreadMessageFrom">
                     <ion-label>{{ 'addon.messages.newmessages' | translate }}</ion-label>
                     <ion-icon name="fas-arrow-down" aria-hidden="true" />
                 </ion-chip>

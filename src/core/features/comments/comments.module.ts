@@ -17,29 +17,36 @@ import { Routes } from '@angular/router';
 import { CoreMainMenuTabRoutingModule } from '@features/mainmenu/mainmenu-tab-routing.module';
 import { CoreCronDelegate } from '@services/cron';
 import { CORE_SITE_SCHEMAS } from '@services/sites';
-import { CoreCommentsComponentsModule } from './components/components.module';
-import { CoreComments, CoreCommentsProvider } from './services/comments';
-import { CoreCommentsOfflineProvider } from './services/comments-offline';
-import { CoreCommentsSyncProvider } from './services/comments-sync';
+import { CoreComments } from './services/comments';
 import { COMMENTS_OFFLINE_SITE_SCHEMA } from './services/database/comments';
 import { CoreCommentsSyncCronHandler } from './services/handlers/sync-cron';
 
-export const CORE_COMMENTS_SERVICES: Type<unknown>[] = [
-    CoreCommentsOfflineProvider,
-    CoreCommentsSyncProvider,
-    CoreCommentsProvider,
-];
+/**
+ * Get comments services.
+ *
+ * @returns Comments services.
+ */
+export async function getCommentsServices(): Promise<Type<unknown>[]> {
+    const { CoreCommentsOfflineProvider } = await import('@features/comments/services/comments-offline');
+    const { CoreCommentsSyncProvider } = await import('@features/comments/services/comments-sync');
+    const { CoreCommentsProvider } = await import('@features/comments/services/comments');
+
+    return [
+        CoreCommentsOfflineProvider,
+        CoreCommentsSyncProvider,
+        CoreCommentsProvider,
+    ];
+}
 
 const routes: Routes = [
     {
-        path: 'comments',
-        loadChildren: () => import('@features/comments/comments-lazy.module').then(m => m.CoreCommentsLazyModule),
+        path: 'comments/:contextLevel/:instanceId/:componentName/:itemId',
+        loadComponent: () => import('@features/comments/pages/viewer/viewer'),
     },
 ];
 
 @NgModule({
     imports: [
-        CoreCommentsComponentsModule,
         CoreMainMenuTabRoutingModule.forChild(routes),
     ],
     providers: [

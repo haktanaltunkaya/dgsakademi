@@ -16,6 +16,8 @@ import { Component, OnInit, ViewChild } from '@angular/core';
 import { CoreCourseModuleMainActivityPage } from '@features/course/classes/main-activity-page';
 import { CoreNavigator } from '@services/navigator';
 import { AddonModFeedbackIndexComponent } from '../../components/index/index';
+import { AddonModFeedbackIndexTabName } from '../../constants';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays a feedback.
@@ -23,12 +25,18 @@ import { AddonModFeedbackIndexComponent } from '../../components/index/index';
 @Component({
     selector: 'page-addon-mod-feedback-index',
     templateUrl: 'index.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        AddonModFeedbackIndexComponent,
+    ],
 })
-export class AddonModFeedbackIndexPage extends CoreCourseModuleMainActivityPage<AddonModFeedbackIndexComponent> implements OnInit {
+export default class AddonModFeedbackIndexPage extends CoreCourseModuleMainActivityPage<AddonModFeedbackIndexComponent>
+    implements OnInit {
 
     @ViewChild(AddonModFeedbackIndexComponent) activityComponent?: AddonModFeedbackIndexComponent;
 
-    selectedTab?: string;
+    selectedTab?: AddonModFeedbackIndexTabName;
     selectedGroup?: number;
 
     /**

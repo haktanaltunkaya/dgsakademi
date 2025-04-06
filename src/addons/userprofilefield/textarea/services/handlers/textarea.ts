@@ -15,8 +15,7 @@
 import { Injectable, Type } from '@angular/core';
 
 import { CoreUserProfileFieldHandler, CoreUserProfileFieldHandlerData } from '@features/user/services/user-profile-field-delegate';
-import { AddonUserProfileFieldTextareaComponent } from '../../component/textarea';
-import { CoreTextUtils } from '@services/utils/text';
+import { CoreText, DEFAULT_TEXT_FORMAT } from '@singletons/text';
 import { AuthEmailSignupProfileField } from '@features/login/services/login-helper';
 import { CoreUserProfileField } from '@features/user/services/user';
 import { makeSingleton } from '@singletons';
@@ -55,31 +54,30 @@ export class AddonUserProfileFieldTextareaHandlerService implements CoreUserProf
         registerAuth: string,
         formValues: CoreFormFields,
     ): Promise<CoreUserProfileFieldHandlerData | undefined> {
-        const name = 'profile_field_' + field.shortname;
+        const name = `profile_field_${field.shortname}`;
 
         if (formValues[name]) {
             let text = <string> formValues[name] || '';
             // Add some HTML to the message in case the user edited with textarea.
-            text = CoreTextUtils.formatHtmlLines(text);
+            text = CoreText.formatHtmlLines(text);
 
             return {
                 type: 'textarea',
                 name: name,
                 value: JSON.stringify({
                     text: text,
-                    format: 1, // Always send this format.
+                    format: DEFAULT_TEXT_FORMAT, // Always send this format.
                 }),
             };
         }
     }
 
     /**
-     * Return the Component to use to display the user profile field.
-     * It's recommended to return the class of the component, but you can also return an instance of the component.
-     *
-     * @returns The component (or promise resolved with component) to use, undefined if not found.
+     * @inheritdoc
      */
-    getComponent(): Type<unknown> | Promise<Type<unknown>> {
+    async getComponent(): Promise<Type<unknown>> {
+        const { AddonUserProfileFieldTextareaComponent } = await import('../../component/textarea');
+
         return AddonUserProfileFieldTextareaComponent;
     }
 

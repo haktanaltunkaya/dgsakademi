@@ -5,7 +5,7 @@
     background: var(--background);
 
     ion-card {
-        --border-radius: var(--radius-sm);
+        --border-radius: var(--mdl-shape-borderRadius-sm);
     }
 
     ::ng-deep ion-item-divider {
@@ -13,6 +13,6 @@
     }
 
     ::ng-deep core-loading {
-        --loading-inline-min-height: 44px;
+        --loading-inline-min-height: 60px;
     }
 }

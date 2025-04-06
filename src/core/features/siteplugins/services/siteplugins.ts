@@ -14,16 +14,15 @@
 
 import { Injectable } from '@angular/core';
 
-import { CoreConstants } from '@/core/constants';
+import { CoreCacheUpdateFrequency, CoreConstants } from '@/core/constants';
 import { CoreSite } from '@classes/sites/site';
 import { CoreCourseAnyModuleData } from '@features/course/services/course';
 import { CoreCourses } from '@features/courses/services/courses';
-import { CoreApp } from '@services/app';
 import { CoreFilepool } from '@services/filepool';
 import { CoreLang, CoreLangFormat } from '@services/lang';
 import { CoreSites } from '@services/sites';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreText } from '@singletons/text';
+import { CoreUtils } from '@singletons/utils';
 import { CoreWSExternalFile, CoreWSExternalWarning } from '@services/ws';
 import { makeSingleton } from '@singletons';
 import { CoreEvents } from '@singletons/events';
@@ -33,8 +32,9 @@ import { CorePromisedValue } from '@classes/promised-value';
 import { CorePlatform } from '@services/platform';
 import { CoreEnrolAction, CoreEnrolInfoIcon } from '@features/enrol/services/enrol-delegate';
 import { CoreSiteWSPreSets } from '@classes/sites/authenticated-site';
-
-const ROOT_CACHE_KEY = 'CoreSitePlugins:';
+import { CoreUserProfileHandlerType } from '@features/user/services/user-delegate';
+import { CORE_SITE_PLUGINS_COMPONENT, CORE_SITE_PLUGINS_UPDATE_COURSE_CONTENT } from '../constants';
+import { CoreObject } from '@singletons/object';
 
 /**
  * Service to provide functionalities regarding site plugins.
@@ -42,8 +42,15 @@ const ROOT_CACHE_KEY = 'CoreSitePlugins:';
 @Injectable({ providedIn: 'root' })
 export class CoreSitePluginsProvider {
 
-    static readonly COMPONENT = 'CoreSitePlugins';
-    static readonly UPDATE_COURSE_CONTENT = 'siteplugins_update_course_content';
+    protected static readonly ROOT_CACHE_KEY = 'CoreSitePlugins:';
+    /**
+     * @deprecated since 4.5.0. Use CORE_SITE_PLUGINS_COMPONENT instead.
+     */
+    static readonly COMPONENT = CORE_SITE_PLUGINS_COMPONENT;
+    /**
+     * @deprecated since 4.5.0. Use CORE_SITE_PLUGINS_UPDATE_COURSE_CONTENT instead.
+     */
+    static readonly UPDATE_COURSE_CONTENT = CORE_SITE_PLUGINS_UPDATE_COURSE_CONTENT;
 
     protected logger: CoreLogger;
     protected sitePlugins: {[name: string]: CoreSitePluginsHandler} = {}; // Site plugins registered.
@@ -94,7 +101,7 @@ export class CoreSitePluginsProvider {
             appcustomurlscheme: CoreConstants.CONFIG.customurlscheme,
             appisdesktop: false,
             appismobile: CorePlatform.isMobile(),
-            appiswide: CoreApp.isWide(),
+            appiswide: CorePlatform.isWide(),
             appplatform: 'browser',
         };
 
@@ -150,13 +157,13 @@ export class CoreSitePluginsProvider {
             data = Object.assign(data, initResult.jsResult || {});
 
             // Now add some data returned by the init WS call.
-            data.INIT_TEMPLATES = CoreUtils.objectToKeyValueMap(initResult.templates, 'id', 'html');
+            data.INIT_TEMPLATES = CoreObject.toKeyValueMap(initResult.templates, 'id', 'html');
             data.INIT_OTHERDATA = initResult.otherdata;
         }
 
         if (contentResult) {
             // Now add the data returned by the content WS call.
-            data.CONTENT_TEMPLATES = CoreUtils.objectToKeyValueMap(contentResult.templates, 'id', 'html');
+            data.CONTENT_TEMPLATES = CoreObject.toKeyValueMap(contentResult.templates, 'id', 'html');
             data.CONTENT_OTHERDATA = contentResult.otherdata;
         }
 
@@ -171,7 +178,7 @@ export class CoreSitePluginsProvider {
      * @returns Cache key.
      */
     getCallWSCacheKey(method: string, data: Record<string, unknown>): string {
-        return this.getCallWSCommonCacheKey(method) + ':' + CoreUtils.sortAndStringify(data);
+        return `${this.getCallWSCommonCacheKey(method)}:${CoreObject.sortAndStringify(data)}`;
     }
 
     /**
@@ -181,7 +188,7 @@ export class CoreSitePluginsProvider {
      * @returns Cache key.
      */
     protected getCallWSCommonCacheKey(method: string): string {
-        return ROOT_CACHE_KEY + 'ws:' + method;
+        return `${CoreSitePluginsProvider.ROOT_CACHE_KEY}ws:${method}`;
     }
 
     /**
@@ -211,27 +218,27 @@ export class CoreSitePluginsProvider {
 
         // Now call the WS.
         const data: CoreSitePluginsGetContentWSParams = {
-            component: component,
-            method: method,
-            args: CoreUtils.objectToArrayOfObjects(argsToSend, 'name', 'value', true),
+            component,
+            method,
+            args: CoreObject.toArrayOfObjects(argsToSend, 'name', 'value', true),
         };
 
         preSets = preSets || {};
         preSets.cacheKey = this.getContentCacheKey(component, method, args);
-        preSets.updateFrequency = preSets.updateFrequency ?? CoreSite.FREQUENCY_OFTEN;
+        preSets.updateFrequency = preSets.updateFrequency ?? CoreCacheUpdateFrequency.OFTEN;
 
         const result = await site.read<CoreSitePluginsGetContentWSResponse>('tool_mobile_get_content', data, preSets);
 
         let otherData: Record<string, unknown> = {};
         if (result.otherdata) {
-            otherData = <Record<string, unknown>> CoreUtils.objectToKeyValueMap(result.otherdata, 'name', 'value');
+            otherData = <Record<string, unknown>> CoreObject.toKeyValueMap(result.otherdata, 'name', 'value');
 
             // Try to parse all properties that could be JSON encoded strings.
             for (const name in otherData) {
                 const value = otherData[name];
 
                 if (typeof value == 'string' && (value[0] == '{' || value[0] == '[')) {
-                    otherData[name] = CoreTextUtils.parseJSON(value);
+                    otherData[name] = CoreText.parseJSON(value);
                 }
             }
         }
@@ -248,7 +255,7 @@ export class CoreSitePluginsProvider {
      * @returns Cache key.
      */
     protected getContentCacheKey(component: string, method: string, args: Record<string, unknown>): string {
-        return ROOT_CACHE_KEY + 'content:' + component + ':' + method + ':' + CoreUtils.sortAndStringify(args);
+        return `${CoreSitePluginsProvider.ROOT_CACHE_KEY}content:${component}:${method}:${CoreObject.sortAndStringify(args)}`;
     }
 
     /**
@@ -271,7 +278,7 @@ export class CoreSitePluginsProvider {
                 // The WS needs the list of course IDs. Create the list.
                 return [courseId || 0];
 
-            case component + 'id':
+            case `${component}id`:
                 // The WS needs the instance id.
                 return module && module.instance;
 
@@ -288,7 +295,7 @@ export class CoreSitePluginsProvider {
      * @returns Unique name.
      */
     getHandlerUniqueName(plugin: CoreSitePluginsPlugin, handlerName: string): string {
-        return plugin.addon + '_' + handlerName;
+        return `${plugin.addon}_${handlerName}`;
     }
 
     /**
@@ -320,7 +327,7 @@ export class CoreSitePluginsProvider {
      * @returns Cache key.
      */
     protected getPluginsCacheKey(): string {
-        return ROOT_CACHE_KEY + 'plugins';
+        return `${CoreSitePluginsProvider.ROOT_CACHE_KEY}plugins`;
     }
 
     /**
@@ -339,7 +346,7 @@ export class CoreSitePluginsProvider {
      * @returns Plugin list ws info.
      */
     getCurrentSitePluginList(): CoreSitePluginsWSPlugin[] {
-        return CoreUtils.objectToArray(this.sitePlugins).map((plugin) => plugin.plugin);
+        return CoreObject.toArray(this.sitePlugins).map((plugin) => plugin.plugin);
     }
 
     /**
@@ -347,7 +354,6 @@ export class CoreSitePluginsProvider {
      *
      * @param method WS method to use.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateAllCallWSForMethod(method: string, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -362,7 +368,6 @@ export class CoreSitePluginsProvider {
      * @param data Data to send to the WS.
      * @param preSets Extra options.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateCallWS(
         method: string,
@@ -384,7 +389,6 @@ export class CoreSitePluginsProvider {
      * @param callback Method to execute in the class.
      * @param args The params for the method.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateContent(component: string, callback: string, args?: Record<string, unknown>, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -452,13 +456,13 @@ export class CoreSitePluginsProvider {
      * @returns Whether it's a site plugin and it's enabled.
      */
     isSitePluginEnabled(plugin: CoreSitePluginsPlugin, site: CoreSite): boolean {
-        if (site.isFeatureDisabled('sitePlugin_' + plugin.component + '_' + plugin.addon) || !plugin.handlers) {
+        if (site.isFeatureDisabled(`sitePlugin_${plugin.component}_${plugin.addon}`) || !plugin.handlers) {
             return false;
         }
 
         // Site plugin not disabled. Check if it has handlers.
         if (!plugin.parsedHandlers) {
-            plugin.parsedHandlers = CoreTextUtils.parseJSON(
+            plugin.parsedHandlers = CoreText.parseJSON(
                 plugin.handlers,
                 null,
                 error => this.logger.error('Error parsing site plugin handlers', error),
@@ -500,7 +504,7 @@ export class CoreSitePluginsProvider {
             for (const i in useOtherData) {
                 const name = useOtherData[i];
 
-                if (typeof otherData[name] == 'object' && otherData[name] !== null) {
+                if (typeof otherData[name] === 'object' && otherData[name] !== null) {
                     // Stringify objects.
                     args[name] = JSON.stringify(otherData[name]);
                 } else {
@@ -510,7 +514,7 @@ export class CoreSitePluginsProvider {
         } else {
             // Add all the data to args.
             for (const name in otherData) {
-                if (typeof otherData[name] == 'object' && otherData[name] !== null) {
+                if (typeof otherData[name] === 'object' && otherData[name] !== null) {
                     // Stringify objects.
                     args[name] = JSON.stringify(otherData[name]);
                 } else {
@@ -907,7 +911,7 @@ export type CoreSitePluginsUserHandlerData = CoreSitePluginsHandlerCommonData & 
         icon?: string;
         class?: string;
     };
-    type?: string;
+    type?: CoreUserProfileHandlerType;
     priority?: number;
     ptrenabled?: boolean;
 };
@@ -994,7 +998,7 @@ declare module '@singletons/events' {
      * @see https://www.typescriptlang.org/docs/handbook/declaration-merging.html#module-augmentation
      */
     export interface CoreEventsData {
-        [CoreSitePluginsProvider.UPDATE_COURSE_CONTENT]: CoreSitePluginsUpdateCourseContentEvent;
+        [CORE_SITE_PLUGINS_UPDATE_COURSE_CONTENT]: CoreSitePluginsUpdateCourseContentEvent;
     }
 
 }

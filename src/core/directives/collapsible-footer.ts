@@ -15,7 +15,7 @@
 import { Directive, ElementRef, Input, OnDestroy, OnInit } from '@angular/core';
 import { ScrollDetail } from '@ionic/core';
 import { IonContent } from '@ionic/angular';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreUtils } from '@singletons/utils';
 import { CoreMath } from '@singletons/math';
 import { CoreDirectivesRegistry } from '@singletons/directives-registry';
 import { CoreFormatTextDirective } from './format-text';
@@ -23,6 +23,8 @@ import { CoreEventObserver } from '@singletons/events';
 import { CoreLoadingComponent } from '@components/loading/loading';
 import { CoreCancellablePromise } from '@classes/cancellable-promise';
 import { CoreDom } from '@singletons/dom';
+import { CoreWait } from '@singletons/wait';
+import { toBoolean } from '../transforms/boolean';
 
 /**
  * Directive to make an element fixed at the bottom collapsible when scrolling.
@@ -33,10 +35,11 @@ import { CoreDom } from '@singletons/dom';
  */
 @Directive({
     selector: '[collapsible-footer]',
+    standalone: true,
 })
 export class CoreCollapsibleFooterDirective implements OnInit, OnDestroy {
 
-    @Input() appearOnBottom = false;
+    @Input({ transform: toBoolean }) appearOnBottom = false; // Whether footer should re-appear when reaching the bottom.
 
     protected id = '0';
     protected element: HTMLElement;
@@ -56,6 +59,7 @@ export class CoreCollapsibleFooterDirective implements OnInit, OnDestroy {
     protected pageDidEnterListener?: EventListener;
     protected keyUpListener?: EventListener;
     protected page?: HTMLElement;
+    protected moduleNav: HTMLElement | null = null;
 
     constructor(el: ElementRef, protected ionContent: IonContent) {
         this.element = el.nativeElement;
@@ -66,9 +70,6 @@ export class CoreCollapsibleFooterDirective implements OnInit, OnDestroy {
      */
     async ngOnInit(): Promise<void> {
         this.id = String(CoreUtils.getUniqueId('CoreCollapsibleFooterDirective'));
-
-        // Only if not present or explicitly falsy it will be false.
-        this.appearOnBottom = !CoreUtils.isFalseOrZero(this.appearOnBottom);
         this.slotPromise = CoreDom.slotOnContent(this.element);
 
         await this.slotPromise;
@@ -101,19 +102,20 @@ export class CoreCollapsibleFooterDirective implements OnInit, OnDestroy {
         await this.viewportPromise;
 
         this.element.classList.remove('is-active');
-        await CoreUtils.nextTick();
+        await CoreWait.nextTick();
 
         // Set a minimum height value.
         this.initialHeight = this.element.getBoundingClientRect().height || this.initialHeight;
-        const moduleNav = this.element.querySelector('core-course-module-navigation');
-        if (moduleNav) {
+        this.moduleNav = this.element.tagName === 'CORE-COURSE-MODULE-NAVIGATION' ?
+            this.element : this.element.querySelector('core-course-module-navigation');
+        if (this.moduleNav && this.moduleNav !== this.element) {
             this.element.classList.add('has-module-nav');
-            this.finalHeight = this.initialHeight - (moduleNav.getBoundingClientRect().height);
+            this.finalHeight = this.initialHeight - this.moduleNav.getBoundingClientRect().height;
         }
 
         this.previousHeight = this.initialHeight;
 
-        this.content?.style.setProperty('--core-collapsible-footer-max-height', this.initialHeight + 'px');
+        this.content?.style.setProperty('--core-collapsible-footer-max-height', `${this.initialHeight}px`);
         this.element.classList.add('is-active');
 
         this.setBarHeight(this.initialHeight);
@@ -197,6 +199,11 @@ export class CoreCollapsibleFooterDirective implements OnInit, OnDestroy {
                 document.activeElement.scrollIntoView({ block: 'center' });
             }
         });
+
+        // Show footer when it is focused,
+        this.moduleNav?.addEventListener('focusin', () => {
+            this.setBarHeight(this.initialHeight);
+        });
     }
 
     /**
@@ -214,7 +221,8 @@ export class CoreCollapsibleFooterDirective implements OnInit, OnDestroy {
      */
     protected onScroll(scrollDetail: ScrollDetail, scrollElement: HTMLElement): void {
         const maxScroll = scrollElement.scrollHeight - scrollElement.offsetHeight;
-        if (scrollDetail.scrollTop <= 0 || (this.appearOnBottom && scrollDetail.scrollTop >= maxScroll)) {
+        const footerHasFocus = this.moduleNav?.contains(document.activeElement);
+        if (scrollDetail.scrollTop <= 0 || (this.appearOnBottom && scrollDetail.scrollTop >= maxScroll) || footerHasFocus) {
             // Reset.
             this.setBarHeight(this.initialHeight);
         } else {
@@ -236,7 +244,7 @@ export class CoreCollapsibleFooterDirective implements OnInit, OnDestroy {
         const expanded = height >= this.initialHeight;
         this.element.classList.toggle('footer-collapsed', collapsed);
         this.element.classList.toggle('footer-expanded', expanded);
-        this.content?.style.setProperty('--core-collapsible-footer-height', height + 'px');
+        this.content?.style.setProperty('--core-collapsible-footer-height', `${height}px`);
         this.previousHeight = height;
     }
 

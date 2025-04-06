@@ -12,14 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CUSTOM_ELEMENTS_SCHEMA, NgModule } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { IonicModule } from '@ionic/angular';
-import { TranslateModule } from '@ngx-translate/core';
-import { FormsModule } from '@angular/forms';
-
-import { CoreDirectivesModule } from '@directives/directives.module';
-import { CorePipesModule } from '@pipes/pipes.module';
+import { NgModule, Type } from '@angular/core';
 
 import { CoreAttachmentsComponent } from './attachments/attachments';
 import { CoreBSTooltipComponent } from './bs-tooltip/bs-tooltip';
@@ -27,7 +20,6 @@ import { CoreChartComponent } from './chart/chart';
 import { CoreChronoComponent } from './chrono/chrono';
 import { CoreContextMenuComponent } from './context-menu/context-menu';
 import { CoreContextMenuItemComponent } from './context-menu/context-menu-item';
-import { CoreContextMenuPopoverComponent } from './context-menu/context-menu-popover';
 import { CoreDownloadRefreshComponent } from './download-refresh/download-refresh';
 import { CoreDynamicComponent } from './dynamic-component/dynamic-component';
 import { CoreEmptyBoxComponent } from './empty-box/empty-box';
@@ -45,10 +37,8 @@ import { CoreNavigationBarComponent } from './navigation-bar/navigation-bar';
 import { CoreProgressBarComponent } from './progress-bar/progress-bar';
 import { CoreRecaptchaComponent } from './recaptcha/recaptcha';
 import { CoreSendMessageFormComponent } from './send-message-form/send-message-form';
-import { CoreShowPasswordComponent } from './show-password/show-password';
 import { CoreSitePickerComponent } from './site-picker/site-picker';
 import { CoreSplitViewComponent } from './split-view/split-view';
-import { CoreStyleComponent } from './style/style';
 import { CoreTabComponent } from './tabs/tab';
 import { CoreTabsComponent } from './tabs/tabs';
 import { CoreTabsOutletComponent } from './tabs-outlet/tabs-outlet';
@@ -62,13 +52,29 @@ import { CoreSwipeSlidesComponent } from './swipe-slides/swipe-slides';
 import { CoreSwipeNavigationTourComponent } from './swipe-navigation-tour/swipe-navigation-tour';
 import { CoreMessageComponent } from './message/message';
 import { CoreGroupSelectorComponent } from './group-selector/group-selector';
-import { CoreRefreshButtonModalComponent } from './refresh-button-modal/refresh-button-modal';
 import { CoreSheetModalComponent } from '@components/sheet-modal/sheet-modal';
 import { CoreCourseImageComponent } from '@components/course-image/course-image';
 import { CoreSitesListComponent } from './sites-list/sites-list';
 
+/**
+ * Get deprecated components for site plugins.
+ *
+ * @returns Returns core deprecated components.
+ */
+export async function getCoreDeprecatedComponents(): Promise<Type<unknown>[]> {
+    // eslint-disable-next-line deprecation/deprecation
+    const { CoreStyleComponent } = await import('@components/style/style');
+    // eslint-disable-next-line deprecation/deprecation
+    const { CoreShowPasswordComponent } = await import('@components/show-password/show-password');
+
+    return [
+        CoreStyleComponent,
+        CoreShowPasswordComponent,
+    ];
+}
+
 @NgModule({
-    declarations: [
+    imports: [
         CoreAttachmentsComponent,
         CoreBSTooltipComponent,
         CoreButtonWithSpinnerComponent,
@@ -76,7 +82,6 @@ import { CoreSitesListComponent } from './sites-list/sites-list';
         CoreChronoComponent,
         CoreContextMenuComponent,
         CoreContextMenuItemComponent,
-        CoreContextMenuPopoverComponent,
         CoreCourseImageComponent,
         CoreDownloadRefreshComponent,
         CoreDynamicComponent,
@@ -97,10 +102,8 @@ import { CoreSitesListComponent } from './sites-list/sites-list';
         CoreProgressBarComponent,
         CoreRecaptchaComponent,
         CoreSendMessageFormComponent,
-        CoreShowPasswordComponent,
         CoreSitePickerComponent,
         CoreSplitViewComponent,
-        CoreStyleComponent,
         CoreSwipeSlidesComponent,
         CoreTabComponent,
         CoreTabsComponent,
@@ -111,17 +114,8 @@ import { CoreSitesListComponent } from './sites-list/sites-list';
         CoreSpacerComponent,
         CoreHorizontalScrollControlsComponent,
         CoreSwipeNavigationTourComponent,
-        CoreRefreshButtonModalComponent,
         CoreSheetModalComponent,
         CoreSitesListComponent,
-    ],
-    imports: [
-        CommonModule,
-        IonicModule,
-        FormsModule,
-        TranslateModule.forChild(),
-        CoreDirectivesModule,
-        CorePipesModule,
     ],
     exports: [
         CoreAttachmentsComponent,
@@ -131,7 +125,6 @@ import { CoreSitesListComponent } from './sites-list/sites-list';
         CoreChronoComponent,
         CoreContextMenuComponent,
         CoreContextMenuItemComponent,
-        CoreContextMenuPopoverComponent,
         CoreCourseImageComponent,
         CoreDownloadRefreshComponent,
         CoreDynamicComponent,
@@ -152,10 +145,8 @@ import { CoreSitesListComponent } from './sites-list/sites-list';
         CoreProgressBarComponent,
         CoreRecaptchaComponent,
         CoreSendMessageFormComponent,
-        CoreShowPasswordComponent,
         CoreSitePickerComponent,
         CoreSplitViewComponent,
-        CoreStyleComponent,
         CoreSwipeSlidesComponent,
         CoreTabComponent,
         CoreTabsComponent,
@@ -166,10 +157,8 @@ import { CoreSitesListComponent } from './sites-list/sites-list';
         CoreSpacerComponent,
         CoreHorizontalScrollControlsComponent,
         CoreSwipeNavigationTourComponent,
-        CoreRefreshButtonModalComponent,
         CoreSheetModalComponent,
         CoreSitesListComponent,
     ],
-    schemas: [CUSTOM_ELEMENTS_SCHEMA],
 })
 export class CoreComponentsModule {}

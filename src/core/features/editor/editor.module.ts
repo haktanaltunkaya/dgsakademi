@@ -15,20 +15,35 @@
 import { NgModule, Type } from '@angular/core';
 
 import { CORE_SITE_SCHEMAS } from '@services/sites';
-import { CoreEditorComponentsModule } from './components/components.module';
 import { SITE_SCHEMA } from './services/database/editor';
-import { CoreEditorOfflineProvider } from './services/editor-offline';
 
-export const CORE_EDITOR_SERVICES: Type<unknown>[] = [
-    CoreEditorOfflineProvider,
-];
+/**
+ * Get editor services.
+ *
+ * @returns Returns editor services.
+ */
+export async function getEditorServices(): Promise<Type<unknown>[]> {
+    const { CoreEditorOfflineProvider } = await import('@features/editor/services/editor-offline');
+
+    return [
+        CoreEditorOfflineProvider,
+    ];
+}
+
+/**
+ * Get directives and components for site plugins.
+ *
+ * @returns Returns directives and components.
+ */
+export async function getEditorExportedDirectives(): Promise<Type<unknown>[]> {
+    const { CoreEditorRichTextEditorComponent } = await import('@features/editor/components/rich-text-editor/rich-text-editor');
+
+    return [
+        CoreEditorRichTextEditorComponent,
+    ];
+}
 
 @NgModule({
-    declarations: [
-    ],
-    imports: [
-        CoreEditorComponentsModule,
-    ],
     providers: [
         {
             provide: CORE_SITE_SCHEMAS,

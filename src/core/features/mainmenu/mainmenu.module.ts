@@ -12,22 +12,57 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { APP_INITIALIZER, NgModule } from '@angular/core';
+import { APP_INITIALIZER, NgModule, Type } from '@angular/core';
 import { Routes } from '@angular/router';
 import { authGuard } from '@features/mainmenu/guards/auth';
 
 import { AppRoutingModule } from '@/app/app-routing.module';
 
-import { CoreMainMenuDelegate, CoreMainMenuDelegateService } from './services/mainmenu-delegate';
+import { CoreMainMenuDelegate } from './services/mainmenu-delegate';
 import { CoreMainMenuHomeHandler } from './services/handlers/mainmenu';
-import { CoreMainMenuProvider } from './services/mainmenu';
-import { CoreMainMenuHomeDelegateService } from './services/home-delegate';
 
-export const CORE_MAINMENU_SERVICES = [
-    CoreMainMenuHomeDelegateService,
-    CoreMainMenuDelegateService,
-    CoreMainMenuProvider,
-];
+/**
+ * Get main menu services.
+ *
+ * @returns Returns main menu services.
+ */
+export async function getMainMenuServices(): Promise<Type<unknown>[]> {
+    const { CoreMainMenuHomeDelegateService } = await import('@features/mainmenu/services/home-delegate');
+    const { CoreMainMenuDelegateService } = await import('@features/mainmenu/services/mainmenu-delegate');
+    const { CoreMainMenuProvider } = await import('@features/mainmenu/services/mainmenu');
+
+    return [
+        CoreMainMenuHomeDelegateService,
+        CoreMainMenuDelegateService,
+        CoreMainMenuProvider,
+    ];
+}
+
+/**
+ * Get main menu exported objects.
+ *
+ * @returns Main menu exported objects.
+ */
+export async function getMainMenuExportedObjects(): Promise<Record<string, unknown>> {
+    const {
+        MAIN_MENU_NUM_MAIN_HANDLERS,
+        MAIN_MENU_ITEM_MIN_WIDTH,
+        MAIN_MENU_MORE_PAGE_NAME,
+        MAIN_MENU_HANDLER_BADGE_UPDATED_EVENT,
+        MAIN_MENU_VISIBILITY_UPDATED_EVENT,
+
+    } = await import('@features/mainmenu/constants');
+
+    /* eslint-disable @typescript-eslint/naming-convention */
+    return {
+        MAIN_MENU_NUM_MAIN_HANDLERS,
+        MAIN_MENU_ITEM_MIN_WIDTH,
+        MAIN_MENU_MORE_PAGE_NAME,
+        MAIN_MENU_HANDLER_BADGE_UPDATED_EVENT,
+        MAIN_MENU_VISIBILITY_UPDATED_EVENT,
+    };
+    /* eslint-enable @typescript-eslint/naming-convention */
+}
 
 const appRoutes: Routes = [
     {
@@ -37,12 +72,12 @@ const appRoutes: Routes = [
     },
     {
         path: 'main',
-        loadChildren: () => import('./mainmenu-lazy.module').then(m => m.CoreMainMenuLazyModule),
+        loadChildren: () => import('./mainmenu-lazy.module'),
         canActivate: [authGuard],
     },
     {
         path: 'reload',
-        loadChildren: () => import('./mainmenu-reload-lazy.module').then( m => m.CoreMainMenuReloadLazyModule),
+        loadComponent: () => import('@features/mainmenu/pages/reload/reload'),
     },
 ];
 

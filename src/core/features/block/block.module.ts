@@ -14,13 +14,35 @@
 
 import { NgModule, Type } from '@angular/core';
 
-import { CoreBlockDelegateService } from './services/block-delegate';
-import { CoreBlockHelperProvider } from './services/block-helper';
+/**
+ * Get block services.
+ *
+ * @returns Block services.
+ */
+export async function getBlockServices(): Promise<Type<unknown>[]> {
+    const { CoreBlockDelegateService } = await import('@features/block/services/block-delegate');
+    const { CoreBlockHelperProvider } = await import('@features/block/services/block-helper');
 
-export const CORE_BLOCK_SERVICES: Type<unknown>[] = [
-    CoreBlockDelegateService,
-    CoreBlockHelperProvider,
-];
+    return [
+        CoreBlockDelegateService,
+        CoreBlockHelperProvider,
+    ];
+}
+
+/**
+ * Get directives and components for site plugins.
+ *
+ * @returns Returns directives and components.
+ */
+export async function getBlockExportedDirectives(): Promise<Type<unknown>[]> {
+    const { CoreBlockComponent } = await import('@features/block/components/block/block');
+    const { CoreBlockSideBlocksButtonComponent } = await import('@features/block/components/side-blocks-button/side-blocks-button');
+
+    return [
+        CoreBlockComponent,
+        CoreBlockSideBlocksButtonComponent,
+    ];
+}
 
 @NgModule({})
 export class CoreBlockModule {}

@@ -16,14 +16,13 @@ import { CoreSiteError } from '@classes/errors/siteerror';
 import { CoreLoginHelper } from '@features/login/services/login-helper';
 import { CoreUserAuthenticatedSupportConfig } from '@features/user/classes/support/authenticated-support-config';
 import { CoreUserNullSupportConfig } from '@features/user/classes/support/null-support-config';
-import { CorePlatform } from '@services/platform';
 import { CoreSites } from '@services/sites';
 import { CoreCustomURLSchemes } from '@services/urlschemes';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUrlUtils } from '@services/utils/url';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreUrl } from '@singletons/url';
+import { CoreOpener } from '@singletons/opener';
 import { Translate } from '@singletons';
 import { CoreEvents } from '@singletons/events';
+import { CoreAlerts } from '@services/overlays/alerts';
 
 let lastInAppUrl: string | null = null;
 
@@ -34,25 +33,25 @@ export default function(): void {
     // Check URLs loaded in any InAppBrowser.
     CoreEvents.on(CoreEvents.IAB_LOAD_START, async (event) => {
         // URLs with a custom scheme can be prefixed with "http://" or "https://", we need to remove this.
-        const protocol = CoreUrlUtils.getUrlProtocol(event.url);
+        const protocol = CoreUrl.getUrlProtocol(event.url);
         const url = event.url.replace(/^https?:\/\//, '');
-        const urlScheme = CoreUrlUtils.getUrlProtocol(url);
+        const urlScheme = CoreUrl.getUrlProtocol(url);
         const isExternalApp = urlScheme && urlScheme !== 'file' && urlScheme !== 'cdvfile';
 
         if (CoreCustomURLSchemes.isCustomURL(url)) {
             // Close the browser if it's a valid SSO URL.
             CoreCustomURLSchemes.handleCustomURL(url).catch((error) => {
-                CoreCustomURLSchemes.treatHandleCustomURLError(error);
+                CoreCustomURLSchemes.treatHandleCustomURLError(error, url, 'InAppBrowser');
             });
-            CoreUtils.closeInAppBrowser();
+            CoreOpener.closeInAppBrowser();
 
             return;
         }
 
         if (isExternalApp && url.includes('://token=')) {
             // It's an SSO token for another app. Close the IAB and show an error.
-            CoreUtils.closeInAppBrowser();
-            CoreDomUtils.showErrorModal(new CoreSiteError({
+            CoreOpener.closeInAppBrowser();
+            CoreAlerts.showError(new CoreSiteError({
                 supportConfig: CoreSites.getCurrentSite()
                     ? CoreUserAuthenticatedSupportConfig.forCurrentSite()
                     : new CoreUserNullSupportConfig(),
@@ -62,11 +61,6 @@ export default function(): void {
             return;
         }
 
-        if (!CorePlatform.isAndroid()) {
-            return;
-        }
-
-        // Check if the URL has a custom URL scheme. In Android they need to be opened manually.
         if (!isExternalApp) {
             lastInAppUrl = protocol ? `${protocol}://${url}` : url;
 
@@ -74,15 +68,15 @@ export default function(): void {
         }
 
         // Open in browser should launch the right app if found and do nothing if not found.
-        CoreUtils.openInBrowser(url, { showBrowserWarning: false });
+        CoreOpener.openInBrowser(url, { showBrowserWarning: false });
 
-        // At this point the InAppBrowser is showing a "Webpage not available" error message.
-        // Try to navigate to last loaded URL so this error message isn't found.
+        // At this point, URL schemes will stop working in IAB, and in Android the IAB is showing a "Webpage not available" error.
+        // Re-loading the page inside the existing IAB doesn't fix it, we need to re-load the whole IAB.
         if (lastInAppUrl) {
-            CoreUtils.openInApp(lastInAppUrl);
+            CoreOpener.openInApp(lastInAppUrl);
         } else {
             // No last URL loaded, close the InAppBrowser.
-            CoreUtils.closeInAppBrowser();
+            CoreOpener.closeInAppBrowser();
         }
     });
 

@@ -13,14 +13,17 @@
 // limitations under the License.
 
 import { Injectable, Type } from '@angular/core';
-import { AddonModForum, AddonModForumProvider } from '../forum';
+import { AddonModForum, AddonModForumTracking } from '../forum';
 import { makeSingleton, Translate } from '@singletons';
 import { CoreEvents } from '@singletons/events';
 import { CoreSites, CoreSitesReadingStrategy } from '@services/sites';
 import { CoreCourseModuleHandler, CoreCourseModuleHandlerData } from '@features/course/services/module-delegate';
-import { CoreConstants, ModPurpose } from '@/core/constants';
 import { CoreModuleHandlerBase } from '@features/course/classes/module-base-handler';
 import { CoreCourseModuleData } from '@features/course/services/course-helper';
+import { CoreText } from '@singletons/text';
+import { CoreUser } from '@features/user/services/user';
+import { ADDON_MOD_FORUM_MARK_READ_EVENT, ADDON_MOD_FORUM_MODNAME, ADDON_MOD_FORUM_PAGE_NAME } from '../../constants';
+import { ModFeature, ModPurpose } from '@addons/mod/constants';
 
 /**
  * Handler to support forum modules.
@@ -28,25 +31,23 @@ import { CoreCourseModuleData } from '@features/course/services/course-helper';
 @Injectable({ providedIn: 'root' })
 export class AddonModForumModuleHandlerService extends CoreModuleHandlerBase implements CoreCourseModuleHandler {
 
-    static readonly PAGE_NAME = 'mod_forum';
-
     name = 'AddonModForum';
-    modName = 'forum';
-    protected pageName = AddonModForumModuleHandlerService.PAGE_NAME;
+    modName = ADDON_MOD_FORUM_MODNAME;
+    protected pageName = ADDON_MOD_FORUM_PAGE_NAME;
 
     supportedFeatures = {
-        [CoreConstants.FEATURE_GROUPS]: true,
-        [CoreConstants.FEATURE_GROUPINGS]: true,
-        [CoreConstants.FEATURE_MOD_INTRO]: true,
-        [CoreConstants.FEATURE_COMPLETION_TRACKS_VIEWS]: true,
-        [CoreConstants.FEATURE_COMPLETION_HAS_RULES]: true,
-        [CoreConstants.FEATURE_GRADE_HAS_GRADE]: true,
-        [CoreConstants.FEATURE_GRADE_OUTCOMES]: true,
-        [CoreConstants.FEATURE_BACKUP_MOODLE2]: true,
-        [CoreConstants.FEATURE_SHOW_DESCRIPTION]: true,
-        [CoreConstants.FEATURE_RATE]: true,
-        [CoreConstants.FEATURE_PLAGIARISM]: true,
-        [CoreConstants.FEATURE_MOD_PURPOSE]: ModPurpose.MOD_PURPOSE_COLLABORATION,
+        [ModFeature.GROUPS]: true,
+        [ModFeature.GROUPINGS]: true,
+        [ModFeature.MOD_INTRO]: true,
+        [ModFeature.COMPLETION_TRACKS_VIEWS]: true,
+        [ModFeature.COMPLETION_HAS_RULES]: true,
+        [ModFeature.GRADE_HAS_GRADE]: true,
+        [ModFeature.GRADE_OUTCOMES]: true,
+        [ModFeature.BACKUP_MOODLE2]: true,
+        [ModFeature.SHOW_DESCRIPTION]: true,
+        [ModFeature.RATE]: true,
+        [ModFeature.PLAGIARISM]: true,
+        [ModFeature.MOD_PURPOSE]: ModPurpose.COLLABORATION,
     };
 
     /**
@@ -54,6 +55,29 @@ export class AddonModForumModuleHandlerService extends CoreModuleHandlerBase imp
      */
     async getData(module: CoreCourseModuleData, courseId: number): Promise<CoreCourseModuleHandlerData> {
         const data = await super.getData(module, courseId);
+
+        const customData = module.customdata ?
+            CoreText.parseJSON<{ trackingtype?: string | number } | ''>(module.customdata, {}) : {};
+        const trackingType = typeof customData !== 'string' && customData.trackingtype !== undefined ?
+            Number(customData.trackingtype) : undefined;
+
+        if (trackingType === AddonModForumTracking.OFF) {
+            // Tracking is disabled in forum.
+            data.extraBadge = '';
+
+            return data;
+        }
+
+        if (trackingType === AddonModForumTracking.OPTIONAL) {
+            // Forum has tracking optional, check if user has tracking enabled.
+            const user = await CoreUser.getProfile(CoreSites.getCurrentSiteUserId());
+
+            if (user.trackforums === 0) {
+                data.extraBadge = '';
+
+                return data;
+            }
+        }
 
         if ('afterlink' in module && !!module.afterlink) {
             const match = />(\d+)[^<]+/.exec(module.afterlink);
@@ -63,7 +87,7 @@ export class AddonModForumModuleHandlerService extends CoreModuleHandlerBase imp
         }
 
         const event = CoreEvents.on(
-            AddonModForumProvider.MARK_READ_EVENT,
+            ADDON_MOD_FORUM_MARK_READ_EVENT,
             eventData => {
                 if (eventData.courseId !== courseId || eventData.moduleId !== module.id) {
                     return;

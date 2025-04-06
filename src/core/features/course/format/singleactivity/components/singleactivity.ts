@@ -18,9 +18,10 @@ import { CoreCourseModuleDelegate } from '@features/course/services/module-deleg
 import { CoreCourseUnsupportedModuleComponent } from '@features/course/components/unsupported-module/unsupported-module';
 import { CoreDynamicComponent } from '@components/dynamic-component/dynamic-component';
 import { CoreCourseAnyCourseData } from '@features/courses/services/courses';
-import { CoreCourseModuleCompletionData, CoreCourseSection } from '@features/course/services/course-helper';
+import { CoreCourseModuleCompletionData, CoreCourseModuleData, CoreCourseSection } from '@features/course/services/course-helper';
 import { CoreCourse } from '@features/course/services/course';
 import type { CoreCourseModuleMainActivityComponent } from '@features/course/classes/main-activity-component';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component to display single activity format. It will determine the right component to use and instantiate it.
@@ -30,7 +31,11 @@ import type { CoreCourseModuleMainActivityComponent } from '@features/course/cla
 @Component({
     selector: 'core-course-format-single-activity',
     templateUrl: 'core-course-format-single-activity.html',
-    styleUrls: ['single-activity.scss'],
+    styleUrl: 'single-activity.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class CoreCourseFormatSingleActivityComponent implements OnChanges {
 
@@ -59,7 +64,7 @@ export class CoreCourseFormatSingleActivityComponent implements OnChanges {
         }
 
         // In single activity the module should only have 1 section and 1 module. Get the module.
-        const module = this.sections?.[0].modules?.[0];
+        const module = this.sections?.[0].contents?.[0] as (CoreCourseModuleData | undefined);
 
         this.data.courseId = this.course.id;
         this.data.module = module;

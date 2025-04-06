@@ -1,5 +1,5 @@
 <core-navbar-buttons slot="end" prepend>
-    <ion-button *ngIf="searchEnabled" (click)="openSearch()" [attr.aria-label]="'core.courses.searchcourses' | translate">
+    <ion-button *ngIf="searchEnabled" (click)="openSearch()" [ariaLabel]="'core.courses.searchcourses' | translate">
         <ion-icon name="fas-magnifying-glass" slot="icon-only" aria-hidden="true" />
     </ion-button>
 </core-navbar-buttons>
@@ -8,7 +8,7 @@
         <ion-refresher-content pullingText="{{ 'core.pulltorefresh' | translate }}" />
     </ion-refresher>
 
-    <core-loading [hideUntil]="loaded">
+    <core-loading [hideUntil]="loaded" placeholderType="column" placeholderHeight="96px">
         <ion-list class="list-item-limited-width" *ngIf="hasMainBlocks">
             <ng-container *ngFor="let block of blocks">
                 <core-block *ngIf="block.visible" [block]="block" contextLevel="user" [instanceId]="userId" />

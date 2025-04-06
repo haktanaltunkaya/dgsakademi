@@ -18,10 +18,11 @@ import { CoreContentLinksAction } from '@features/contentlinks/services/contentl
 import { CoreCourse } from '@features/course/services/course';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSitesReadingStrategy } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { makeSingleton } from '@singletons';
+import { makeSingleton, Translate } from '@singletons';
 import { AddonModGlossary } from '../glossary';
-import { AddonModGlossaryModuleHandlerService } from './module';
+import { ADDON_MOD_GLOSSARY_FEATURE_NAME, ADDON_MOD_GLOSSARY_MODNAME, ADDON_MOD_GLOSSARY_PAGE_NAME } from '../../constants';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreAlerts } from '@services/overlays/alerts';
 
 /**
  * Handler to treat links to glossary entries.
@@ -30,7 +31,7 @@ import { AddonModGlossaryModuleHandlerService } from './module';
 export class AddonModGlossaryEntryLinkHandlerService extends CoreContentLinksHandlerBase {
 
     name = 'AddonModGlossaryEntryLinkHandler';
-    featureName = 'CoreCourseModuleDelegate_AddonModGlossary';
+    featureName = ADDON_MOD_GLOSSARY_FEATURE_NAME;
     pattern = /\/mod\/glossary\/(showentry|view)\.php.*([&?](eid|g|mode|hook)=\d+)/;
 
     /**
@@ -39,7 +40,7 @@ export class AddonModGlossaryEntryLinkHandlerService extends CoreContentLinksHan
     getActions(siteIds: string[], url: string, params: Record<string, string>): CoreContentLinksAction[] {
         return [{
             action: async (siteId: string) => {
-                const modal = await CoreDomUtils.showModalLoading();
+                const modal = await CoreLoadings.show();
 
                 try {
                     const entryId = params.mode == 'entry' ? Number(params.hook) : Number(params.eid);
@@ -51,12 +52,12 @@ export class AddonModGlossaryEntryLinkHandlerService extends CoreContentLinksHan
 
                     const module = await CoreCourse.getModuleBasicInfoByInstance(
                         response.entry.glossaryid,
-                        'glossary',
+                        ADDON_MOD_GLOSSARY_MODNAME,
                         { siteId, readingStrategy: CoreSitesReadingStrategy.PREFER_CACHE },
                     );
 
                     await CoreNavigator.navigateToSitePath(
-                        `${AddonModGlossaryModuleHandlerService.PAGE_NAME}/entry/${entryId}`,
+                        `${ADDON_MOD_GLOSSARY_PAGE_NAME}/entry/${entryId}`,
                         {
                             siteId,
                             params: {
@@ -66,7 +67,7 @@ export class AddonModGlossaryEntryLinkHandlerService extends CoreContentLinksHan
                         },
                     );
                 } catch (error) {
-                    CoreDomUtils.showErrorModalDefault(error, 'addon.mod_glossary.errorloadingentry', true);
+                    CoreAlerts.showError(error, { default: Translate.instant('addon.mod_glossary.errorloadingentry') });
                 } finally {
                     modal.dismiss();
                 }

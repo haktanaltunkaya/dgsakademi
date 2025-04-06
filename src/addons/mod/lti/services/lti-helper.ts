@@ -18,11 +18,12 @@ import { CoreCourse } from '@features/course/services/course';
 import { CoreCourseModuleData } from '@features/course/services/course-helper';
 import { CorePlatform } from '@services/platform';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { makeSingleton } from '@singletons';
+import { makeSingleton, Translate } from '@singletons';
 import { CoreEvents } from '@singletons/events';
 import { AddonModLti, AddonModLtiLti } from './lti';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreAlerts } from '@services/overlays/alerts';
 
 /**
  * Service that provides some helper functions for LTI.
@@ -62,7 +63,7 @@ export class AddonModLtiHelperProvider {
     async getDataAndLaunch(courseId: number, module: CoreCourseModuleData, lti?: AddonModLtiLti, siteId?: string): Promise<void> {
         siteId = siteId || CoreSites.getCurrentSiteId();
 
-        const modal = await CoreDomUtils.showModalLoading();
+        const modal = await CoreLoadings.show();
 
         try {
             const openInBrowser = await AddonModLti.shouldLaunchInBrowser(siteId);
@@ -92,7 +93,7 @@ export class AddonModLtiHelperProvider {
             // Launch LTI.
             return AddonModLti.launch(launchData.endpoint, launchData.parameters);
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'addon.mod_lti.errorgetlti', true);
+            CoreAlerts.showError(error, { default: Translate.instant('addon.mod_lti.errorgetlti') });
         } finally {
             modal.dismiss();
         }

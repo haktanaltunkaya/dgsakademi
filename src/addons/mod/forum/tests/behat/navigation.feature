@@ -1,4 +1,4 @@
-@addon_mod_forum @app @javascript
+@addon_mod_forum @app @mod @mod_forum @javascript
 Feature: Test forum navigation
 
   Background:
@@ -36,6 +36,7 @@ Feature: Test forum navigation
       | forum | Discussion 18 | Discussion 18 message | 1638201800 |
       | forum | Discussion 19 | Discussion 19 message | 1638201900 |
       | forum | Discussion 20 | Discussion 20 message | 1638202000 |
+    And I wait "1" seconds
     And the following "mod_forum > posts" exist:
       | discussion | parentsubject | message |
       | Discussion 04 | Discussion 04 | Discussion 04 first reply |
@@ -70,7 +71,7 @@ Feature: Test forum navigation
     Then I should find "Discussion 20 message" in the app
 
     # By creation date
-    When I press the back button in the app
+    When I go back in the app
     And I scroll to "Discussion 05" in the app
     And I press "Sort" in the app
     And I press "Sort by creation date in descending order" in the app
@@ -101,7 +102,7 @@ Feature: Test forum navigation
     Then I should find "Discussion 18 message" in the app
 
     # Offline
-    When I press the back button in the app
+    When I go back in the app
     And I press "Add discussion topic" in the app
     And I switch network connection to offline
     And I set the following fields to these values in the app:

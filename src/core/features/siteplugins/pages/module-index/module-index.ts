@@ -13,14 +13,11 @@
 // limitations under the License.
 
 import { Component, OnInit, ViewChild } from '@angular/core';
-
 import { CoreCourseModuleData } from '@features/course/services/course-helper';
 import { CanLeave } from '@guards/can-leave';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSitePluginsModuleIndexComponent } from '../../components/module-index/module-index';
-import { CoreSites } from '@services/sites';
-import { CoreFilterFormatTextOptions } from '@features/filter/services/filter';
-import { CoreFilterHelper } from '@features/filter/services/filter-helper';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page to render the index page of a module site plugin.
@@ -28,8 +25,13 @@ import { CoreFilterHelper } from '@features/filter/services/filter-helper';
 @Component({
     selector: 'page-core-site-plugins-module-index',
     templateUrl: 'module-index.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreSitePluginsModuleIndexComponent,
+    ],
 })
-export class CoreSitePluginsModuleIndexPage implements OnInit, CanLeave {
+export default class CoreSitePluginsModuleIndexPage implements OnInit, CanLeave {
 
     @ViewChild(CoreSitePluginsModuleIndexComponent) content?: CoreSitePluginsModuleIndexComponent;
 
@@ -44,27 +46,6 @@ export class CoreSitePluginsModuleIndexPage implements OnInit, CanLeave {
         this.title = CoreNavigator.getRouteParam('title');
         this.module = CoreNavigator.getRouteParam('module');
         this.courseId = CoreNavigator.getRouteNumberParam('courseId');
-
-        if (this.title) {
-            const siteId = CoreSites.getCurrentSiteId();
-
-            const options: CoreFilterFormatTextOptions = {
-                clean: false,
-                courseId: this.courseId,
-                wsNotFiltered: false,
-                singleLine: true,
-            };
-
-            const filteredTitle = await CoreFilterHelper.getFiltersAndFormatText(
-                this.title.trim(),
-                'module',
-                this.module?.id ?? -1,
-                options,
-                siteId,
-            );
-
-            this.title = filteredTitle.text;
-        }
     }
 
     /**

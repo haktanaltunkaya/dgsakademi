@@ -1,3 +1,5 @@
+@use "theme/globals" as *;
+
 :host {
     --core-h5p-placeholder-bg-color: var(--gray-300);
     --core-h5p-placeholder-text-color: var(--ion-text-color);
@@ -21,7 +23,7 @@
         }
 
         .core-h5p-placeholder-play-button {
-            font-size: 30px;
+            font-size: #{dynamic-font(30px)};
             min-height: 50px;
         }
 

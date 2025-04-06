@@ -23,7 +23,6 @@ import { AddonModAssignFeedbackHandler } from '@addons/mod/assign/services/feedb
 import { Injectable, Type } from '@angular/core';
 import { CoreWSFile } from '@services/ws';
 import { makeSingleton } from '@singletons';
-import { AddonModAssignFeedbackFileComponent } from '../component/file';
 
 /**
  * Handler for file feedback plugin.
@@ -35,23 +34,23 @@ export class AddonModAssignFeedbackFileHandlerService implements AddonModAssignF
     type = 'file';
 
     /**
-     * Return the Component to use to display the plugin data.
-     * It's recommended to return the class of the component, but you can also return an instance of the component.
-     *
-     * @returns The component (or promise resolved with component) to use, undefined if not found.
+     * @inheritdoc
      */
-    getComponent(): Type<IAddonModAssignFeedbackPluginComponent> {
+    async canContainFiltersWhenEditing(): Promise<boolean> {
+        return false;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    async getComponent(): Promise<Type<IAddonModAssignFeedbackPluginComponent>> {
+        const { AddonModAssignFeedbackFileComponent } = await import('../component/file');
+
         return AddonModAssignFeedbackFileComponent;
     }
 
     /**
-     * Get files used by this plugin.
-     * The files returned by this function will be prefetched when the user prefetches the assign.
-     *
-     * @param assign The assignment.
-     * @param submission The submission.
-     * @param plugin The plugin object.
-     * @returns The files (or promise resolved with the files).
+     * @inheritdoc
      */
     getPluginFiles(
         assign: AddonModAssignAssign,
@@ -62,9 +61,7 @@ export class AddonModAssignFeedbackFileHandlerService implements AddonModAssignF
     }
 
     /**
-     * Whether or not the handler is enabled on a site level.
-     *
-     * @returns True or promise resolved with true if enabled.
+     * @inheritdoc
      */
     async isEnabled(): Promise<boolean> {
         return true;

@@ -14,7 +14,7 @@
 
 import { CoreFile, CoreFileProvider } from '@services/file';
 import { CoreSites } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { CorePath } from '@singletons/path';
 import { CoreH5PCore, CoreH5PLibraryBasicData } from './core';
 import { CoreH5PFramework } from './framework';
@@ -57,7 +57,7 @@ export class CoreH5PStorage {
             const libraryData: CoreH5PLibraryBeingSaved = librariesJsonData[libString];
 
             // Find local library with same major + minor.
-            const existingLibrary = await CoreUtils.ignoreErrors(this.h5pFramework.getLibraryByData(libraryData));
+            const existingLibrary = await CorePromiseUtils.ignoreErrors(this.h5pFramework.getLibraryByData(libraryData));
 
             if (existingLibrary) {
                 // Library already installed.
@@ -65,7 +65,9 @@ export class CoreH5PStorage {
 
                 const newerPatchVersion = existingLibrary.patchversion < libraryData.patchVersion;
 
-                if (!newerPatchVersion) {
+                // Make sure the library is fully saved to the file system if it is present in the DB.
+                // Some files might be missing if a previous library update was interrupted.
+                if (!newerPatchVersion && await this.h5pCore.h5pFS.checkLibrary(libraryData, siteId)) {
                     // Same or older version, no need to save.
                     libraryData.saveDependencies = false;
 
@@ -79,20 +81,11 @@ export class CoreH5PStorage {
             libraryData.metadataSettings = libraryData.metadataSettings ?
                 CoreH5PMetadata.boolifyAndEncodeSettings(libraryData.metadataSettings) : undefined;
 
+            // Save the library files before saving to DB, in case the app is closed while copying the files.
+            await this.h5pCore.h5pFS.saveLibrary(libraryData, siteId);
+
             // Save the library data in DB.
             await this.h5pFramework.saveLibraryData(libraryData, siteId);
-
-            // Now save it in FS.
-            try {
-                await this.h5pCore.h5pFS.saveLibrary(libraryData, siteId);
-            } catch (error) {
-                if (libraryData.libraryId) {
-                    // An error occurred, delete the DB data because the lib FS data has been deleted.
-                    await this.h5pFramework.deleteLibrary(libraryData.libraryId, siteId);
-                }
-
-                throw error;
-            }
 
             if (libraryData.libraryId !== undefined) {
                 const promises: Promise<void>[] = [];
@@ -107,7 +100,7 @@ export class CoreH5PStorage {
                     await this.h5pCore.h5pFS.deleteCachedAssets(removedEntries, siteId);
                 }
 
-                await CoreUtils.allPromises(promises);
+                await CorePromiseUtils.allPromises(promises);
             }
         }));
 
@@ -137,9 +130,7 @@ export class CoreH5PStorage {
             if (libraryData.dynamicDependencies !== undefined) {
                 promises.push(this.h5pFramework.saveLibraryDependencies(libraryData, libraryData.dynamicDependencies, 'dynamic'));
             }
-            if (libraryData.editorDependencies !== undefined) {
-                promises.push(this.h5pFramework.saveLibraryDependencies(libraryData, libraryData.editorDependencies, 'editor'));
-            }
+            // Don't save editor dependencies, they are not used in the app.
 
             await Promise.all(promises);
         }));
@@ -196,21 +187,15 @@ export class CoreH5PStorage {
 
             content.params = JSON.stringify(data.contentJsonData);
 
-            // Save the content data in DB.
-            await this.h5pCore.saveContent(content, folderName, fileUrl, siteId);
-
             // Save the content files in their right place in FS.
-            const destFolder = CorePath.concatenatePaths(CoreFileProvider.TMPFOLDER, 'h5p/' + folderName);
+            const destFolder = CorePath.concatenatePaths(CoreFileProvider.TMPFOLDER, `h5p/${folderName}`);
             const contentPath = CorePath.concatenatePaths(destFolder, 'content');
 
-            try {
-                await this.h5pCore.h5pFS.saveContent(contentPath, folderName, siteId);
-            } catch (error) {
-                // An error occurred, delete the DB data because the content files have been deleted.
-                await this.h5pFramework.deleteContentData(content.id!, siteId);
+            // Save the content files before saving to DB, in case the app is closed while copying the files.
+            await this.h5pCore.h5pFS.saveContent(contentPath, folderName, siteId);
 
-                throw error;
-            }
+            // Save the content data in DB.
+            await this.h5pCore.saveContent(content, folderName, fileUrl, siteId);
         }
 
         return content;

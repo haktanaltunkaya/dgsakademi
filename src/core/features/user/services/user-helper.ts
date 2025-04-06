@@ -17,70 +17,14 @@ import { CoreNavigator } from '@services/navigator';
 import { CoreSites } from '@services/sites';
 
 import { makeSingleton, Translate } from '@singletons';
-import { CoreUserProfile, CoreUserRole } from './user';
+import { CoreUser, CoreUserProfile, CoreUserRole } from './user';
+import { CoreTime } from '@singletons/time';
 
 /**
  * Service that provides some features regarding users information.
  */
 @Injectable({ providedIn: 'root' })
 export class CoreUserHelperProvider {
-
-    protected static readonly LEGACY_TIMEZONES = {
-        '-13.0': 'Australia/Perth',
-        '-12.5': 'Etc/GMT+12',
-        '-12.0': 'Etc/GMT+12',
-        '-11.5': 'Etc/GMT+11',
-        '-11.0': 'Etc/GMT+11',
-        '-10.5': 'Etc/GMT+10',
-        '-10.0': 'Etc/GMT+10',
-        '-9.5': 'Etc/GMT+9',
-        '-9.0': 'Etc/GMT+9',
-        '-8.5': 'Etc/GMT+8',
-        '-8.0': 'Etc/GMT+8',
-        '-7.5': 'Etc/GMT+7',
-        '-7.0': 'Etc/GMT+7',
-        '-6.5': 'Etc/GMT+6',
-        '-6.0': 'Etc/GMT+6',
-        '-5.5': 'Etc/GMT+5',
-        '-5.0': 'Etc/GMT+5',
-        '-4.5': 'Etc/GMT+4',
-        '-4.0': 'Etc/GMT+4',
-        '-3.5': 'Etc/GMT+3',
-        '-3.0': 'Etc/GMT+3',
-        '-2.5': 'Etc/GMT+2',
-        '-2.0': 'Etc/GMT+2',
-        '-1.5': 'Etc/GMT+1',
-        '-1.0': 'Etc/GMT+1',
-        '-0.5': 'Etc/GMT',
-        '0': 'Etc/GMT',
-        '0.0': 'Etc/GMT',
-        '0.5': 'Etc/GMT',
-        '1.0': 'Etc/GMT-1',
-        '1.5': 'Etc/GMT-1',
-        '2.0': 'Etc/GMT-2',
-        '2.5': 'Etc/GMT-2',
-        '3.0': 'Etc/GMT-3',
-        '3.5': 'Etc/GMT-3',
-        '4.0': 'Etc/GMT-4',
-        '4.5': 'Asia/Kabul',
-        '5.0': 'Etc/GMT-5',
-        '5.5': 'Asia/Kolkata',
-        '6.0': 'Etc/GMT-6',
-        '6.5': 'Asia/Rangoon',
-        '7.0': 'Etc/GMT-7',
-        '7.5': 'Etc/GMT-7',
-        '8.0': 'Etc/GMT-8',
-        '8.5': 'Etc/GMT-8',
-        '9.0': 'Etc/GMT-9',
-        '9.5': 'Australia/Darwin',
-        '10.0': 'Etc/GMT-10',
-        '10.5': 'Etc/GMT-10',
-        '11.0': 'Etc/GMT-11',
-        '11.5': 'Etc/GMT-11',
-        '12.0': 'Etc/GMT-12',
-        '12.5': 'Etc/GMT-12',
-        '13.0': 'Etc/GMT-13',
-    };
 
     /**
      * Formats a user address, concatenating address, city and country.
@@ -97,7 +41,7 @@ export class CoreUserHelperProvider {
 
         values = values.filter((value) => value && value.length > 0);
 
-        return values.join(separator + ' ');
+        return values.join(`${separator} `);
     }
 
     /**
@@ -114,10 +58,10 @@ export class CoreUserHelperProvider {
         const separator = Translate.instant('core.listsep');
 
         return roles.map((value) => {
-            const translation = Translate.instant('core.user.' + value.shortname);
+            const translation = Translate.instant(`core.user.${value.shortname}`);
 
             return translation.indexOf('core.user.') < 0 ? translation : value.shortname;
-        }).join(separator + ' ');
+        }).join(`${separator} `);
     }
 
     /**
@@ -145,7 +89,8 @@ export class CoreUserHelperProvider {
      * Get the user initials.
      *
      * @param user User object.
-     * @returns Promise resolved with the user data.
+     * @returns User initials.
+     * @deprecated since 4.4. Use getUserInitialsFromParts instead.
      */
     getUserInitials(user: Partial<CoreUserProfile>): string {
         if (!user.firstname && !user.lastname) {
@@ -157,15 +102,48 @@ export class CoreUserHelperProvider {
     }
 
     /**
+     * Get the user initials.
+     *
+     * @param parts User name parts. Containing firstname, lastname, fullname and userId.
+     * @returns User initials.
+     */
+    async getUserInitialsFromParts(parts: CoreUserNameParts): Promise<string> {
+        if (!parts.firstname && !parts.lastname) {
+            if (!parts.fullname && parts.userId) {
+                const user = await CoreUser.getProfile(parts.userId, undefined, true);
+                parts.fullname = user.fullname || '';
+            }
+
+            if (parts.fullname) {
+                const split = parts.fullname.split(' ');
+
+                parts.firstname = split[0];
+                if (split.length > 1) {
+                    parts.lastname = split[split.length - 1];
+                }
+            }
+        }
+
+        if (!parts.firstname && !parts.lastname) {
+            return 'UNK';
+        }
+
+        return (parts.firstname?.charAt(0) || '') + (parts.lastname?.charAt(0) || '');
+    }
+
+    /**
      * Translates legacy timezone names.
      *
      * @param tz Timezone name.
      * @returns Readable timezone name.
+     * @deprecated since 5.0. Use CoreTime.translateLegacyTimezone instead.
      */
     translateLegacyTimezone(tz: string): string {
-        return CoreUserHelperProvider.LEGACY_TIMEZONES[tz] ?? tz;
+        return CoreTime.translateLegacyTimezone(tz);
     }
 
 }
 
 export const CoreUserHelper = makeSingleton(CoreUserHelperProvider);
+
+type CoreUserNameParts = { firstname?: string; lastname?: string; fullname?: string; userId?: number };

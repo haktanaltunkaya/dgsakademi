@@ -12,25 +12,74 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { APP_INITIALIZER, NgModule } from '@angular/core';
+import { APP_INITIALIZER, NgModule, Type } from '@angular/core';
 import { Routes } from '@angular/router';
 
 import { AppRoutingModule } from '@/app/app-routing.module';
-import { CoreLoginHelper, CoreLoginHelperProvider } from './services/login-helper';
+import { CoreLoginHelper } from './services/login-helper';
 import { redirectGuard } from '@guards/redirect';
 import { CoreLoginCronHandler } from './services/handlers/cron';
 import { CoreCronDelegate } from '@services/cron';
 import { CoreEvents } from '@singletons/events';
+import { hasSitesGuard } from './guards/has-sites';
 
-export const CORE_LOGIN_SERVICES = [
-    CoreLoginHelperProvider,
-];
+/**
+ * Get login services.
+ *
+ * @returns Returns login services.
+ */
+export async function getLoginServices(): Promise<Type<unknown>[]> {
+    const { CoreLoginHelperProvider } = await import('@features/login/services/login-helper');
+
+    return [
+        CoreLoginHelperProvider,
+    ];
+}
 
 const appRoutes: Routes = [
     {
         path: 'login',
-        loadChildren: () => import('./login-lazy.module').then(m => m.CoreLoginLazyModule),
+        loadChildren: () => [
+            {
+                path: '',
+                pathMatch: 'full',
+                redirectTo: 'sites',
+            },
+            {
+                path: 'site',
+                loadComponent: () => import('@features/login/pages/site/site'),
+            },
+            {
+                path: 'credentials',
+                loadComponent: () => CoreLoginHelper.getCredentialsPage(),
+            },
+            {
+                path: 'sites',
+                loadComponent: () => import('@features/login/pages/sites/sites'),
+                canActivate: [hasSitesGuard],
+            },
+            {
+                path: 'forgottenpassword',
+                loadComponent: () => import('@features/login/pages/forgotten-password/forgotten-password'),
+            },
+            {
+                path: 'changepassword',
+                loadComponent: () => import('@features/login/pages/change-password/change-password'),
+            },
+            {
+                path: 'emailsignup',
+                loadComponent: () => import('@features/login/pages/email-signup/email-signup'),
+            },
+            {
+                path: 'reconnect',
+                loadComponent: () => CoreLoginHelper.getReconnectPage(),
+            },
+        ],
         canActivate: [redirectGuard],
+    },
+    {
+        path: 'logout',
+        loadComponent: () => import('@features/login/pages/logout/logout'),
     },
 ];
 
@@ -51,10 +100,6 @@ const appRoutes: Routes = [
 
                 CoreEvents.on(CoreEvents.PASSWORD_CHANGE_FORCED, (data) => {
                     CoreLoginHelper.passwordChangeForced(data.siteId);
-                });
-
-                CoreEvents.on(CoreEvents.SITE_POLICY_NOT_AGREED, (data) => {
-                    CoreLoginHelper.sitePolicyNotAgreed(data.siteId);
                 });
 
                 await CoreLoginHelper.initialize();

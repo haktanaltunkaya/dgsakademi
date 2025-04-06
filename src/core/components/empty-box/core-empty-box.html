@@ -1,4 +1,9 @@
-<img *ngIf="image && !icon" [src]="image" role="presentation" alt="">
-<ion-icon *ngIf="icon" [name]="icon" aria-hidden="true" />
-<p *ngIf="message">{{ message }}</p>
+@if (icon) {
+    <ion-icon [name]="icon" aria-hidden="true" />
+} @else if (image) {
+    <img [src]="image" role="presentation" alt="">
+}
+@if (message) {
+    <p>{{ message }}</p>
+}
 <ng-content />

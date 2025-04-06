@@ -17,7 +17,7 @@ import { FileEntry } from '@awesome-cordova-plugins/file/ngx';
 
 import { CoreFilepool, CoreFilepoolOnProgressCallback } from '@services/filepool';
 import { CoreWSFile } from '@services/ws';
-import { CoreConstants } from '@/core/constants';
+import { DownloadStatus } from '@/core/constants';
 import { CoreDelegate, CoreDelegateHandler } from '@classes/delegate';
 import { makeSingleton } from '@singletons';
 import { CoreSites } from './sites';
@@ -29,8 +29,10 @@ import { CoreFileHelper } from './file-helper';
 @Injectable({ providedIn: 'root' })
 export class CorePluginFileDelegateService extends CoreDelegate<CorePluginFileHandler> {
 
+    protected handlerNameProperty = 'component';
+
     constructor() {
-        super('CorePluginFileDelegate', true);
+        super('CorePluginFileDelegate');
     }
 
     /**
@@ -141,7 +143,7 @@ export class CorePluginFileDelegateService extends CoreDelegate<CorePluginFileHa
         await Promise.all(files.map(async (file) => {
             const state = await CoreFilepool.getFileStateByUrl(siteIdentifier, CoreFileHelper.getFileUrl(file), file.timemodified);
 
-            if (state !== CoreConstants.DOWNLOADED && state !== CoreConstants.NOT_DOWNLOADABLE) {
+            if (state !== DownloadStatus.DOWNLOADED && state !== DownloadStatus.NOT_DOWNLOADABLE) {
                 filteredFiles.push(file);
             }
         }));
@@ -269,20 +271,18 @@ export class CorePluginFileDelegateService extends CoreDelegate<CorePluginFileHa
      *
      * @param fileUrl The file URL used to download the file.
      * @param file The file entry of the downloaded file.
-     * @param siteId Site ID. If not defined, current site.
-     * @param onProgress Function to call on progress.
+     * @param options Options.
      * @returns Promise resolved when done.
      */
     async treatDownloadedFile(
         fileUrl: string,
         file: FileEntry,
-        siteId?: string,
-        onProgress?: CoreFilepoolOnProgressCallback,
+        options: CorePluginFileTreatDownloadedFileOptions = {},
     ): Promise<void> {
         const handler = this.getHandlerForFile({ fileurl: fileUrl });
 
         if (handler && handler.treatDownloadedFile) {
-            await handler.treatDownloadedFile(fileUrl, file, siteId, onProgress);
+            await handler.treatDownloadedFile(fileUrl, file, options);
         }
     }
 
@@ -376,16 +376,14 @@ export interface CorePluginFileHandler extends CoreDelegateHandler {
      *
      * @param fileUrl The file URL used to download the file.
      * @param file The file entry of the downloaded file.
-     * @param siteId Site ID. If not defined, current site.
-     * @param onProgress Function to call on progress.
+     * @param options Options.
      * @returns Promise resolved when done.
      */
     treatDownloadedFile?(
         fileUrl: string,
         file: FileEntry,
-        siteId?: string,
-        onProgress?: CoreFilepoolOnProgressCallback):
-    Promise<void>;
+        options?: CorePluginFileTreatDownloadedFileOptions,
+    ): Promise<void>;
 }
 
 /**
@@ -409,4 +407,15 @@ export type CorePluginFileDownloadableResult = {
 export type CoreFileSizeSum = {
     size: number; // Sum of file sizes.
     total: boolean; // False if any file size is not available.
+};
+
+/**
+ * Options for treatDownloadedFile.
+ */
+export type CorePluginFileTreatDownloadedFileOptions<T = unknown> = {
+    siteId?: string; // Site ID. If not defined, current site.
+    onProgress?: CoreFilepoolOnProgressCallback<T>; // Function to call on progress.
+    component?: string; // The component to link the file to.
+    componentId?: string | number; // An ID to use in conjunction with the component.
+    timemodified?: number; // The timemodified of the file.
 };

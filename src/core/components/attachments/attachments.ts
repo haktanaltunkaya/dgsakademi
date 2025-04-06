@@ -17,14 +17,24 @@ import { FileEntry } from '@awesome-cordova-plugins/file/ngx';
 
 import { CoreFileUploader, CoreFileUploaderTypeList } from '@features/fileuploader/services/fileuploader';
 import { CoreSites } from '@services/sites';
-import { CoreTextUtils } from '@services/utils/text';
+import { CoreText } from '@singletons/text';
 import { Translate } from '@singletons';
 import { CoreNetwork } from '@services/network';
-import { CoreDomUtils } from '@services/utils/dom';
 import { CoreFileUploaderHelper } from '@features/fileuploader/services/fileuploader-helper';
 import { CoreFileEntry } from '@services/file-helper';
 import { CoreCourses } from '@features/courses/services/courses';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { toBoolean } from '@/core/transforms/boolean';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreToasts } from '@services/overlays/toasts';
+import { CoreWSFile } from '@services/ws';
+import { CoreBaseModule } from '@/core/base.module';
+import { CoreLoadingComponent } from '../loading/loading';
+import { CoreLocalFileComponent } from '../local-file/local-file';
+import { CoreFileComponent } from '../file/file';
+import { CoreMarkRequiredComponent } from '@components/mark-required/mark-required';
+import { CoreFaIconDirective } from '@directives/fa-icon';
+import { CoreUpdateNonReactiveAttributesDirective } from '@directives/update-non-reactive-attributes';
 
 /**
  * Component to render attachments, allow adding more and delete the current ones.
@@ -42,7 +52,17 @@ import { CoreUtils } from '@services/utils/utils';
 @Component({
     selector: 'core-attachments',
     templateUrl: 'core-attachments.html',
-    styleUrls: ['attachments.scss'],
+    styleUrl: 'attachments.scss',
+    standalone: true,
+    imports: [
+        CoreBaseModule,
+        CoreFaIconDirective,
+        CoreUpdateNonReactiveAttributesDirective,
+        CoreLoadingComponent,
+        CoreLocalFileComponent,
+        CoreFileComponent,
+        CoreMarkRequiredComponent,
+    ],
 })
 export class CoreAttachmentsComponent implements OnInit {
 
@@ -51,10 +71,11 @@ export class CoreAttachmentsComponent implements OnInit {
     @Input() maxSubmissions?: number; // Max number of attachments. -1 means unlimited, not defined means unknown limit.
     @Input() component?: string; // Component the downloaded files will be linked to.
     @Input() componentId?: string | number; // Component ID.
-    @Input() allowOffline?: boolean | string; // Whether to allow selecting files in offline.
+    @Input({ transform: toBoolean }) allowOffline = false; // Whether to allow selecting files in offline.
     @Input() acceptedTypes?: string; // List of supported filetypes. If undefined, all types supported.
-    @Input() required?: boolean; // Whether to display the required mark.
+    @Input({ transform: toBoolean }) required = false; // Whether to display the required mark.
     @Input() courseId?: number; // Course ID.
+    @Input() title = Translate.instant('core.fileuploader.attachedfiles'); // Title to display.
 
     maxSizeReadable?: string;
     maxSubmissionsReadable?: string;
@@ -72,7 +93,7 @@ export class CoreAttachmentsComponent implements OnInit {
         if (this.maxSize === 0) {
             await this.getMaxSizeOfArea();
         } else if (this.maxSize > 0) {
-            this.maxSizeReadable = CoreTextUtils.bytesToSize(this.maxSize, 2);
+            this.maxSizeReadable = CoreText.bytesToSize(this.maxSize, 2);
         } else if (this.maxSize === -1) {
             this.maxSizeReadable = Translate.instant('core.unlimited');
         } else {
@@ -104,11 +125,11 @@ export class CoreAttachmentsComponent implements OnInit {
     protected async getMaxSizeOfArea(): Promise<void> {
         if (this.courseId) {
             // Check course max size.
-            const course = await CoreUtils.ignoreErrors(CoreCourses.getCourseByField('id', this.courseId));
+            const course = await CorePromiseUtils.ignoreErrors(CoreCourses.getCourseByField('id', this.courseId));
 
             if (course?.maxbytes) {
                 this.maxSize = course.maxbytes;
-                this.maxSizeReadable = CoreTextUtils.bytesToSize(this.maxSize, 2);
+                this.maxSizeReadable = CoreText.bytesToSize(this.maxSize, 2);
 
                 return;
             }
@@ -120,7 +141,7 @@ export class CoreAttachmentsComponent implements OnInit {
 
         if (siteInfo?.usermaxuploadfilesize) {
             this.maxSize = siteInfo.usermaxuploadfilesize;
-            this.maxSizeReadable = CoreTextUtils.bytesToSize(this.maxSize, 2);
+            this.maxSizeReadable = CoreText.bytesToSize(this.maxSize, 2);
         } else {
             this.maxSizeReadable = Translate.instant('core.unknown');
         }
@@ -130,10 +151,8 @@ export class CoreAttachmentsComponent implements OnInit {
      * Add a new attachment.
      */
     async add(): Promise<void> {
-        const allowOffline = !!this.allowOffline && this.allowOffline !== 'false';
-
-        if (!allowOffline && !CoreNetwork.isOnline()) {
-            CoreDomUtils.showErrorModal('core.fileuploader.errormustbeonlinetoupload', true);
+        if (!this.allowOffline && !CoreNetwork.isOnline()) {
+            CoreAlerts.showError(Translate.instant('core.fileuploader.errormustbeonlinetoupload'));
 
             return;
         }
@@ -141,11 +160,11 @@ export class CoreAttachmentsComponent implements OnInit {
         const mimetypes = this.fileTypes && this.fileTypes.mimetypes;
 
         try {
-            const result = await CoreFileUploaderHelper.selectFile(this.maxSize, allowOffline, undefined, mimetypes);
+            const result = await CoreFileUploaderHelper.selectFile(this.maxSize, this.allowOffline, undefined, mimetypes);
 
             this.files?.push(result);
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Error selecting file.');
+            CoreAlerts.showError(error, { default: 'Error selecting file.' });
         }
     }
 
@@ -159,10 +178,22 @@ export class CoreAttachmentsComponent implements OnInit {
 
         if (askConfirm) {
             try {
-                await CoreDomUtils.showDeleteConfirm('core.confirmdeletefile');
+                await CoreAlerts.confirmDelete(Translate.instant('core.confirmdeletefile'));
             } catch {
                 // User cancelled.
                 return;
+            }
+        }
+
+        // Status message for screen readers.
+        const file = this.files[index];
+        if (file) {
+            const filename = (file as CoreWSFile).filename ?? (file as FileEntry).name;
+            if (filename) {
+                CoreToasts.show({
+                    cssClass: 'sr-only',
+                    message: Translate.instant('core.filedeletedsuccessfully', { filename }),
+                });
             }
         }
 

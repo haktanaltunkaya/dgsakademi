@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Component, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { Component, OnDestroy, OnInit, ViewChild, AfterViewInit } from '@angular/core';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
 import { ActivatedRoute } from '@angular/router';
 import { CoreSites } from '@services/sites';
@@ -24,25 +24,31 @@ import {
 } from '@features/comments/services/comments';
 import {
     CoreCommentsSync,
-    CoreCommentsSyncProvider,
 } from '@features/comments/services/comments-sync';
 import { IonContent } from '@ionic/angular';
 import { ContextLevel, CoreConstants } from '@/core/constants';
 import { CoreNavigator } from '@services/navigator';
 import { NgZone, Translate } from '@singletons';
-import { CoreUtils } from '@services/utils/utils';
-import { CoreDomUtils, ToastDuration } from '@services/utils/dom';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { CoreUser } from '@features/user/services/user';
-import { CoreTextUtils } from '@services/utils/text';
+import { CoreText } from '@singletons/text';
 import { CoreError } from '@classes/errors/error';
 import { CoreCommentsOffline } from '@features/comments/services/comments-offline';
 import { CoreCommentsDBRecord } from '@features/comments/services/database/comments';
-import { CoreTimeUtils } from '@services/utils/time';
-import { CoreApp } from '@services/app';
+import { CoreTime } from '@singletons/time';
 import { CoreNetwork } from '@services/network';
-import moment from 'moment-timezone';
+import dayjs from 'dayjs';
 import { Subscription } from 'rxjs';
 import { CoreAnimations } from '@components/animations';
+import { CoreToasts, ToastDuration } from '@services/overlays/toasts';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CORE_COMMENTS_AUTO_SYNCED } from '@features/comments/constants';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreWait } from '@singletons/wait';
+import { CoreDom } from '@singletons/dom';
+import { CoreSharedModule } from '@/core/shared.module';
+import { ADDON_MOD_ASSIGN_COMMENTS_COMPONENT_NAME } from '@addons/mod/assign/submission/comments/constants';
+import { CoreCourses } from '@features/courses/services/courses';
 
 /**
  * Page that displays comments.
@@ -52,8 +58,12 @@ import { CoreAnimations } from '@components/animations';
     templateUrl: 'viewer.html',
     animations: [CoreAnimations.SLIDE_IN_OUT],
     styleUrls: ['../../../../../theme/components/discussion.scss', 'viewer.scss'],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
-export class CoreCommentsViewerPage implements OnInit, OnDestroy {
+export default class CoreCommentsViewerPage implements OnInit, OnDestroy, AfterViewInit {
 
     @ViewChild(IonContent) content?: IonContent;
 
@@ -65,7 +75,7 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
     itemId = 0;
     area = '';
     page = 0;
-    title = '';
+    title?: string;
     courseId?: number;
     canLoadMore = false;
     loadMoreError = false;
@@ -84,7 +94,10 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
     protected addDeleteCommentsAvailable = false;
     protected syncObserver?: CoreEventObserver;
     protected onlineObserver: Subscription;
+    protected keyboardObserver: CoreEventObserver;
     protected viewDestroyed = false;
+    protected scrollBottom = true;
+    protected scrollElement?: HTMLElement;
 
     constructor(
         protected route: ActivatedRoute,
@@ -92,9 +105,9 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
         this.currentUserId = CoreSites.getCurrentSiteUserId();
 
         // Refresh data if comments are synchronized automatically.
-        this.syncObserver = CoreEvents.on(CoreCommentsSyncProvider.AUTO_SYNCED, (data) => {
-            if (data.contextLevel == this.contextLevel && data.instanceId == this.instanceId &&
-                    data.componentName == this.componentName && data.itemId == this.itemId && data.area == this.area) {
+        this.syncObserver = CoreEvents.on(CORE_COMMENTS_AUTO_SYNCED, (data) => {
+            if (data.contextLevel === this.contextLevel && data.instanceId === this.instanceId &&
+                    data.componentName === this.componentName && data.itemId === this.itemId && data.area === this.area) {
                 // Show the sync warnings.
                 this.showSyncWarnings(data.warnings);
 
@@ -116,6 +129,11 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
                 this.isOnline = CoreNetwork.isOnline();
             });
         });
+
+        this.keyboardObserver = CoreEvents.on(CoreEvents.KEYBOARD_CHANGE, (keyboardHeight: number) => {
+            // Force when opening.
+            this.scrollToBottom(keyboardHeight > 0);
+        });
     }
 
     /**
@@ -128,11 +146,10 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
             this.componentName = CoreNavigator.getRequiredRouteParam<string>('componentName');
             this.itemId = CoreNavigator.getRequiredRouteNumberParam('itemId');
             this.area = CoreNavigator.getRouteParam('area') || '';
-            this.title = CoreNavigator.getRouteParam('title') ||
-                Translate.instant('core.comments.comments');
+            this.title = CoreNavigator.getRouteParam('title');
             this.courseId = CoreNavigator.getRouteNumberParam('courseId');
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
+            CoreAlerts.showError(error);
 
             CoreNavigator.back();
 
@@ -149,6 +166,13 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
     }
 
     /**
+     * @inheritdoc
+     */
+    async ngAfterViewInit(): Promise<void> {
+        this.scrollElement = await this.content?.getScrollElement();
+    }
+
+    /**
      * Fetches the comments.
      *
      * @param sync When to resync comments.
@@ -159,8 +183,23 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
         this.loadMoreError = false;
 
         if (sync) {
-            await CoreUtils.ignoreErrors(this.syncComments(showErrors));
+            await CorePromiseUtils.ignoreErrors(this.syncComments(showErrors));
         }
+
+        if (!this.title) {
+            try {
+                if (this.contextLevel === ContextLevel.SYSTEM) {
+                    this.title = await CoreSites.getRequiredCurrentSite().getSiteName();
+                } else if (this.contextLevel === ContextLevel.COURSE) {
+                    const course = await CoreCourses.getCourseByField('id', this.instanceId);
+                    this.title = course.fullname;
+                }
+            } catch {
+                // Ignore errors.
+            }
+        }
+
+        this.scrollBottom = CoreDom.scrollIsBottom(this.scrollElement, 5);
 
         try {
             // Get comments data.
@@ -195,19 +234,20 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
             await this.loadOfflineData();
         } catch (error) {
             this.loadMoreError = true; // Set to prevent infinite calls with infinite-loading.
-            if (error && this.componentName == 'assignsubmission_comments') {
-                CoreDomUtils.showAlertTranslated('core.notice', 'core.comments.commentsnotworking');
+            if (error && this.componentName === ADDON_MOD_ASSIGN_COMMENTS_COMPONENT_NAME) {
+                CoreAlerts.show({
+                    header: Translate.instant('core.notice'),
+                    message: Translate.instant('core.comments.commentsnotworking'),
+                });
             } else {
-                CoreDomUtils.showErrorModalDefault(error, Translate.instant('core.error') + ': get_comments');
+                CoreAlerts.showError(error, { default: `${Translate.instant('core.error')}: get_comments` });
             }
         } finally {
             this.commentsLoaded = true;
             this.refreshIcon = CoreConstants.ICON_REFRESH;
             this.syncIcon = CoreConstants.ICON_SYNC;
 
-            if (this.page == 0) {
-                this.scrollToBottom();
-            }
+            this.scrollToBottom(this.page === 0);
         }
 
     }
@@ -254,7 +294,7 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
         this.refreshIcon = CoreConstants.ICON_LOADING;
         this.syncIcon = CoreConstants.ICON_LOADING;
 
-        await CoreUtils.ignoreErrors(this.invalidateComments());
+        await CorePromiseUtils.ignoreErrors(this.invalidateComments());
 
         this.page = 0;
         this.comments = [];
@@ -272,9 +312,9 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
      * @param warnings the warnings
      */
     private showSyncWarnings(warnings: string[]): void {
-        const message = CoreTextUtils.buildMessage(warnings);
+        const message = CoreText.buildMessage(warnings);
         if (message) {
-            CoreDomUtils.showAlert(undefined, message);
+            CoreAlerts.show({ message });
         }
     }
 
@@ -296,7 +336,7 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
             this.showSyncWarnings(result?.warnings || []);
         } catch (error) {
             if (showErrors) {
-                CoreDomUtils.showErrorModalDefault(error, 'core.errorsync', true);
+                CoreAlerts.showError(error, { default: Translate.instant('core.errorsync') });
             }
 
             throw new CoreError(error);
@@ -309,8 +349,7 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
      * @param text Comment text to add.
      */
     async addComment(text: string): Promise<void> {
-        CoreApp.closeKeyboard();
-        const loadingModal = await CoreDomUtils.showModalLoading('core.sending', true);
+        const loadingModal = await CoreLoadings.show('core.sending', true);
         // Freeze the add comment button.
         this.sending = true;
         try {
@@ -321,12 +360,6 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
                 this.componentName,
                 this.itemId,
                 this.area,
-            );
-
-            CoreDomUtils.showToast(
-                commentsResponse ? 'core.comments.eventcommentcreated' : 'core.datastoredoffline',
-                true,
-                ToastDuration.LONG,
             );
 
             if (commentsResponse) {
@@ -355,13 +388,13 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
                 await this.loadOfflineData();
             }
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
+            CoreAlerts.showError(error);
         } finally {
-            loadingModal.dismiss();
             this.sending = false;
+            await loadingModal.dismiss();
 
             // New comments.
-            this.scrollToBottom();
+            this.scrollToBottom(true);
         }
     }
 
@@ -374,7 +407,7 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
         const modified = 'lastmodified' in comment
             ? comment.lastmodified
             : comment.timecreated;
-        const time = CoreTimeUtils.userDate(
+        const time = CoreTime.userDate(
             modified * 1000,
             'core.strftimerecentfull',
         );
@@ -390,10 +423,9 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
         };
 
         try {
-            await CoreDomUtils.showDeleteConfirm('core.comments.deletecommentbyon', {
-                $a:
-                    { user: comment.fullname || '', time: time },
-            });
+            await CoreAlerts.confirmDelete(Translate.instant('core.comments.deletecommentbyon', {
+                $a: { user: comment.fullname || '', time: time },
+            }));
         } catch {
             // User cancelled, nothing to do.
             return;
@@ -426,9 +458,13 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
 
             this.invalidateComments();
 
-            CoreDomUtils.showToast('core.comments.eventcommentdeleted', true, ToastDuration.LONG);
+            CoreToasts.show({
+                message: 'core.comments.eventcommentdeleted',
+                translateMessage: true,
+                duration: ToastDuration.LONG,
+            });
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Delete comment failed.');
+            CoreAlerts.showError(error, { default: 'Delete comment failed.' });
         }
     }
 
@@ -516,7 +552,7 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
         }
 
         // Check if day has changed.
-        return !moment(comment.timecreated * 1000).isSame(prevComment.timecreated * 1000, 'day');
+        return !dayjs.tz(comment.timecreated * 1000).isSame(prevComment.timecreated * 1000, 'day');
     }
 
     /**
@@ -594,14 +630,25 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
 
     /**
      * Scroll bottom when render has finished.
+     *
+     * @param force Whether to force scroll to bottom.
      */
-    protected scrollToBottom(): void {
-        // Need a timeout to leave time to the view to be rendered.
-        setTimeout(() => {
-            if (!this.viewDestroyed) {
-                this.content?.scrollToBottom();
-            }
-        }, 100);
+    protected async scrollToBottom(force = false): Promise<void> {
+        if (this.viewDestroyed) {
+            return;
+        }
+
+        // Check if scroll is at bottom. If so, scroll bottom after rendering since there might be something new.
+        if (!this.scrollBottom && !force) {
+            return;
+        }
+
+        // Leave time for the view to be rendered.
+        await CoreWait.nextTicks(5);
+
+        if (!this.viewDestroyed && this.content) {
+            this.content.scrollToBottom(0);
+        }
     }
 
     /**
@@ -615,7 +662,7 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
      * Refresh cached data in background.
      */
     protected async refreshInBackground(): Promise<void> {
-        await CoreUtils.ignoreErrors(this.invalidateComments());
+        await CorePromiseUtils.ignoreErrors(this.invalidateComments());
 
         const promises: Promise<unknown>[] = [];
 
@@ -640,6 +687,7 @@ export class CoreCommentsViewerPage implements OnInit, OnDestroy {
         this.syncObserver?.off();
         this.onlineObserver.unsubscribe();
         this.viewDestroyed = true;
+        this.keyboardObserver.off();
     }
 
 }

@@ -84,16 +84,7 @@ const appConfig = {
                 },
             },
         ],
-        '@typescript-eslint/member-ordering': [
-            'error',
-            {
-                default:
-                {
-                    order: 'as-written',
-                },
-
-            }
-        ],
+        '@typescript-eslint/member-ordering': 'off',
         '@typescript-eslint/naming-convention': [
             'error',
             {
@@ -208,7 +199,7 @@ const appConfig = {
         'id-match': 'error',
         'jsdoc/check-alignment': 'error',
         'jsdoc/check-param-names': [
-            'warn',
+            'error',
             {
                 checkDestructured: false,
                 enableFixer: true

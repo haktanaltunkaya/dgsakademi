@@ -4,7 +4,7 @@
             <h1>{{ 'addon.mod_wiki.map' | translate }}</h1>
         </ion-title>
         <ion-buttons slot="end">
-            <ion-button fill="clear" (click)="closeModal()" [attr.aria-label]="'core.close' | translate">
+            <ion-button fill="clear" (click)="closeModal()" [ariaLabel]="'core.close' | translate">
                 <ion-icon slot="icon-only" name="fas-xmark" aria-hidden="true" />
             </ion-button>
         </ion-buttons>
@@ -28,7 +28,8 @@
                     [attr.aria-current]="selectedTitle === page.title ? 'page' : 'false'" button [detail]="false">
                     <ion-icon name="fas-house" slot="start" *ngIf="page.firstpage" aria-hidden="true" />
                     <ion-label>
-                        <core-format-text [text]="page.title" contextLevel="module" [contextInstanceId]="moduleId" [courseId]="courseId" />
+                        <core-format-text [text]="page.title" contextLevel="module" [contextInstanceId]="moduleId" [courseId]="courseId"
+                            [sanitize]="!page.id" />
                     </ion-label>
                     <ion-note *ngIf="!page.id" slot="end">
                         <ion-icon name="fas-clock" aria-hidden="true" />

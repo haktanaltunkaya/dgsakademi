@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreApp } from '@services/app';
+import { CoreSSO } from '@singletons/sso';
 import { CoreNetwork } from '@services/network';
 import { CoreEventData, CoreEvents } from '@singletons/events';
 import {
@@ -21,10 +21,10 @@ import {
     CoreWSPreSetsSplitRequest,
     CoreWSTypeExpected,
 } from '@services/ws';
-import { CoreDomUtils, ToastDuration } from '@services/utils/dom';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
-import { CoreConstants } from '@/core/constants';
+import { CoreToasts, ToastDuration } from '@services/overlays/toasts';
+import { CoreText } from '@singletons/text';
+import { CoreUtils } from '@singletons/utils';
+import { CoreCacheUpdateFrequency, CoreConstants, MINIMUM_MOODLE_VERSION, MOODLE_RELEASES } from '@/core/constants';
 import { CoreError } from '@classes/errors/error';
 import { CoreWSError } from '@classes/errors/wserror';
 import { CoreLogger } from '@singletons/logger';
@@ -39,9 +39,12 @@ import { CoreSiteError } from '@classes/errors/siteerror';
 import { CoreUserAuthenticatedSupportConfig } from '@features/user/classes/support/authenticated-support-config';
 import { CoreSiteInfo, CoreSiteInfoResponse, CoreSitePublicConfigResponse, CoreUnauthenticatedSite } from './unauthenticated-site';
 import { Md5 } from 'ts-md5';
-import { CoreUrlUtils } from '@services/utils/url';
 import { CoreSiteWSCacheRecord } from '@services/database/sites';
 import { CoreErrorLogs } from '@singletons/error-logs';
+import { CoreWait } from '@singletons/wait';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreObject } from '@singletons/object';
+import { CoreArray } from '@singletons/array';
 
 /**
  * Class that represents a site (combination of site + user) where the user has authenticated but the site hasn't been validated
@@ -51,29 +54,34 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
 
     static readonly REQUEST_QUEUE_FORCE_WS = false; // Use "tool_mobile_call_external_functions" even for calling a single function.
 
-    // Constants for cache update frequency.
-    static readonly FREQUENCY_USUALLY = 0;
-    static readonly FREQUENCY_OFTEN = 1;
-    static readonly FREQUENCY_SOMETIMES = 2;
-    static readonly FREQUENCY_RARELY = 3;
+    /**
+     * @deprecated 5.0. Use CoreCacheUpdateFrequency.USUALLY instead.
+     */
+    static readonly FREQUENCY_USUALLY = CoreCacheUpdateFrequency.USUALLY;
+    /**
+     * @deprecated 5.0. Use CoreCacheUpdateFrequency.OFTEN instead.
+     */
+    static readonly FREQUENCY_OFTEN = CoreCacheUpdateFrequency.OFTEN;
+    /**
+     * @deprecated 5.0. Use CoreCacheUpdateFrequency.SOMETIMES instead.
+     */
+    static readonly FREQUENCY_SOMETIMES = CoreCacheUpdateFrequency.SOMETIMES;
+    /**
+     * @deprecated 5.0. Use CoreCacheUpdateFrequency.RARELY instead.
+     */
+    static readonly FREQUENCY_RARELY = CoreCacheUpdateFrequency.RARELY;
 
-    static readonly MINIMUM_MOODLE_VERSION = '3.5';
+    /**
+     * @deprecated 5.0. Use MINIMUM_MOODLE_VERSION from constants.ts.
+     */
+    static readonly MINIMUM_MOODLE_VERSION = MINIMUM_MOODLE_VERSION;
 
-    // Versions of Moodle releases.
-    static readonly MOODLE_RELEASES = {
-        '3.5': 2018051700,
-        '3.6': 2018120300,
-        '3.7': 2019052000,
-        '3.8': 2019111800,
-        '3.9': 2020061500,
-        '3.10': 2020110900,
-        '3.11': 2021051700,
-        '4.0': 2022041900,
-        '4.1': 2022112800,
-        '4.2': 2023042400,
-        '4.3': 2023100900,
-        '4.4': 2024012500, // @TODO correct the final release date.
-    };
+    /**
+     * Versions of Moodle releases.
+     *
+     * @deprecated 5.0. Use MOODLE_RELEASES from constants.ts.
+     */
+    static readonly MOODLE_RELEASES = MOODLE_RELEASES;
 
     // Possible cache update frequencies.
     protected static readonly UPDATE_FREQUENCIES = [
@@ -206,7 +214,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
 
         // Index function by name to speed up wsAvailable method.
         if (infos?.functions) {
-            infos.functionsByName = CoreUtils.arrayToObject(infos.functions, 'name');
+            infos.functionsByName = CoreArray.toObject(infos.functions, 'name');
         }
     }
 
@@ -304,8 +312,8 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
      * @returns Promise resolved with the response, rejected with CoreWSError if it fails.
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    read<T = unknown>(method: string, data: any, preSets?: CoreSiteWSPreSets): Promise<T> {
-        return firstValueFrom(this.readObservable<T>(method, data, preSets));
+    async read<T = unknown>(method: string, data: any, preSets?: CoreSiteWSPreSets): Promise<T> {
+        return await firstValueFrom(this.readObservable<T>(method, data, preSets));
     }
 
     /**
@@ -335,8 +343,8 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
      * @returns Promise resolved with the response, rejected with CoreWSError if it fails.
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    write<T = unknown>(method: string, data: any, preSets?: CoreSiteWSPreSets): Promise<T> {
-        return firstValueFrom(this.writeObservable<T>(method, data, preSets));
+    async write<T = unknown>(method: string, data: any, preSets?: CoreSiteWSPreSets): Promise<T> {
+        return await firstValueFrom(this.writeObservable<T>(method, data, preSets));
     }
 
     /**
@@ -367,7 +375,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async request<T = unknown>(method: string, data: any, preSets: CoreSiteWSPreSets): Promise<T> {
-        return firstValueFrom(this.requestObservable<T>(method, data, preSets));
+        return await firstValueFrom(this.requestObservable<T>(method, data, preSets));
     }
 
     /**
@@ -418,9 +426,13 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
             splitRequest: preSets.splitRequest,
         };
 
-        if (wsPreSets.cleanUnicode && CoreTextUtils.hasUnicodeData(data)) {
+        if (wsPreSets.cleanUnicode && CoreText.hasUnicodeData(data)) {
             // Data will be cleaned, notify the user.
-            CoreDomUtils.showToast('core.unicodenotsupported', true, ToastDuration.LONG);
+            CoreToasts.show({
+                message: 'core.unicodenotsupported',
+                translateMessage: true,
+                duration: ToastDuration.LONG,
+            });
         } else {
             // No need to clean data in this call.
             wsPreSets.cleanUnicode = false;
@@ -621,8 +633,39 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
             throw new CoreError(Translate.instant('core.cannotconnect'));
         }
 
+        // Helper function to fetch original content if needed.
+        const fetchOriginalIfNeeded = async (response: T) => {
+            const fetchOriginalToo = typeof preSets.fetchOriginalToo === 'function' ?
+                await preSets.fetchOriginalToo(response) :
+                preSets.fetchOriginalToo;
+
+            if (!fetchOriginalToo) {
+                return;
+            }
+
+            await CorePromiseUtils.ignoreErrors(this.getFromWS(
+                method,
+                {
+                    ...data,
+                    moodlewssettingfilter: 'false',
+                    moodlewssettingfileurl: 'false',
+                },
+                {
+                    ...preSets,
+                    filter: false,
+                    rewriteurls: false,
+                },
+                wsPreSets,
+            ));
+        };
+
         try {
             const response = await this.callOrEnqueueWS<T>(method, data, preSets, wsPreSets);
+
+            if (preSets.filter !== false && preSets.saveToCache) {
+                // Fetch original data if needed. Don't block the user for this.
+                fetchOriginalIfNeeded(response);
+            }
 
             if (preSets.saveToCache) {
                 this.saveToCache(method, data, response, preSets);
@@ -632,7 +675,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
         } catch (error) {
             let useSilentError = false;
 
-            if (CoreUtils.isExpiredTokenError(error)) {
+            if (CoreWSError.isExpiredTokenError(error)) {
                 // Session expired, trigger event.
                 this.triggerSiteEvent(CoreEvents.SESSION_EXPIRED, {});
                 // Change error message. Try to get data from cache, the event will handle the error.
@@ -669,10 +712,10 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
             } else if (error.errorcode === 'sitepolicynotagreed') {
                 // Site policy not agreed, trigger event.
                 this.triggerSiteEvent(CoreEvents.SITE_POLICY_NOT_AGREED, {});
-                error.message = Translate.instant('core.login.sitepolicynotagreederror');
+                error.message = Translate.instant('core.policy.sitepolicynotagreederror');
 
-                throw new CoreWSError(error);
-            } else if (error.errorcode === 'dmlwriteexception' && CoreTextUtils.hasUnicodeData(data)) {
+                throw new CoreSilentError(error);
+            } else if (error.errorcode === 'dmlwriteexception' && CoreText.hasUnicodeData(data)) {
                 if (!this.cleanUnicode) {
                     // Try again cleaning unicode.
                     this.cleanUnicode = true;
@@ -709,9 +752,9 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
                 throw new CoreWSError(error);
             }
 
-            if (preSets.deleteCacheIfWSError && CoreUtils.isWebServiceError(error)) {
+            if (preSets.deleteCacheIfWSError && CoreWSError.isWebServiceError(error)) {
                 // Delete the cache entry and return the entry. Don't block the user with the delete.
-                CoreUtils.ignoreErrors(this.deleteFromCache(method, data, preSets));
+                CorePromiseUtils.ignoreErrors(this.deleteFromCache(method, data, preSets));
 
                 throw new CoreWSError(error);
             }
@@ -775,15 +818,15 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
         try {
             return await this.callOrEnqueueRequest<T>(method, data, preSets, wsPreSets);
         } catch (error) {
-            if (CoreUtils.isExpiredTokenError(error)) {
+            if (CoreWSError.isExpiredTokenError(error)) {
                 if (initialToken !== this.token) {
                     // Token has changed, retry with the new token.
                     wsPreSets.wsToken = this.token ?? '';
 
                     return await this.callOrEnqueueRequest<T>(method, data, preSets, wsPreSets);
-                } else if (CoreApp.isSSOAuthenticationOngoing()) {
+                } else if (CoreSSO.isSSOAuthenticationOngoing()) {
                     // There's an SSO authentication ongoing, wait for it to finish and try again.
-                    await CoreApp.waitForSSOAuthentication();
+                    await CoreSSO.waitForSSOAuthentication();
 
                     return await this.callOrEnqueueRequest<T>(method, data, preSets, wsPreSets);
                 }
@@ -943,8 +986,10 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
                 throw new CoreSiteError({
                     supportConfig: new CoreUserAuthenticatedSupportConfig(this),
                     message: Translate.instant('core.siteunavailablehelp', { site: this.siteUrl }),
-                    errorcode: 'invalidresponse',
-                    errorDetails: Translate.instant('core.errorinvalidresponse', { method: 'tool_mobile_call_external_functions' }),
+                    debug: {
+                        code: 'invalidresponse',
+                        details: Translate.instant('core.errorinvalidresponse', { method: 'tool_mobile_call_external_functions' }),
+                    },
                 });
             }
 
@@ -955,7 +1000,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
                     // Request not executed, enqueue again.
                     this.enqueueRequest(request);
                 } else if (response.error) {
-                    const rejectReason = CoreTextUtils.parseJSON(response.exception || '') as Error | undefined;
+                    const rejectReason = CoreText.parseJSON(response.exception || '') as Error | undefined;
                     request.deferred.reject(rejectReason);
                     CoreErrorLogs.addErrorLog({
                         method: request.method,
@@ -965,7 +1010,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
                         data: request.data,
                     });
                 } else {
-                    let responseData = response.data ? CoreTextUtils.parseJSON(response.data) : {};
+                    let responseData = response.data ? CoreText.parseJSON(response.data) : {};
                     // Match the behaviour of CoreWSProvider.call when no response is expected.
                     const responseExpected = wsPresets.responseExpected === undefined || wsPresets.responseExpected;
                     if (!responseExpected && (responseData == null || responseData === '')) {
@@ -1008,7 +1053,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected getCacheId(method: string, data: any): string {
-        return <string> Md5.hashAsciiStr(method + ':' + CoreUtils.sortAndStringify(data));
+        return Md5.hashAsciiStr(`${method}:${CoreObject.sortAndStringify(data)}`);
     }
 
     /**
@@ -1042,7 +1087,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
             } else {
                 if (entries.length > 1) {
                     // More than one entry found. Search the one with same ID as this call.
-                    entry = entries.find((entry) => entry.id == id);
+                    entry = entries.find((entry) => entry.id === id);
                 }
 
                 if (!entry) {
@@ -1091,7 +1136,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
             }
 
             return {
-                response: <T> CoreTextUtils.parseJSON(entry.data, {}),
+                response: <T> CoreText.parseJSON(entry.data, {}),
                 expirationIgnored: forceCache,
                 expirationTime,
             };
@@ -1137,7 +1182,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
     protected async saveToCache(method: string, data: any, response: any, preSets: CoreSiteWSPreSets): Promise<void> {
         if (preSets.uniqueCacheKey) {
             // Cache key must be unique, delete all entries with same cache key.
-            await CoreUtils.ignoreErrors(this.deleteFromCache(method, data, preSets, true));
+            await CorePromiseUtils.ignoreErrors(this.deleteFromCache(method, data, preSets, true));
         }
 
         // Since 3.7, the expiration time contains the time the entry is modified instead of the expiration time.
@@ -1220,7 +1265,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
             return;
         }
 
-        this.logger.debug('Invalidate cache for key: ' + key);
+        this.logger.debug(`Invalidate cache for key: ${key}`);
 
         const entries = await this.getCacheEntriesByKey(key);
         entries.forEach(entry => {
@@ -1254,7 +1299,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
             return;
         }
 
-        this.logger.debug('Invalidate cache for key starting with: ' + key);
+        this.logger.debug(`Invalidate cache for key starting with: ${key}`);
         Object.values(this.memoryCache).filter(entry => entry.key?.startsWith(key)).forEach(entry => {
             entry.expirationTime = 0;
         });
@@ -1265,11 +1310,33 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
      *
      * @param page Docs page to go to.
      * @returns Promise resolved with the Moodle docs URL.
+     *
+     * @deprecated since 4.5. Not needed anymore.
      */
-    getDocsUrl(page?: string): Promise<string> {
+    async getDocsUrl(page?: string): Promise<string> {
         const release = this.infos?.release ? this.infos.release : undefined;
+        let docsUrl = `https://docs.moodle.org/en/${page}`;
 
-        return CoreUrlUtils.getDocsUrl(release, page);
+        if (release !== undefined) {
+            // Remove this part of the function if this file only uses CoreSites here.
+            const version = CoreSites.getMajorReleaseNumber(release).replace('.', '');
+
+            // Check is a valid number.
+            if (Number(version) >= 24) {
+                // Append release number.
+                docsUrl = docsUrl.replace('https://docs.moodle.org/', `https://docs.moodle.org/${version}/`);
+            }
+        }
+
+        try {
+            // Remove this part of the function if this file only uses CoreLang here.
+            let lang = CoreLang.getCurrentLanguageSync(CoreLangFormat.LMS);
+            lang = CoreLang.getParentLanguage() || lang;
+
+            return docsUrl.replace('/en/', `/${lang}/`);
+        } catch {
+            return docsUrl;
+        }
     }
 
     /**
@@ -1303,7 +1370,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
         // Check for an ongoing identical request.
         const ongoingRequest = this.getOngoingRequest<CoreSitePublicConfigResponse>(cacheId, cachePreSets);
         if (ongoingRequest) {
-            return firstValueFrom(ongoingRequest);
+            return await firstValueFrom(ongoingRequest);
         }
 
         const subject = new Subject<CoreSitePublicConfigResponse>();
@@ -1363,7 +1430,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
                 subject.error(error);
             });
 
-        return firstValueFrom(observable);
+        return await firstValueFrom(observable);
     }
 
     /**
@@ -1431,7 +1498,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
                     }
                 }
             }
-        } else if (typeof versions == 'string') {
+        } else if (typeof versions === 'string') {
             // Compare with this version.
             return siteVersion >= this.getVersionNumber(versions);
         }
@@ -1454,9 +1521,9 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
             return 0;
         }
 
-        if (CoreAuthenticatedSite.MOODLE_RELEASES[data.major] === undefined) {
+        if (MOODLE_RELEASES[data.major] === undefined) {
             // Major version not found. Use the last one.
-            const major = Object.keys(CoreAuthenticatedSite.MOODLE_RELEASES).pop();
+            const major = Object.keys(MOODLE_RELEASES).pop();
             if (!major) {
                 return 0;
             }
@@ -1464,7 +1531,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
             data.major = major;
         }
 
-        return CoreAuthenticatedSite.MOODLE_RELEASES[data.major] + data.minor;
+        return MOODLE_RELEASES[data.major] + data.minor;
     }
 
     /**
@@ -1481,7 +1548,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
         }
 
         return {
-            major: match[1] + '.' + (match[3] || '0'),
+            major: `${match[1]}.${match[3] || '0'}`,
             minor: parseInt(match[5], 10) || 0,
         };
     }
@@ -1494,7 +1561,7 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
      */
     protected getNextMajorVersionNumber(version: string): number {
         const data = this.getMajorAndMinor(version);
-        const releases = Object.keys(CoreAuthenticatedSite.MOODLE_RELEASES);
+        const releases = Object.keys(MOODLE_RELEASES);
 
         if (!data) {
             // Invalid version.
@@ -1505,10 +1572,10 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
 
         if (position == -1 || position == releases.length - 1) {
             // Major version not found or it's the last one. Use the last one.
-            return CoreAuthenticatedSite.MOODLE_RELEASES[releases[position]];
+            return MOODLE_RELEASES[releases[position]];
         }
 
-        return CoreAuthenticatedSite.MOODLE_RELEASES[releases[position + 1]];
+        return MOODLE_RELEASES[releases[position + 1]];
     }
 
     /**
@@ -1517,10 +1584,10 @@ export class CoreAuthenticatedSite extends CoreUnauthenticatedSite {
      * @param updateFrequency The update frequency of the entry.
      * @returns Expiration delay.
      */
-    getExpirationDelay(updateFrequency?: number): number {
-        updateFrequency = updateFrequency || CoreAuthenticatedSite.FREQUENCY_USUALLY;
+    getExpirationDelay(updateFrequency?: CoreCacheUpdateFrequency): number {
+        updateFrequency = updateFrequency ?? CoreCacheUpdateFrequency.USUALLY;
         let expirationDelay = CoreAuthenticatedSite.UPDATE_FREQUENCIES[updateFrequency] ||
-        CoreAuthenticatedSite.UPDATE_FREQUENCIES[CoreAuthenticatedSite.FREQUENCY_USUALLY];
+        CoreAuthenticatedSite.UPDATE_FREQUENCIES[CoreCacheUpdateFrequency.USUALLY];
 
         if (CoreNetwork.isNetworkAccessLimited()) {
             // Not WiFi, increase the expiration delay a 50% to decrease the data usage in this case.
@@ -1582,7 +1649,7 @@ export function chainRequests<T, O extends ObservableInput<any>>(
                 firstValue = false;
 
                 // Wait to see if the observable is completed (no more values).
-                await CoreUtils.nextTick();
+                await CoreWait.nextTick();
 
                 if (isCompleted) {
                     // Current request only returns cached data. Let chained requests update in background.
@@ -1599,7 +1666,7 @@ export function chainRequests<T, O extends ObservableInput<any>>(
             complete: async () => {
                 isCompleted = true;
 
-                await CoreUtils.nextTick();
+                await CoreWait.nextTick();
 
                 subscriber.complete();
             },
@@ -1714,10 +1781,10 @@ export type CoreSiteWSPreSets = {
 
     /**
      * Update frequency. This value determines how often the cached data will be updated. Possible values:
-     * CoreSite.FREQUENCY_USUALLY, CoreSite.FREQUENCY_OFTEN, CoreSite.FREQUENCY_SOMETIMES, CoreSite.FREQUENCY_RARELY.
-     * Defaults to CoreSite.FREQUENCY_USUALLY.
+     * USUALLY, OFTEN, SOMETIMES, RARELY.
+     * Defaults to USUALLY.
      */
-    updateFrequency?: number;
+    updateFrequency?: CoreCacheUpdateFrequency;
 
     /**
      * Component name. Optionally included if this request is being made on behalf of a specific
@@ -1741,6 +1808,12 @@ export type CoreSiteWSPreSets = {
      * Only enabled if CoreConstants.CONFIG.disableCallWSInBackground isn't true.
      */
     updateInBackground?: boolean;
+
+    /**
+     * Whether to also fetch in background the original content (unfiltered and without rewriting URLs).
+     * Ignored if filter=false or data is not saved to cache.
+     */
+    fetchOriginalToo?: boolean | ((response: unknown) => boolean | Promise<boolean>);
 };
 
 /**

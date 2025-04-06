@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreUtils } from '@services/utils/utils';
+import { CoreWait } from '@singletons/wait';
 import { LoadingController } from '@singletons';
+import { CoreToasts } from '@services/overlays/toasts';
 
 /**
  * Dismiss listener.
@@ -69,6 +70,23 @@ export class CoreIonLoadingElement {
     }
 
     /**
+     * Dismiss the loading element and present a status message for screen readers.
+     *
+     * @param text Status message for screen readers.
+     * @param needsTranslate Whether the 'text' needs to be translated.
+     */
+    async dismissWithStatus(text: string, needsTranslate?: boolean): Promise<void> {
+        await Promise.all([
+            this.dismiss(),
+            CoreToasts.show({
+               cssClass: 'sr-only',
+                message: text,
+                translateMessage: needsTranslate,
+            }),
+        ]);
+    }
+
+    /**
      * Register dismiss listener.
      *
      * @param listener Listener.
@@ -105,7 +123,7 @@ export class CoreIonLoadingElement {
         // Wait a bit before presenting the modal, to prevent it being displayed if dismiss is called fast.
         this.scheduled = true;
 
-        await CoreUtils.wait(40);
+        await CoreWait.wait(40);
 
         if (!this.scheduled) {
             return;

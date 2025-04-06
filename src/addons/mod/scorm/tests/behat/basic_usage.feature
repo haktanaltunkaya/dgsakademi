@@ -1,4 +1,4 @@
-@addon_mod_scorm @app @javascript @_switch_iframe
+@addon_mod_scorm @app @mod @mod_scorm @javascript @_switch_iframe
 Feature: Test basic usage of SCORM activity in app
   In order to play a SCORM while using the mobile app
   As a student
@@ -40,7 +40,7 @@ Feature: Test basic usage of SCORM activity in app
 #     And I should see "Scoring"
 
 #     When I switch to the main frame
-#     And I press the back button in the app
+#     And I go back in the app
 #     Then I should find "1" within "Number of attempts you have made" "ion-item" in the app
 #     And I should find "3" within "Grade reported" "ion-item" in the app
 
@@ -103,7 +103,7 @@ Feature: Test basic usage of SCORM activity in app
     # And I should find "Not attempted" within "Having Fun Quiz" "ion-item" in the app
 
     # When I press "Close" in the app
-    # And I press the back button in the app
+    # And I go back in the app
     # Then I should find "Completed" within "How to Play" "ion-item" in the app
     # And I should find "Completed" within "Par?" "ion-item" in the app
     # And I should find "Not attempted" within "Keeping Score" "ion-item" in the app
@@ -143,7 +143,7 @@ Feature: Test basic usage of SCORM activity in app
     And I press "Next" in the app
     Then I should find "11 / 11" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     Then I should find "1" within "Number of attempts you have made" "ion-item" in the app
     # And I should find "9" within "Grade reported" "ion-item" in the app
 
@@ -156,16 +156,30 @@ Feature: Test basic usage of SCORM activity in app
     # And I should find "Complete" within "Having Fun Quiz" "ion-item" in the app
 
     # When I press "Close" in the app
-    # And I press the back button in the app
+    # And I go back in the app
     # Then I should find "1" within "Number of attempts you have made" "ion-item" in the app
 
-  Scenario: Unsupported SCORM
+  Scenario: SCORM 2004 works online
     Given the following "activities" exist:
-      | activity | name      | course | idnumber | packagefilepath                                                    |
-      | scorm    | SCORM 1.2 | C1     | scorm    | mod/scorm/tests/packages/RuntimeBasicCalls_SCORM20043rdEdition.zip |
+      | activity | name       | course | idnumber | packagefilepath                                                    |
+      | scorm    | SCORM 2004 | C1     | scorm    | mod/scorm/tests/packages/RuntimeBasicCalls_SCORM20043rdEdition.zip |
     And I entered the course "Course 1" as "student1" in the app
-    When I press "SCORM 1.2" in the app
-    Then I should find "Sorry, the application only supports SCORM 1.2." in the app
+    When I press "SCORM 2004" in the app
+    Then I should be able to press "Enter" in the app
+
+    When I switch network connection to offline
+    Then I should find "This activity is not available offline" in the app
+    And I should not be able to press "Enter" in the app
+
+    When I switch network connection to wifi
+    And I press "Enter" in the app
+    And I press "Disable fullscreen" in the app
+    Then I should not be able to press "TOC" in the app
+
+    When I switch network connection to offline
+    Then I should find "Any changes you make to this activity while offline may not be saved" in the app
+
+    # TODO: When iframes are fixed, test that the iframe actually works. However, the Golf 2004 SCORM has some issues.
 
   Scenario: Hidden SCOs not displayed in TOC
     Given the following "activities" exist:
@@ -233,8 +247,7 @@ Feature: Test basic usage of SCORM activity in app
     Then I should find "2 / 11" in the app
 
     When I open a browser tab with url "$WWWROOT"
-    And I log in as "admin"
-    And I am on the "System logs report" page
+    And I am on the "System logs report" page logged in as "admin"
     And I set the field "id" to "Course 1"
     And I set the field "user" to "Student student"
     And I press "Get these logs"

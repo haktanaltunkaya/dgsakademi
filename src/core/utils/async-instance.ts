@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { TupleMatches } from '@/core/utils/types';
 import { CorePromisedValue } from '@classes/promised-value';
 
 /**
@@ -27,11 +28,19 @@ function createAsyncInstanceWrapper<
     lazyConstructor?: () => TLazyInstance | Promise<TLazyInstance>,
 ): AsyncInstanceWrapper<TLazyInstance, TEagerInstance> {
     let promisedInstance: CorePromisedValue<TLazyInstance> | null = null;
+    let lazyMethods: Array<string | number | symbol> | null = null;
+    let lazyOverrides: Array<keyof TEagerInstance> | null = null;
     let eagerInstance: TEagerInstance;
 
     return {
         get instance() {
             return promisedInstance?.value ?? undefined;
+        },
+        get lazyMethods() {
+            return lazyMethods;
+        },
+        get lazyOverrides() {
+            return lazyOverrides;
         },
         get eagerInstance() {
             return eagerInstance;
@@ -62,6 +71,12 @@ function createAsyncInstanceWrapper<
             }
 
             promisedInstance.resolve(instance);
+        },
+        setLazyMethods(methods) {
+            lazyMethods = methods;
+        },
+        setLazyOverrides(overrides) {
+            lazyOverrides = overrides;
         },
         setEagerInstance(instance) {
             eagerInstance = instance;
@@ -108,10 +123,16 @@ export interface AsyncInstanceWrapper<
     TEagerInstance extends AsyncObject = Partial<TLazyInstance>
 > {
     instance?: TLazyInstance;
+    lazyMethods?: Array<string | number | symbol> | null;
+    lazyOverrides?: Array<keyof TEagerInstance> | null;
     eagerInstance?: TEagerInstance;
     getInstance(): Promise<TLazyInstance>;
     getProperty<P extends keyof TLazyInstance>(property: P): Promise<TLazyInstance[P]>;
     setInstance(instance: TLazyInstance): void;
+    setLazyMethods<const T extends Array<string | number | symbol>>(
+        methods: LazyMethodsGuard<T, TLazyInstance, TEagerInstance>,
+    ): void;
+    setLazyOverrides(methods: Array<keyof TEagerInstance>): void;
     setEagerInstance(eagerInstance: TEagerInstance): void;
     setLazyConstructor(lazyConstructor: () => TLazyInstance | Promise<TLazyInstance>): void;
     resetInstance(): void;
@@ -131,15 +152,38 @@ export type AsyncMethod<T> =
         : never;
 
 /**
+ * Get instance methods that don't return a promise.
+ */
+export type GetEagerMethods<TEagerInstance extends AsyncObject> = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    [k in keyof TEagerInstance]: TEagerInstance[k] extends (...args: any[]) => infer TReturn
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ? (TReturn extends Promise<any> ? never : k)
+        : never
+}[keyof TEagerInstance];
+
+/**
  * Asynchronous instance.
  *
  * All methods are converted to their asynchronous version, and properties are available asynchronously using
  * the getProperty method.
  */
-export type AsyncInstance<TLazyInstance extends TEagerInstance, TEagerInstance extends AsyncObject = Partial<TLazyInstance>> =
-    AsyncInstanceWrapper<TLazyInstance, TEagerInstance> & {
+export type AsyncInstance<
+    TLazyInstance extends TEagerInstance,
+    TEagerInstance extends AsyncObject = Partial<TLazyInstance>,
+    TEagerMethods extends keyof TEagerInstance = GetEagerMethods<TEagerInstance>
+> =
+    AsyncInstanceWrapper<TLazyInstance, TEagerInstance> & Omit<{
         [k in keyof TLazyInstance]: AsyncMethod<TLazyInstance[k]>;
+    }, TEagerMethods> & {
+        [k in TEagerMethods]: TEagerInstance[k];
     };
+
+/**
+ * Guard type to make sure that lazy methods match what the lazy class implements.
+ */
+export type LazyMethodsGuard<TMethods extends Array<string | number | symbol>, TLazyInstance, TEagerInstance> =
+    TupleMatches<TMethods, Exclude<keyof TLazyInstance, keyof TEagerInstance>> extends true ? TMethods : never;
 
 /**
  * Create an asynchronous instance proxy, where all methods will be callable directly but will become asynchronous. If the
@@ -150,11 +194,18 @@ export type AsyncInstance<TLazyInstance extends TEagerInstance, TEagerInstance e
  */
 export function asyncInstance<TLazyInstance extends TEagerInstance, TEagerInstance extends AsyncObject = Partial<TLazyInstance>>(
     lazyConstructor?: () => TLazyInstance | Promise<TLazyInstance>,
+    eagerInstance?: TEagerInstance,
 ): AsyncInstance<TLazyInstance, TEagerInstance> {
     const wrapper = createAsyncInstanceWrapper<TLazyInstance, TEagerInstance>(lazyConstructor);
 
+    if (eagerInstance) {
+        wrapper.setEagerInstance(eagerInstance);
+    }
+
     return new Proxy(wrapper, {
-        get: (target, property, receiver) => {
+        get: (target, p, receiver) => {
+            const property = p as keyof TEagerInstance;
+
             if (property in target) {
                 return Reflect.get(target, property, receiver);
             }
@@ -167,8 +218,20 @@ export function asyncInstance<TLazyInstance extends TEagerInstance, TEagerInstan
                     : value;
             }
 
-            if (wrapper.eagerInstance && property in wrapper.eagerInstance) {
+            if (
+                wrapper.eagerInstance &&
+                property in wrapper.eagerInstance &&
+                !wrapper.lazyOverrides?.includes(property)
+            ) {
                 return Reflect.get(wrapper.eagerInstance, property, receiver);
+            }
+
+            if (
+                wrapper.lazyMethods &&
+                !wrapper.lazyMethods.includes(property) &&
+                !wrapper.lazyOverrides?.includes(property)
+            ) {
+                return undefined;
             }
 
             return async (...args: unknown[]) => {

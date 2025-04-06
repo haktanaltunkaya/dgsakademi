@@ -12,18 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { toBoolean } from '@/core/transforms/boolean';
 import { Component, Input, Output, EventEmitter, OnChanges } from '@angular/core';
 import { CoreSearchGlobalSearchResult, CoreSearchGlobalSearchResultContext } from '@features/search/services/global-search';
+import { CoreSharedModule } from '@/core/shared.module';
 
 @Component({
     selector: 'core-search-global-search-result',
     templateUrl: 'global-search-result.html',
-    styleUrls: ['./global-search-result.scss'],
+    styleUrl: './global-search-result.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class CoreSearchGlobalSearchResultComponent implements OnChanges {
 
-    @Input() result!: CoreSearchGlobalSearchResult;
-    @Input() showCourse?: boolean;
+    @Input({ required: true }) result!: CoreSearchGlobalSearchResult;
+    @Input({ transform: toBoolean }) showCourse = true;
 
     renderedContext: CoreSearchGlobalSearchResultContext | null = null;
     renderedIcon: string | null = null;
@@ -46,7 +52,7 @@ export class CoreSearchGlobalSearchResultComponent implements OnChanges {
     private computeRenderedContext(): CoreSearchGlobalSearchResultContext | null {
         const context = { ...this.result.context } ?? {};
 
-        if (this.showCourse === false) {
+        if (!this.showCourse) {
             delete context.courseName;
         }
 
@@ -60,7 +66,7 @@ export class CoreSearchGlobalSearchResultComponent implements OnChanges {
      */
     private computeRenderedIcon(): string | null {
         return this.result.module?.name === 'forum'  && this.result.module.area === 'post'
-            ? 'fa-message'
+            ? 'fas-message'
             : null;
     }
 

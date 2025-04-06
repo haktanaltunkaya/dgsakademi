@@ -23,6 +23,7 @@ import { makeSingleton } from '@singletons';
 import { CoreBlockDefaultHandler } from './handlers/default-block';
 import { CoreNavigationOptions } from '@services/navigator';
 import type { ICoreBlockComponent } from '@features/block/classes/base-block-component';
+import { ContextLevel } from '@/core/constants';
 
 /**
  * Interface that all blocks must implement.
@@ -43,9 +44,9 @@ export interface CoreBlockHandler extends CoreDelegateHandler {
      */
     getDisplayData?(
         block: CoreCourseBlock,
-        contextLevel: string,
+        contextLevel: ContextLevel,
         instanceId: number,
-    ): undefined | CoreBlockHandlerData | Promise<CoreBlockHandlerData>;
+    ): undefined | CoreBlockHandlerData | Promise<undefined | CoreBlockHandlerData>;
 }
 
 /**
@@ -104,9 +105,17 @@ export class CoreBlockDelegateService extends CoreDelegate<CoreBlockHandler> {
     constructor(
         protected defaultHandler: CoreBlockDefaultHandler,
     ) {
-        super('CoreBlockDelegate', true);
+        super('CoreBlockDelegate');
 
         this.blocksUpdateObservable = new Subject<void>();
+    }
+
+    /**
+     * @inheritdoc
+     */
+    async isEnabled(): Promise<boolean> {
+        // Always return true, to allow displaying my overview even if all blocks are disabled, to avoid having an empty My Courses.
+        return true;
     }
 
     /**
@@ -155,7 +164,7 @@ export class CoreBlockDelegateService extends CoreDelegate<CoreBlockHandler> {
      */
     async getBlockDisplayData(
         block: CoreCourseBlock,
-        contextLevel: string,
+        contextLevel: ContextLevel,
         instanceId: number,
     ): Promise<CoreBlockHandlerData | undefined> {
         return this.executeFunctionOnEnabled(
@@ -204,7 +213,7 @@ export class CoreBlockDelegateService extends CoreDelegate<CoreBlockHandler> {
      * Called when there are new block handlers available. Informs anyone who subscribed to the
      * observable.
      */
-    updateData(): void {
+    protected updateData(): void {
         this.blocksUpdateObservable.next();
     }
 

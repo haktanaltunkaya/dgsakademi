@@ -1,4 +1,4 @@
-@addon_mod_quiz @app @javascript @lms_from4.0 @lms_upto4.3
+@addon_mod_quiz @app @mod @mod_quiz @javascript @lms_upto4.3
 Feature: Attempt a quiz in app
   As a student
   In order to demonstrate what I know
@@ -126,10 +126,10 @@ Feature: Attempt a quiz in app
     When I press "Submit all and finish" in the app
     And I press "Submit" near "Once you submit" in the app
     Then I should find "Review" in the app
-    And I should find "Started on" in the app
-    And I should find "State" in the app
-    And I should find "Completed on" in the app
-    And I should find "Time taken" in the app
+    And I should find "Started" in the app
+    And I should find "Status" in the app
+    And I should find "Completed" in the app
+    And I should find "Duration" in the app
     And I should find "Marks" in the app
     And I should find "Grade" in the app
     And I should find "Question 1" in the app
@@ -203,16 +203,14 @@ Feature: Attempt a quiz in app
     And I press "Submit" in the app
     Then I should find "Review" in the app
 
-    When I replace "/.*/" within "page-addon-mod-quiz-review core-loading > ion-card ion-item:nth-child(1) p:nth-child(2)" with "[Started on date]"
-    And I replace "/.*/" within "page-addon-mod-quiz-review core-loading > ion-card ion-item:nth-child(3) p:nth-child(2)" with "[Completed on date]"
+    When I replace "/.*/" within "page-addon-mod-quiz-review core-loading > ion-card ion-item:nth-child(2) p:nth-child(2)" with "[Started date]"
+    And I replace "/.*/" within "page-addon-mod-quiz-review core-loading > ion-card ion-item:nth-child(3) p:nth-child(2)" with "[Completed date]"
+    And I replace "/.*/" within "page-addon-mod-quiz-review core-loading > ion-card ion-item:nth-child(4) p:nth-child(2)" with "[Duration]"
     Then the UI should match the snapshot
 
-    Given I entered the quiz activity "Quiz 1" on course "Course 1" as "teacher1" in the app
-    When I press "Information" in the app
-    And I press "Open in browser" in the app
-    And I switch to the browser tab opened by the app
-    And I log in as "teacher1"
-    And I follow "Attempts: 1"
+    Given I open a browser tab with url "$WWWROOT"
+    And I am on the "quiz1" Activity page logged in as teacher1
+    When I follow "Attempts: 1"
     And I follow "Review attempt"
     Then I should see "Finished"
     And I should see "1.00/2.00"

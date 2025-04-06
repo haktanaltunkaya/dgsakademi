@@ -13,18 +13,17 @@
 // limitations under the License.
 
 import { Injectable } from '@angular/core';
-import { ActivatedRoute, ActivatedRouteSnapshot, NavigationEnd, Params } from '@angular/router';
+import { ActivatedRoute, ActivatedRouteSnapshot, Data, NavigationEnd, Params, UrlSegment } from '@angular/router';
 
 import { NavigationOptions } from '@ionic/angular/common/providers/nav-controller';
 
 import { CoreConstants } from '@/core/constants';
-import { CoreDomUtils } from '@services/utils/dom';
 import { CoreMainMenu } from '@features/mainmenu/services/mainmenu';
 import { CoreObject } from '@singletons/object';
 import { CoreSites } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
-import { CoreUrlUtils } from '@services/utils/url';
-import { CoreTextUtils } from '@services/utils/text';
+import { CoreUtils } from '@singletons/utils';
+import { CoreUrl, CoreUrlPartNames } from '@singletons/url';
+import { CoreText } from '@singletons/text';
 import { makeSingleton, NavController, Router } from '@singletons';
 import { CoreScreen } from './screen';
 import { CoreError } from '@classes/errors/error';
@@ -32,6 +31,9 @@ import { CoreMainMenuDelegate } from '@features/mainmenu/services/mainmenu-deleg
 import { CorePlatform } from '@services/platform';
 import { filter } from 'rxjs/operators';
 import { CorePromisedValue } from '@classes/promised-value';
+import { BehaviorSubject } from 'rxjs';
+import { CoreLoadings } from './overlays/loadings';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 
 /**
  * Redirect payload.
@@ -84,7 +86,7 @@ export class CoreNavigatorService {
      * @returns Whether the active route is using the given path.
      */
     isCurrent(path: string): boolean {
-        return CoreTextUtils.matchesGlob(this.getCurrentPath(), path);
+        return CoreText.matchesGlob(this.getCurrentPath(), path);
     }
 
     /**
@@ -148,6 +150,13 @@ export class CoreNavigatorService {
             ? await NavController.navigateRoot(url, navigationOptions)
             : await NavController.navigateForward(url, navigationOptions);
 
+        // This is done to exit full screen if the user navigate.
+        if (document.exitFullscreen) {
+            await CorePromiseUtils.ignoreErrors(document.exitFullscreen());
+        } else if (document['webkitExitFullscreen']) {
+            document['webkitExitFullscreen']();
+        }
+
         if (options.nextNavigation?.path && navigationResult !== false) {
             if (options.nextNavigation.isSitePath) {
                 return this.navigateToSitePath(options.nextNavigation.path, options.nextNavigation.options);
@@ -186,7 +195,7 @@ export class CoreNavigatorService {
     async navigateToSiteHome(options: Omit<CoreNavigationOptions, 'reset'> & { siteId?: string } = {}): Promise<boolean> {
         const siteId = options.siteId ?? CoreSites.getCurrentSiteId();
         const landingPagePath = CoreSites.isLoggedIn() && CoreSites.getCurrentSiteId() === siteId ?
-            this.getLandingTabPage() : 'main';
+            this.getLandingTabPage() : '';
 
         return this.navigateToSitePath(landingPagePath, {
             ...options,
@@ -211,14 +220,12 @@ export class CoreNavigatorService {
 
         // If we are logged into a different site, log out first.
         if (CoreSites.isLoggedIn() && CoreSites.getCurrentSiteId() !== siteId) {
-            const willReload = await CoreSites.logoutForRedirect(siteId, {
-                redirectPath: path,
-                redirectOptions: options || {},
+            await CoreSites.logout({
+                ...this.getRedirectDataForSitePath(path, options),
+                siteId,
             });
 
-            if (willReload) {
-                return true;
-            }
+            return true;
         }
 
         // If the path doesn't belong to a site, call standard navigation.
@@ -231,19 +238,16 @@ export class CoreNavigatorService {
 
         // If we are not logged into the site, load the site.
         if (!CoreSites.isLoggedIn()) {
-            const modal = await CoreDomUtils.showModalLoading();
+            const modal = await CoreLoadings.show();
 
             try {
-                const loggedIn = await CoreSites.loadSite(siteId, {
-                    redirectPath: path,
-                    redirectOptions: options,
-                });
+                const loggedIn = await CoreSites.loadSite(siteId, this.getRedirectDataForSitePath(path, options));
 
                 if (!loggedIn) {
                     // User has been redirected to the login page and will be redirected to the site path after login.
                     return true;
                 }
-            } catch (error) {
+            } catch {
                 // Site doesn't exist.
                 return this.navigate('/login/sites', { reset: true });
             } finally {
@@ -256,12 +260,37 @@ export class CoreNavigatorService {
     }
 
     /**
+     * Get the redirect data to use when navigating to a site path.
+     *
+     * @param path Site path.
+     * @param options Navigation options.
+     * @returns Redirect data.
+     */
+    protected getRedirectDataForSitePath(path: string, options: CoreNavigationOptions = {}): CoreRedirectPayload {
+        if (!path || path.match(/^\/?main\/?$/)) {
+            // Navigating to main, obtain the redirect from the navigation parameters (if any).
+            // If there is no redirect path or url to open, use 'main' to open the site's main menu.
+            return {
+                redirectPath: !options.params?.redirectPath && !options.params?.urlToOpen ? 'main' : options.params?.redirectPath,
+                redirectOptions: options.params?.redirectOptions,
+                urlToOpen: options.params?.urlToOpen,
+            };
+        }
+
+        // Use the path to navigate as the redirect path.
+        return {
+            redirectPath: path,
+            redirectOptions: options || {},
+        };
+    }
+
+    /**
      * Get the active route path.
      *
      * @returns Current path.
      */
     getCurrentPath(): string {
-        return CoreUrlUtils.removeUrlParams(Router.url);
+        return CoreUrl.removeUrlParts(Router.url, [CoreUrlPartNames.Query, CoreUrlPartNames.Fragment]);
     }
 
     /**
@@ -324,7 +353,7 @@ export class CoreNavigatorService {
             // Try to retrieve the param from local storage in browser.
             const storageParam = localStorage.getItem(value);
             if (storageParam) {
-                storedParam = CoreTextUtils.parseJSON(storageParam);
+                storedParam = CoreText.parseJSON(storageParam);
             }
         }
 
@@ -459,7 +488,7 @@ export class CoreNavigatorService {
             return route;
         }
 
-        if (routeData && CoreUtils.basicLeftCompare(routeData, route.snapshot.data, 3)) {
+        if (routeData && CoreObject.basicLeftCompare(routeData, this.getRouteData(route), 3)) {
             return route;
         }
 
@@ -477,11 +506,11 @@ export class CoreNavigatorService {
      * @returns Whether the route is active or not.
      */
     isRouteActive(route: ActivatedRoute): boolean {
-        const routePath = this.getRouteFullPath(route.snapshot);
+        const routePath = this.getRouteFullPath(route);
         let activeRoute: ActivatedRoute | null = Router.routerState.root;
 
         while (activeRoute) {
-            if (this.getRouteFullPath(activeRoute.snapshot) === routePath) {
+            if (this.getRouteFullPath(activeRoute) === routePath) {
                 return true;
             }
 
@@ -538,6 +567,11 @@ export class CoreNavigatorService {
             ...options,
         };
 
+        if (!path || path.match(/^\/?main\/?$/)) {
+            // Navigating to main, nothing else to do.
+            return this.navigate('/main', options);
+        }
+
         path = path.replace(/^(\.|\/main)?\//, '');
 
         const pathRoot = /^[^/]+/.exec(path)?.[0] ?? '';
@@ -548,7 +582,7 @@ export class CoreNavigatorService {
 
         const currentMainMenuTab = this.getCurrentMainMenuTab();
         const isMainMenuTab = pathRoot === currentMainMenuTab || (!currentMainMenuTab && path === this.getLandingTabPage()) ||
-            await CoreUtils.ignoreErrors(CoreMainMenu.isMainMenuTab(pathRoot), false);
+            await CorePromiseUtils.ignoreErrors(CoreMainMenu.isMainMenuTab(pathRoot), false);
 
         if (!options.preferCurrentTab && isMainMenuTab) {
             return this.navigate(`/main/${path}`, options);
@@ -605,7 +639,7 @@ export class CoreNavigatorService {
     protected replaceObjectParams(queryParams?: Params | null): void {
         for (const name in queryParams) {
             const value = queryParams[name];
-            if (typeof value != 'object' || value === null) {
+            if (typeof value !== 'object' || value === null) {
                 continue;
             }
 
@@ -626,7 +660,7 @@ export class CoreNavigatorService {
      * @returns New param Id.
      */
     protected getNewParamId(): string {
-        return 'param-' + (++this.lastParamId);
+        return `param-${++this.lastParamId}`;
     }
 
     /**
@@ -650,23 +684,73 @@ export class CoreNavigatorService {
      * @param route Route snapshot.
      * @returns Path.
      */
-    getRouteFullPath(route: ActivatedRouteSnapshot | null): string {
+    getRouteFullPath(route: ActivatedRouteSnapshot | ActivatedRoute | null): string {
         if (!route) {
             return '';
         }
 
-        const parentPath = this.getRouteFullPath(route.parent);
-        const routePath = route.url.join('/');
+        const parentPath = this.getRouteFullPath(this.getRouteParent(route));
+        const routePath = this.getRouteUrl(route).join('/');
 
         if (!parentPath && !routePath) {
             return '';
         } else if (parentPath && !routePath) {
             return parentPath;
         } else if (!parentPath && routePath) {
-            return '/' + routePath;
+            return `/${routePath}`;
         } else {
-            return parentPath + '/' + routePath;
+            return `${parentPath}/${routePath}`;
         }
+    }
+
+    /**
+     * Given a route, get url segments.
+     *
+     * @param route Route.
+     * @returns Url segments.
+     */
+    getRouteUrl(route: ActivatedRouteSnapshot | ActivatedRoute): UrlSegment[] {
+        return this.getRouteProperty(route, 'url', []);
+    }
+
+    /**
+     * Given a route, get its parent.
+     *
+     * @param route Route.
+     * @returns Parent.
+     */
+    getRouteParent(route: ActivatedRouteSnapshot | ActivatedRoute): ActivatedRouteSnapshot | ActivatedRoute | null {
+        return this.getRouteProperty(route, 'parent', null);
+    }
+
+    /**
+     * Given a route, get its data.
+     *
+     * @param route Route.
+     * @returns Data.
+     */
+    getRouteData(route: ActivatedRouteSnapshot | ActivatedRoute): Data {
+        return this.getRouteProperty(route, 'data', {});
+    }
+
+    /**
+     * Given a route, get its params.
+     *
+     * @param route Route.
+     * @returns Params.
+     */
+    getRouteParams(route: ActivatedRouteSnapshot | ActivatedRoute): Params {
+        return this.getRouteProperty(route, 'params', {});
+    }
+
+    /**
+     * Given a route, get its query params.
+     *
+     * @param route Route.
+     * @returns Query params.
+     */
+    getRouteQueryParams(route: ActivatedRouteSnapshot | ActivatedRoute): Params {
+        return this.getRouteProperty(route, 'queryParams', {});
     }
 
     /**
@@ -675,7 +759,7 @@ export class CoreNavigatorService {
      * @returns Whether the current route page can block leaving the route.
      */
     currentRouteCanBlockLeave(): boolean {
-        return !!this.getCurrentRoute().snapshot.routeConfig?.canDeactivate?.length;
+        return !!this.getCurrentRoute().snapshot?.routeConfig?.canDeactivate?.length;
     }
 
     /**
@@ -712,7 +796,7 @@ export class CoreNavigatorService {
      */
     getRelativePathToParent(parentPath: string): string {
         // Add an ending slash to avoid collisions with other routes (e.g. /foo and /foobar).
-        parentPath = CoreTextUtils.addEndingSlash(parentPath);
+        parentPath = CoreText.addEndingSlash(parentPath);
 
         const path = this.getCurrentPath();
         const parentRouteIndex = path.indexOf(parentPath);
@@ -723,6 +807,36 @@ export class CoreNavigatorService {
         const depth = (path.substring(parentRouteIndex + parentPath.length - 1).match(/\//g) ?? []).length;
 
         return '../'.repeat(depth);
+    }
+
+    /**
+     * Given a route, get one of its properties.
+     *
+     * @param route Route.
+     * @param property Route property.
+     * @param defaultValue Fallback value if the property is not set.
+     * @returns Property value.
+     */
+    private getRouteProperty<T extends keyof ActivatedRouteSnapshot>(
+        route: ActivatedRouteSnapshot | ActivatedRoute,
+        property: T,
+        defaultValue: ActivatedRouteSnapshot[T],
+    ): ActivatedRouteSnapshot[T]  {
+        if (route instanceof ActivatedRouteSnapshot) {
+            return route[property];
+        }
+
+        if (route.snapshot instanceof ActivatedRouteSnapshot) {
+            return route.snapshot[property];
+        }
+
+        const propertyObservable = route[property];
+
+        if (propertyObservable instanceof BehaviorSubject) {
+            return propertyObservable.value;
+        }
+
+        return defaultValue;
     }
 
 }

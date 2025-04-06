@@ -16,9 +16,9 @@ import { Injectable } from '@angular/core';
 
 import { CoreFile } from '@services/file';
 import { CoreSites } from '@services/sites';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreTimeUtils } from '@services/utils/time';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreText } from '@singletons/text';
+import { CoreTime } from '@singletons/time';
+import { CoreArray } from '@singletons/array';
 import { CoreWSExternalFile } from '@services/ws';
 import { makeSingleton } from '@singletons';
 import { CorePath } from '@singletons/path';
@@ -37,97 +37,98 @@ import {
     QUESTION_NEEDS_GRADING_STATE_CLASSES,
     QUESTION_TODO_STATE_CLASSES,
 } from '@features/question/constants';
+import { CoreObject } from '@singletons/object';
 
 const QUESTION_PREFIX_REGEX = /q\d+:(\d+)_/;
 const STATES: Record<string, CoreQuestionState> = {
     todo: {
         name: 'todo',
-        class: 'core-question-notyetanswered',
         status: 'notyetanswered',
+        stateclass: 'notyetanswered',
         active: true,
         finished: false,
     },
     invalid: {
         name: 'invalid',
-        class: 'core-question-invalidanswer',
         status: 'invalidanswer',
+        stateclass: 'invalidanswer',
         active: true,
         finished: false,
     },
     complete: {
         name: 'complete',
-        class: 'core-question-answersaved',
         status: 'answersaved',
+        stateclass: 'answersaved',
         active: true,
         finished: false,
     },
     needsgrading: {
         name: 'needsgrading',
-        class: 'core-question-requiresgrading',
         status: 'requiresgrading',
+        stateclass: 'requiresgrading',
         active: false,
         finished: true,
     },
     finished: {
         name: 'finished',
-        class: 'core-question-complete',
         status: 'complete',
+        stateclass: 'complete',
         active: false,
         finished: true,
     },
     gaveup: {
         name: 'gaveup',
-        class: 'core-question-notanswered',
         status: 'notanswered',
+        stateclass: 'notanswered',
         active: false,
         finished: true,
     },
     gradedwrong: {
         name: 'gradedwrong',
-        class: 'core-question-incorrect',
         status: 'incorrect',
+        stateclass: 'incorrect',
         active: false,
         finished: true,
     },
     gradedpartial: {
         name: 'gradedpartial',
-        class: 'core-question-partiallycorrect',
         status: 'partiallycorrect',
+        stateclass: 'partiallycorrect',
         active: false,
         finished: true,
     },
     gradedright: {
         name: 'gradedright',
-        class: 'core-question-correct',
         status: 'correct',
+        stateclass: 'correct',
         active: false,
         finished: true,
     },
     mangrwrong: {
         name: 'mangrwrong',
-        class: 'core-question-incorrect',
         status: 'incorrect',
+        stateclass: 'incorrect',
         active: false,
         finished: true,
     },
     mangrpartial: {
         name: 'mangrpartial',
-        class: 'core-question-partiallycorrect',
         status: 'partiallycorrect',
+        stateclass: 'partiallycorrect',
         active: false,
         finished: true,
     },
     mangrright: {
         name: 'mangrright',
-        class: 'core-question-correct',
         status: 'correct',
+        stateclass: 'correct',
         active: false,
         finished: true,
     },
     cannotdeterminestatus: { // Special state for Mobile, sometimes we won't have enough data to detemrine the state.
         name: 'cannotdeterminestatus',
-        class: 'core-question-unknown',
         status: 'cannotdeterminestatus',
+        stateclass: undefined,
         active: true,
         finished: false,
     },
@@ -150,7 +151,7 @@ export class CoreQuestionProvider {
      */
     compareAllAnswers(prevAnswers: Record<string, unknown>, newAnswers: Record<string, unknown>): boolean {
         // Get all the keys.
-        const keys = CoreUtils.mergeArraysWithoutDuplicates(Object.keys(prevAnswers), Object.keys(newAnswers));
+        const keys = CoreArray.mergeWithoutDuplicates(Object.keys(prevAnswers), Object.keys(newAnswers));
 
         // Check that all the keys have the same value on both objects.
         for (const i in keys) {
@@ -158,7 +159,7 @@ export class CoreQuestionProvider {
 
             // Ignore extra answers like sequencecheck or certainty.
             if (!this.isExtraAnswer(key[0])) {
-                if (!CoreUtils.sameAtKeyMissingIsBlank(prevAnswers, newAnswers, key)) {
+                if (!CoreObject.sameAtKeyMissingIsBlank(prevAnswers, newAnswers, key)) {
                     return false;
                 }
             }
@@ -323,7 +324,7 @@ export class CoreQuestionProvider {
      * @returns Question component ID.
      */
     getQuestionComponentId(question: CoreQuestionQuestionParsed, componentId: string | number): string {
-        return componentId + '_' + question.questionnumber;
+        return `${componentId}_${question.questionnumber}`;
     }
 
     /**
@@ -339,7 +340,7 @@ export class CoreQuestionProvider {
         siteId = siteId || CoreSites.getCurrentSiteId();
 
         const siteFolderPath = CoreFile.getSiteFolder(siteId);
-        const questionFolderPath = 'offlinequestion/' + type + '/' + component + '/' + componentId;
+        const questionFolderPath = `offlinequestion/${type}/${component}/${componentId}`;
 
         return CorePath.concatenatePaths(siteFolderPath, questionFolderPath);
     }
@@ -402,7 +403,7 @@ export class CoreQuestionProvider {
                 return;
             }
 
-            question.parsedSettings = CoreTextUtils.parseJSON(question.settings, null);
+            question.parsedSettings = CoreText.parseJSON(question.settings, null);
         });
 
         return parsedQuestions;
@@ -516,7 +517,7 @@ export class CoreQuestionProvider {
         timemodified?: number,
         siteId?: string,
     ): Promise<void> {
-        timemodified = timemodified || CoreTimeUtils.timestamp();
+        timemodified = timemodified || CoreTime.timestamp();
 
         const db = await CoreSites.getSiteDb(siteId);
         const promises: Promise<unknown>[] = [];
@@ -581,8 +582,16 @@ export const CoreQuestion = makeSingleton(CoreQuestionProvider);
  */
 export type CoreQuestionState = {
     name: string; // Name of the state.
-    class: string; // Class to style the state.
     status: string; // The string key to translate the state.
+    stateclass: // A machine-readable class name for the state that this question attempt is in.
+        typeof QUESTION_TODO_STATE_CLASSES[number] |
+        typeof QUESTION_INVALID_STATE_CLASSES[number] |
+        typeof QUESTION_COMPLETE_STATE_CLASSES[number] |
+        typeof QUESTION_NEEDS_GRADING_STATE_CLASSES[number] |
+        typeof QUESTION_FINISHED_STATE_CLASSES[number] |
+        typeof QUESTION_GAVE_UP_STATE_CLASSES[number] |
+        typeof QUESTION_GRADED_STATE_CLASSES[number] |
+        undefined;
     active: boolean; // Whether the question with this state is active.
     finished: boolean; // Whether the question with this state is finished.
 };
@@ -605,8 +614,9 @@ export type CoreQuestionQuestionWSData = {
     hasautosavedstep?: boolean; // Whether this question attempt has autosaved data.
     flagged: boolean; // Whether the question is flagged or not.
     questionnumber?: string; // @since 4.2. Question ordering number in the quiz.
-    state?: string; // The state where the question is in. It won't be returned if the user cannot see it.
-    status?: string; // Current formatted state of the question.
+    state?: string; // The state where the question is in terms of correctness.
+                    // It will not be returned if the user cannot see it due to the quiz display correctness settings.
+    status?: string; // Human readable state of the question.
     stateclass?: // @since 4.4. A machine-readable class name for the state that this question attempt is in.
         typeof QUESTION_TODO_STATE_CLASSES[number] |
         typeof QUESTION_INVALID_STATE_CLASSES[number] |
@@ -628,6 +638,13 @@ export type CoreQuestionQuestionWSData = {
  */
 export type CoreQuestionQuestionParsed = CoreQuestionQuestionWSData & {
     parsedSettings?: Record<string, unknown> | null;
+};
+
+/**
+ * Question with some calculated data for the view.
+ */
+export type CoreQuestionQuestionForView = CoreQuestionQuestionParsed & {
+    readableMark?: string;
 };
 
 /**

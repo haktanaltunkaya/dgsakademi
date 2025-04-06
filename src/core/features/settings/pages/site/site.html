@@ -14,9 +14,9 @@
         <ion-refresher slot="fixed" [disabled]="!handlers.loaded" (ionRefresh)="refreshData($event.target)">
             <ion-refresher-content pullingText="{{ 'core.pulltorefresh' | translate }}" />
         </ion-refresher>
-        <core-loading [hideUntil]="handlers.loaded">
+        <core-loading [hideUntil]="handlers.loaded" placeholderType="column" placeholderHeight="48px">
             <ion-list>
-                <ion-item *ngFor="let handler of handlerItems" class="core-settings-handler" [ngClass]="handler.class"
+                <ion-item *ngFor="let handler of handlerItems" class="core-settings-handler" lines="none" [ngClass]="handler.class"
                     [attr.aria-label]="handler.title | translate" (click)="!handler.toggle && handlers.select(handler)"
                     [button]="!handler.toggle" [detail]="!handler.toggle" [attr.aria-current]="handlers.getItemAriaCurrent(handler)">
                     <ion-icon [name]="handler.icon" slot="start" *ngIf="handler.icon" aria-hidden="true" />
@@ -37,7 +37,7 @@
                         </p>
                     </ion-label>
                     <core-button-with-spinner [loading]="isSynchronizing()" slot="end">
-                        <ion-button fill="clear" (click)="synchronize()" [attr.aria-label]="'core.settings.synchronizenow' | translate"
+                        <ion-button fill="clear" (click)="synchronize()" [ariaLabel]="'core.settings.synchronizenow' | translate"
                             [disabled]="!isOnline || (dataSaver && limitedConnection)">
                             <ion-icon name="fas-rotate" slot="icon-only" aria-hidden="true" />
                         </ion-button>

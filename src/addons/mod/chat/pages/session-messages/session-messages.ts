@@ -16,13 +16,14 @@ import { Component, OnInit } from '@angular/core';
 import { CoreUser } from '@features/user/services/user';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { AddonModChat } from '../../services/chat';
 import { AddonModChatFormattedSessionMessage, AddonModChatHelper } from '../../services/chat-helper';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
 import { Translate } from '@singletons';
 import { CoreTime } from '@singletons/time';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays list of chat session messages.
@@ -31,8 +32,12 @@ import { CoreTime } from '@singletons/time';
     selector: 'page-addon-mod-chat-session-messages',
     templateUrl: 'session-messages.html',
     styleUrls: ['../../../../../theme/components/discussion.scss', 'session-messages.scss'],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
-export class AddonModChatSessionMessagesPage implements OnInit {
+export default class AddonModChatSessionMessagesPage implements OnInit {
 
     currentUserId!: number;
     cmId!: number;
@@ -48,7 +53,7 @@ export class AddonModChatSessionMessagesPage implements OnInit {
 
     constructor() {
         this.logView = CoreTime.once(async () => {
-            await CoreUtils.ignoreErrors(AddonModChat.logViewSessions(this.cmId, {
+            await CorePromiseUtils.ignoreErrors(AddonModChat.logViewSessions(this.cmId, {
                 start: this.sessionStart,
                 end: this.sessionEnd,
             }));
@@ -75,8 +80,7 @@ export class AddonModChatSessionMessagesPage implements OnInit {
             this.chatId = CoreNavigator.getRequiredRouteNumberParam('chatId');
             this.groupId = CoreNavigator.getRouteNumberParam('groupId') || 0;
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
-
+            CoreAlerts.showError(error);
             CoreNavigator.back();
 
             return;
@@ -112,14 +116,14 @@ export class AddonModChatSessionMessagesPage implements OnInit {
 
                 const message = this.messages[index];
 
-                if (message.beep && message.beep != String(this.currentUserId)) {
+                if (message.beep && message.beep !== this.currentUserId) {
                     this.loadMessageBeepWho(message);
                 }
             }
 
             this.messages[this.messages.length - 1].showTail = true;
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'core.errorloadingcontent', true);
+            CoreAlerts.showError(error, { default: Translate.instant('core.errorloadingcontent') });
         } finally {
             this.loaded = true;
         }
@@ -135,11 +139,11 @@ export class AddonModChatSessionMessagesPage implements OnInit {
      * @param id User Id before parsing.
      * @returns User fullname.
      */
-    protected async getUserFullname(id: string): Promise<string> {
-        const idNumber = parseInt(id, 10);
+    protected async getUserFullname(id: string | number): Promise<string> {
+        const idNumber = Number(id);
 
         if (isNaN(idNumber)) {
-            return id;
+            return String(id);
         }
 
         try {
@@ -148,7 +152,7 @@ export class AddonModChatSessionMessagesPage implements OnInit {
             return user.fullname;
         } catch {
             // Error getting profile.
-            return id;
+            return String(id);
         }
     }
 
@@ -159,7 +163,9 @@ export class AddonModChatSessionMessagesPage implements OnInit {
      */
     async refreshMessages(refresher: HTMLIonRefresherElement): Promise<void> {
         try {
-            await CoreUtils.ignoreErrors(AddonModChat.invalidateSessionMessages(this.chatId, this.sessionStart, this.groupId));
+            await CorePromiseUtils.ignoreErrors(
+                AddonModChat.invalidateSessionMessages(this.chatId, this.sessionStart, this.groupId),
+            );
 
             await this.fetchMessages();
         } finally {

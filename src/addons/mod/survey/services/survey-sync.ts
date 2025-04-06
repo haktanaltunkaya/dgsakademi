@@ -20,20 +20,19 @@ import { CoreCourse } from '@features/course/services/course';
 import { CoreCourseLogHelper } from '@features/course/services/log-helper';
 import { CoreNetwork } from '@services/network';
 import { CoreSites } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreWSError } from '@classes/errors/wserror';
 import { makeSingleton } from '@singletons';
 import { CoreEvents } from '@singletons/events';
-import { AddonModSurveyPrefetchHandler } from './handlers/prefetch';
-import { AddonModSurvey, AddonModSurveyProvider } from './survey';
+import { AddonModSurvey } from './survey';
 import { AddonModSurveyAnswersDBRecordFormatted, AddonModSurveyOffline } from './survey-offline';
+import { ADDON_MOD_SURVEY_AUTO_SYNCED, ADDON_MOD_SURVEY_COMPONENT_LEGACY, ADDON_MOD_SURVEY_MODNAME } from '../constants';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 
 /**
  * Service to sync surveys.
  */
 @Injectable( { providedIn: 'root' })
 export class AddonModSurveySyncProvider extends CoreCourseActivitySyncBaseProvider<AddonModSurveySyncResult> {
-
-    static readonly AUTO_SYNCED = 'addon_mod_survey_autom_synced';
 
     protected componentTranslatableString = 'survey';
 
@@ -50,7 +49,7 @@ export class AddonModSurveySyncProvider extends CoreCourseActivitySyncBaseProvid
      * @protected
      */
     getSyncId(surveyId: number, userId: number): string {
-        return surveyId + '#' + userId;
+        return `${surveyId}#${userId}`;
     }
 
     /**
@@ -83,7 +82,7 @@ export class AddonModSurveySyncProvider extends CoreCourseActivitySyncBaseProvid
 
             if (result && result.updated) {
                 // Sync successful, send event.
-                CoreEvents.trigger(AddonModSurveySyncProvider.AUTO_SYNCED, {
+                CoreEvents.trigger(ADDON_MOD_SURVEY_AUTO_SYNCED, {
                     surveyId: entry.surveyid,
                     userId: entry.userid,
                     warnings: result.warnings,
@@ -155,7 +154,7 @@ export class AddonModSurveySyncProvider extends CoreCourseActivitySyncBaseProvid
         };
 
         // Sync offline logs.
-        CoreUtils.ignoreErrors(CoreCourseLogHelper.syncActivity(AddonModSurveyProvider.COMPONENT, surveyId, siteId));
+        CorePromiseUtils.ignoreErrors(CoreCourseLogHelper.syncActivity(ADDON_MOD_SURVEY_COMPONENT_LEGACY, surveyId, siteId));
 
         let answersNumber = 0;
         let data: AddonModSurveyAnswersDBRecordFormatted | undefined;
@@ -185,7 +184,7 @@ export class AddonModSurveySyncProvider extends CoreCourseActivitySyncBaseProvid
                 // Answers sent, delete them.
                 await AddonModSurveyOffline.deleteSurveyAnswers(surveyId, siteId, userId);
             } catch (error) {
-                if (!CoreUtils.isWebServiceError(error)) {
+                if (!CoreWSError.isWebServiceError(error)) {
                     // Local error, reject.
                     throw error;
                 }
@@ -203,17 +202,17 @@ export class AddonModSurveySyncProvider extends CoreCourseActivitySyncBaseProvid
                 await AddonModSurvey.invalidateSurveyData(result.courseId, siteId);
 
                 // Data has been sent to server, update survey data.
-                const module = await CoreCourse.getModuleBasicInfoByInstance(surveyId, 'survey', { siteId });
+                const module = await CoreCourse.getModuleBasicInfoByInstance(surveyId, ADDON_MOD_SURVEY_MODNAME, { siteId });
 
-                CoreUtils.ignoreErrors(
-                    this.prefetchAfterUpdate(AddonModSurveyPrefetchHandler.instance, module, result.courseId, undefined, siteId),
+                CorePromiseUtils.ignoreErrors(
+                    this.prefetchModuleAfterUpdate(module, result.courseId, undefined, siteId),
                 );
             }
         }
 
         const syncId = this.getSyncId(surveyId, userId);
         // Sync finished, set sync time.
-        CoreUtils.ignoreErrors(this.setSyncTime(syncId, siteId));
+        CorePromiseUtils.ignoreErrors(this.setSyncTime(syncId, siteId));
 
         return result;
     }
@@ -229,7 +228,7 @@ declare module '@singletons/events' {
      * @see https://www.typescriptlang.org/docs/handbook/declaration-merging.html#module-augmentation
      */
     export interface CoreEventsData {
-        [AddonModSurveySyncProvider.AUTO_SYNCED]: AddonModSurveyAutoSyncData;
+        [ADDON_MOD_SURVEY_AUTO_SYNCED]: AddonModSurveyAutoSyncData;
     }
 
 }
@@ -242,7 +241,7 @@ export type AddonModSurveySyncResult = CoreSyncResult & {
 };
 
 /**
- * Data passed to AUTO_SYNCED event.
+ * Data passed to ADDON_MOD_SURVEY_AUTO_SYNCED event.
  */
 export type AddonModSurveyAutoSyncData = {
     surveyId: number;

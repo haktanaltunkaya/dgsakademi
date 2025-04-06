@@ -18,12 +18,13 @@ import { CoreQuestionBehaviourDelegate, CoreQuestionQuestionWithAnswers } from '
 import { CoreQuestionAnswerDBRecord } from '@features/question/services/database/question';
 import { CoreQuestion, CoreQuestionQuestionParsed, CoreQuestionsAnswers } from '@features/question/services/question';
 import { CoreSites } from '@services/sites';
-import { CoreTimeUtils } from '@services/utils/time';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreTime } from '@singletons/time';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { makeSingleton, Translate } from '@singletons';
 import { CoreLogger } from '@singletons/logger';
 import { AddonModQuizAttemptDBRecord, ATTEMPTS_TABLE_NAME } from './database/quiz';
-import { AddonModQuizAttemptWSData, AddonModQuizProvider, AddonModQuizQuizWSData } from './quiz';
+import { AddonModQuizAttemptWSData, AddonModQuizQuizWSData } from './quiz';
+import { ADDON_MOD_QUIZ_COMPONENT_LEGACY } from '../constants';
 
 /**
  * Service to handle offline quiz.
@@ -103,7 +104,7 @@ export class AddonModQuizOfflineProvider {
      * @returns Promise resolved with the answers.
      */
     getAttemptAnswers(attemptId: number, siteId?: string): Promise<CoreQuestionAnswerDBRecord[]> {
-        return CoreQuestion.getAttemptAnswers(AddonModQuizProvider.COMPONENT, attemptId, siteId);
+        return CoreQuestion.getAttemptAnswers(ADDON_MOD_QUIZ_COMPONENT_LEGACY, attemptId, siteId);
     }
 
     /**
@@ -139,7 +140,7 @@ export class AddonModQuizOfflineProvider {
      * @param attemptId Attempt ID.
      * @param questions List of questions.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when done.
+     * @returns Questions with local states loaded.
      */
     async loadQuestionsLocalStates(
         attemptId: number,
@@ -148,8 +149,8 @@ export class AddonModQuizOfflineProvider {
     ): Promise<CoreQuestionQuestionParsed[]> {
 
         await Promise.all(questions.map(async (question) => {
-            const dbQuestion = await CoreUtils.ignoreErrors(
-                CoreQuestion.getQuestion(AddonModQuizProvider.COMPONENT, attemptId, question.slot, siteId),
+            const dbQuestion = await CorePromiseUtils.ignoreErrors(
+                CoreQuestion.getQuestion(ADDON_MOD_QUIZ_COMPONENT_LEGACY, attemptId, question.slot, siteId),
             );
 
             if (!dbQuestion) {
@@ -159,7 +160,8 @@ export class AddonModQuizOfflineProvider {
 
             const state = CoreQuestion.getState(dbQuestion.state);
             question.state = dbQuestion.state;
-            question.status = Translate.instant('core.question.' + state.status);
+            question.status = Translate.instant(`core.question.${state.status}`);
+            question.stateclass = state.stateclass;
         }));
 
         return questions;
@@ -185,12 +187,12 @@ export class AddonModQuizOfflineProvider {
         siteId?: string,
     ): Promise<void> {
         siteId = siteId || CoreSites.getCurrentSiteId();
-        const now = CoreTimeUtils.timestamp();
+        const now = CoreTime.timestamp();
 
         const db = await CoreSites.getSiteDb(siteId);
 
         // Check if an attempt already exists. Return a new one if it doesn't.
-        let entry = await CoreUtils.ignoreErrors(this.getAttemptById(attempt.id, siteId));
+        let entry = await CorePromiseUtils.ignoreErrors(this.getAttemptById(attempt.id, siteId));
 
         if (entry) {
             entry.timemodified = now;
@@ -221,7 +223,6 @@ export class AddonModQuizOfflineProvider {
      *
      * @param attemptId Attempt ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when done.
      */
     async removeAttemptAndAnswers(attemptId: number, siteId?: string): Promise<void> {
         siteId = siteId || CoreSites.getCurrentSiteId();
@@ -229,8 +230,8 @@ export class AddonModQuizOfflineProvider {
         const db = await CoreSites.getSiteDb(siteId);
 
         await Promise.all([
-            CoreQuestion.removeAttemptAnswers(AddonModQuizProvider.COMPONENT, attemptId, siteId),
-            CoreQuestion.removeAttemptQuestions(AddonModQuizProvider.COMPONENT, attemptId, siteId),
+            CoreQuestion.removeAttemptAnswers(ADDON_MOD_QUIZ_COMPONENT_LEGACY, attemptId, siteId),
+            CoreQuestion.removeAttemptQuestions(ADDON_MOD_QUIZ_COMPONENT_LEGACY, attemptId, siteId),
             db.deleteRecords(ATTEMPTS_TABLE_NAME, { id: attemptId }),
         ]);
     }
@@ -247,8 +248,8 @@ export class AddonModQuizOfflineProvider {
         siteId = siteId || CoreSites.getCurrentSiteId();
 
         await Promise.all([
-            CoreQuestion.removeQuestion(AddonModQuizProvider.COMPONENT, attemptId, slot, siteId),
-            CoreQuestion.removeQuestionAnswers(AddonModQuizProvider.COMPONENT, attemptId, slot, siteId),
+            CoreQuestion.removeQuestion(ADDON_MOD_QUIZ_COMPONENT_LEGACY, attemptId, slot, siteId),
+            CoreQuestion.removeQuestionAnswers(ADDON_MOD_QUIZ_COMPONENT_LEGACY, attemptId, slot, siteId),
         ]);
     }
 
@@ -261,7 +262,6 @@ export class AddonModQuizOfflineProvider {
      * @param answers Answers to save.
      * @param timeMod Time modified to set in the answers. If not defined, current time.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when done.
      */
     async saveAnswers(
         quiz: AddonModQuizQuizWSData,
@@ -272,7 +272,7 @@ export class AddonModQuizOfflineProvider {
         siteId?: string,
     ): Promise<void> {
         siteId = siteId || CoreSites.getCurrentSiteId();
-        timeMod = timeMod || CoreTimeUtils.timestamp();
+        timeMod = timeMod || CoreTime.timestamp();
 
         const questionsWithAnswers: Record<number, CoreQuestionQuestionWithAnswers> = {};
         const newStates: Record<number, string> = {};
@@ -298,7 +298,7 @@ export class AddonModQuizOfflineProvider {
 
             const state = await CoreQuestionBehaviourDelegate.determineNewState(
                 quiz.preferredbehaviour ?? '',
-                AddonModQuizProvider.COMPONENT,
+                ADDON_MOD_QUIZ_COMPONENT_LEGACY,
                 attempt.id,
                 question,
                 quiz.coursemodule,
@@ -311,12 +311,12 @@ export class AddonModQuizOfflineProvider {
             }
 
             // Delete previously stored answers for this question.
-            await CoreQuestion.removeQuestionAnswers(AddonModQuizProvider.COMPONENT, attempt.id, question.slot, siteId);
+            await CoreQuestion.removeQuestionAnswers(ADDON_MOD_QUIZ_COMPONENT_LEGACY, attempt.id, question.slot, siteId);
         }));
 
         // Now save the answers.
         await CoreQuestion.saveAnswers(
-            AddonModQuizProvider.COMPONENT,
+            ADDON_MOD_QUIZ_COMPONENT_LEGACY,
             quiz.id,
             attempt.id,
             attempt.userid ?? CoreSites.getCurrentSiteUserId(),
@@ -327,11 +327,11 @@ export class AddonModQuizOfflineProvider {
 
         try {
             // Answers have been saved, now we can save the questions with the states.
-            await CoreUtils.allPromises(Object.keys(newStates).map(async (slot) => {
+            await CorePromiseUtils.allPromises(Object.keys(newStates).map(async (slot) => {
                 const question = questionsWithAnswers[Number(slot)];
 
                 await CoreQuestion.saveQuestion(
-                    AddonModQuizProvider.COMPONENT,
+                    ADDON_MOD_QUIZ_COMPONENT_LEGACY,
                     quiz.id,
                     attempt.id,
                     attempt.userid ?? CoreSites.getCurrentSiteUserId(),

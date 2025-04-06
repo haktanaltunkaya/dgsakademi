@@ -12,34 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreConstants } from '@/core/constants';
+import { DownloadStatus } from '@/core/constants';
 import { OnInit, OnDestroy, Input, Output, EventEmitter, Component, Optional, Inject } from '@angular/core';
-import { CoreAnyError } from '@classes/errors/error';
 import { CoreNetwork } from '@services/network';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-
-import { CoreTextErrorObject, CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreUtils } from '@singletons/utils';
 import { Translate } from '@singletons';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
 import { CoreLogger } from '@singletons/logger';
-import { CoreCourseModuleSummaryComponent, CoreCourseModuleSummaryResult } from '../components/module-summary/module-summary';
-import { CoreCourseContentsPage } from '../pages/contents/contents';
-import { CoreCourse } from '../services/course';
+import { CoreCourseModuleSummaryResult } from '../components/module-summary/module-summary';
+import CoreCourseContentsPage from '../pages/contents/contents';
+import { CoreCourse, CoreCourseModuleContentFile } from '../services/course';
 import { CoreCourseHelper, CoreCourseModuleData } from '../services/course-helper';
 import { CoreCourseModuleDelegate, CoreCourseModuleMainComponent } from '../services/module-delegate';
 import { CoreCourseModulePrefetchDelegate } from '../services/module-prefetch-delegate';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
-import { CoreUrlUtils } from '@services/utils/url';
+import { CoreUrl } from '@singletons/url';
 import { CoreTime } from '@singletons/time';
+import { CoreText } from '@singletons/text';
+import { CoreModals } from '@services/overlays/modals';
+import { CoreErrorHelper, CoreErrorObject } from '@services/error-helper';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreCourseModuleHelper } from '../services/course-module-helper';
 
 /**
  * Result of a resource download.
  */
 export type CoreCourseResourceDownloadResult = {
     failed?: boolean; // Whether the download has failed.
-    error?: string | CoreTextErrorObject; // The error in case it failed.
+    error?: string | CoreErrorObject; // The error in case it failed.
 };
 
 /**
@@ -50,8 +52,8 @@ export type CoreCourseResourceDownloadResult = {
 })
 export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy, CoreCourseModuleMainComponent {
 
-    @Input() module!: CoreCourseModuleData; // The module of the component.
-    @Input() courseId!: number; // Course ID the component belongs to.
+    @Input({ required: true }) module!: CoreCourseModuleData; // The module of the component.
+    @Input({ required: true }) courseId!: number; // Course ID the component belongs to.
     @Output() dataRetrieved = new EventEmitter<unknown>(); // Called to notify changes the index page from the main component.
 
     showLoading = true; // Whether to show loading.
@@ -65,7 +67,7 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
     protected isCurrentView = false; // Whether the component is in the current view.
     protected siteId?: string; // Current Site ID.
     protected statusObserver?: CoreEventObserver; // Observer of package status. Only if setStatusListener is called.
-    currentStatus?: string; // The current status of the module. Only if setStatusListener is called.
+    currentStatus?: DownloadStatus; // The current status of the module. Only if setStatusListener is called.
     downloadTimeReadable?: string; // Last download time in a readable format. Only if setStatusListener is called.
 
     protected completionObserver?: CoreEventObserver;
@@ -129,10 +131,10 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
         // If it's a single activity course and the refresher is displayed within the component,
         // call doRefresh on the section page to refresh the course data.
         if (this.courseContentsPage && !CoreCourseModuleDelegate.displayRefresherInSingleActivity(this.module.modname)) {
-            await CoreUtils.ignoreErrors(this.courseContentsPage.doRefresh());
+            await CorePromiseUtils.ignoreErrors(this.courseContentsPage.doRefresh());
         }
 
-        await CoreUtils.ignoreErrors(this.refreshContent(true, showErrors));
+        await CorePromiseUtils.ignoreErrors(this.refreshContent(true, showErrors));
 
         refresher?.complete();
     }
@@ -151,7 +153,7 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
             return;
         }
 
-        await CoreUtils.ignoreErrors(Promise.all([
+        await CorePromiseUtils.ignoreErrors(Promise.all([
             this.invalidateContent(),
             this.showCompletion ? CoreCourse.invalidateModule(this.module.id) : undefined,
         ]));
@@ -200,25 +202,15 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
 
             this.finishSuccessfulFetch();
         } catch (error) {
-            if (!refresh && !CoreSites.getCurrentSite()?.isOfflineDisabled() && this.isNotFoundError(error)) {
+            if (!refresh && !CoreSites.getCurrentSite()?.isOfflineDisabled() && CoreCourseModuleHelper.isNotFoundError(error)) {
                 // Module not found, retry without using cache.
                 return await this.refreshContent();
             }
 
-            CoreDomUtils.showErrorModalDefault(error, this.fetchContentDefaultError, true);
+            CoreAlerts.showError(error, { default: Translate.instant(this.fetchContentDefaultError) });
         } finally {
             this.showLoading = false;
         }
-    }
-
-    /**
-     * Check if an error is a "module not found" error.
-     *
-     * @param error Error.
-     * @returns Whether the error is a "module not found" error.
-     */
-    protected isNotFoundError(error: CoreAnyError): boolean {
-        return CoreTextUtils.getErrorMessageFromError(error) === Translate.instant('core.course.modulenotfound');
     }
 
     /**
@@ -232,7 +224,7 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
         const lastDownloaded =
                 await CoreCourseHelper.getModulePackageLastDownloaded(this.module, this.component);
 
-        this.downloadTimeReadable = CoreTextUtils.ucFirst(lastDownloaded.downloadTimeReadable);
+        this.downloadTimeReadable = CoreText.capitalize(lastDownloaded.downloadTimeReadable);
     }
 
     /**
@@ -242,7 +234,8 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
      * @returns If module has been prefetched.
      */
     protected isPrefetched(): boolean {
-        return this.currentStatus != CoreConstants.NOT_DOWNLOADABLE && this.currentStatus != CoreConstants.NOT_DOWNLOADED;
+        return this.currentStatus !== DownloadStatus.NOT_DOWNLOADABLE &&
+            this.currentStatus !== DownloadStatus.DOWNLOADABLE_NOT_DOWNLOADED;
     }
 
     /**
@@ -252,16 +245,16 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
      * @param multiLine Whether to put each message in a different paragraph or in a single line.
      * @returns Error text message.
      */
-    protected getErrorDownloadingSomeFilesMessage(error: string | CoreTextErrorObject, multiLine?: boolean): string {
+    protected getErrorDownloadingSomeFilesMessage(error: string | CoreErrorObject, multiLine?: boolean): string {
         if (multiLine) {
-            return CoreTextUtils.buildSeveralParagraphsMessage([
+            return CoreErrorHelper.buildSeveralParagraphsMessage([
                 Translate.instant('core.errordownloadingsomefiles'),
                 error,
             ]);
         } else {
-            error = CoreTextUtils.getErrorMessageFromError(error) || '';
+            error = CoreErrorHelper.getErrorMessageFromError(error) || '';
 
-            return Translate.instant('core.errordownloadingsomefiles') + (error ? ' ' + error : '');
+            return Translate.instant('core.errordownloadingsomefiles') + (error ? ` ${error}` : '');
         }
     }
 
@@ -270,8 +263,8 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
      *
      * @param error The specific error.
      */
-    protected showErrorDownloadingSomeFiles(error: string | CoreTextErrorObject): void {
-        CoreDomUtils.showErrorModal(this.getErrorDownloadingSomeFilesMessage(error, true));
+    protected showErrorDownloadingSomeFiles(error: string | CoreErrorObject): void {
+        CoreAlerts.showError(Translate.instant(this.getErrorDownloadingSomeFilesMessage(error)));
     }
 
     /**
@@ -281,7 +274,7 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
      * @param previousStatus The previous status. If not defined, there is no previous status.
      */
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    protected showStatus(status: string, previousStatus?: string): void {
+    protected showStatus(status: DownloadStatus, previousStatus?: DownloadStatus): void {
         // To be overridden.
     }
 
@@ -312,7 +305,7 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
         }
 
         if (refresh) {
-            await CoreUtils.ignoreErrors(CoreCourseModulePrefetchDelegate.invalidateCourseUpdates(this.courseId));
+            await CorePromiseUtils.ignoreErrors(CoreCourseModulePrefetchDelegate.invalidateCourseUpdates(this.courseId));
         }
 
         // Also, get the current status.
@@ -345,7 +338,7 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
         // Get module status to determine if it needs to be downloaded.
         await this.setStatusListener(refresh);
 
-        if (this.currentStatus != CoreConstants.DOWNLOADED) {
+        if (this.currentStatus !== DownloadStatus.DOWNLOADED) {
             // Download content. This function also loads module contents if needed.
             try {
                 await CoreCourseModulePrefetchDelegate.downloadModule(this.module, this.courseId);
@@ -361,22 +354,34 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
 
         if (!this.module.contents?.length || (refresh && !contentsAlreadyLoaded)) {
             // Try to load the contents.
-            const ignoreCache = refresh && CoreNetwork.isOnline();
-
-            try {
-                await CoreCourse.loadModuleContents(this.module, undefined, undefined, false, ignoreCache);
-            } catch (error) {
-                // Error loading contents. If we ignored cache, try to get the cached value.
-                if (ignoreCache && !this.module.contents) {
-                    await CoreCourse.loadModuleContents(this.module);
-                } else if (!this.module.contents) {
-                    // Not able to load contents, throw the error.
-                    throw error;
-                }
-            }
+            await this.getModuleContents(refresh);
         }
 
         return result;
+    }
+
+    /**
+     * Get module contents.
+     *
+     * @param refresh Whether we're refreshing data.
+     * @returns Module contents.
+     */
+    protected async getModuleContents(refresh?: boolean): Promise<CoreCourseModuleContentFile[]> {
+        const ignoreCache = refresh && CoreNetwork.isOnline();
+
+        try {
+            return await CoreCourse.getModuleContents(this.module, undefined, undefined, false, ignoreCache);
+        } catch (error) {
+            // Error loading contents. If we ignored cache, try to get the cached value.
+            if (ignoreCache && !this.module.contents) {
+                return await CoreCourse.getModuleContents(this.module);
+            } else if (!this.module.contents) {
+                // Not able to load contents, throw the error.
+                throw error;
+            }
+
+            return this.module.contents;
+        }
     }
 
     /**
@@ -405,7 +410,7 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
 
         // @todo: Temporary fix to update course page completion. This should be refactored in MOBILE-4326.
         if (previousCompletion && module.completiondata && previousCompletion.state !== module.completiondata.state) {
-            await CoreUtils.ignoreErrors(CoreCourse.invalidateSections(this.courseId));
+            await CorePromiseUtils.ignoreErrors(CoreCourse.invalidateSections(this.courseId));
 
             CoreEvents.trigger(CoreEvents.COMPLETION_MODULE_VIEWED, {
                 courseId: this.courseId,
@@ -422,7 +427,9 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
             return;
         }
 
-        const data = await CoreDomUtils.openSideModal<CoreCourseModuleSummaryResult>({
+        const { CoreCourseModuleSummaryComponent } = await import('@features/course/components/module-summary/module-summary');
+
+        const data = await CoreModals.openSideModal<CoreCourseModuleSummaryResult>({
             component: CoreCourseModuleSummaryComponent,
             componentProps: {
                 moduleId: this.module.id,
@@ -439,10 +446,10 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
         });
 
         if (data) {
-            if (!this.showLoading && (data.action == 'refresh' || data.action == 'sync')) {
+            if (!this.showLoading && (data.action === 'refresh' || data.action === 'sync')) {
                 this.showLoading = true;
                 try {
-                    await this.doRefresh(undefined, data.action == 'sync');
+                    await this.doRefresh(undefined, data.action === 'sync');
                 } finally {
                     this.showLoading = false;
                 }
@@ -476,7 +483,7 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
      * @returns Promise resolved when done.
      */
     protected async storeModuleViewed(): Promise<void> {
-        await CoreCourse.storeModuleViewed(this.courseId, this.module.id, { sectionId: this.module.section });
+        await CoreCourseModuleHelper.storeModuleViewed(this.courseId, this.module.id, { sectionId: this.module.section });
     }
 
     /**
@@ -505,7 +512,7 @@ export class CoreCourseModuleMainResourceComponent implements OnInit, OnDestroy,
                 url = options.url;
             } else if (this.pluginName) {
                 // Use default value.
-                url = CoreUrlUtils.addParamsToUrl(`/mod/${this.pluginName}/view.php?id=${this.module.id}`, options.data);
+                url = CoreUrl.addParamsToUrl(`/mod/${this.pluginName}/view.php?id=${this.module.id}`, options.data);
             }
         }
 

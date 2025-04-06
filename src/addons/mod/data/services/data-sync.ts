@@ -25,21 +25,28 @@ import { CoreNetwork } from '@services/network';
 import { CoreFileEntry } from '@services/file-helper';
 import { CoreSites, CoreSitesReadingStrategy } from '@services/sites';
 import { CoreSync, CoreSyncResult } from '@services/sync';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreErrorHelper } from '@services/error-helper';
+import { CoreObject } from '@singletons/object';
 import { Translate, makeSingleton } from '@singletons';
 import { CoreEvents } from '@singletons/events';
-import { AddonModDataProvider, AddonModData, AddonModDataData, AddonModDataAction } from './data';
+import { AddonModData, AddonModDataData } from './data';
 import { AddonModDataHelper } from './data-helper';
 import { AddonModDataOffline, AddonModDataOfflineAction } from './data-offline';
+import {
+    ADDON_MOD_DATA_AUTO_SYNCED,
+    ADDON_MOD_DATA_COMPONENT,
+    ADDON_MOD_DATA_COMPONENT_LEGACY,
+    AddonModDataAction,
+} from '../constants';
+import { CoreText } from '@singletons/text';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreWSError } from '@classes/errors/wserror';
 
 /**
  * Service to sync databases.
  */
 @Injectable({ providedIn: 'root' })
 export class AddonModDataSyncProvider extends CoreCourseActivitySyncBaseProvider<AddonModDataSyncResult> {
-
-    static readonly AUTO_SYNCED = 'addon_mod_data_autom_synced';
 
     protected componentTranslatableString = 'data';
 
@@ -93,7 +100,7 @@ export class AddonModDataSyncProvider extends CoreCourseActivitySyncBaseProvider
 
                 if (result && result.updated) {
                     // Sync done. Send event.
-                    CoreEvents.trigger(AddonModDataSyncProvider.AUTO_SYNCED, {
+                    CoreEvents.trigger(ADDON_MOD_DATA_AUTO_SYNCED, {
                         dataId: dataId,
                         warnings: result.warnings,
                     }, siteId);
@@ -142,7 +149,7 @@ export class AddonModDataSyncProvider extends CoreCourseActivitySyncBaseProvider
         }
 
         // Verify that database isn't blocked.
-        if (CoreSync.isBlocked(AddonModDataProvider.COMPONENT, dataId, siteId)) {
+        if (CoreSync.isBlocked(ADDON_MOD_DATA_COMPONENT, dataId, siteId)) {
             this.logger.debug(`Cannot sync database '${dataId}' because it is blocked.`);
 
             throw new CoreSyncBlockedError(Translate.instant('core.errorsyncblocked', { $a: this.componentTranslate }));
@@ -164,8 +171,8 @@ export class AddonModDataSyncProvider extends CoreCourseActivitySyncBaseProvider
      */
     protected async performSyncDatabase(dataId: number, siteId: string): Promise<AddonModDataSyncResult> {
         // Sync offline logs.
-        await CoreUtils.ignoreErrors(
-            CoreCourseLogHelper.syncActivity(AddonModDataProvider.COMPONENT, dataId, siteId),
+        await CorePromiseUtils.ignoreErrors(
+            CoreCourseLogHelper.syncActivity(ADDON_MOD_DATA_COMPONENT_LEGACY, dataId, siteId),
         );
 
         const result: AddonModDataSyncResult = {
@@ -175,11 +182,11 @@ export class AddonModDataSyncProvider extends CoreCourseActivitySyncBaseProvider
 
         // Get answers to be sent.
         const offlineActions: AddonModDataOfflineAction[] =
-            await CoreUtils.ignoreErrors(AddonModDataOffline.getDatabaseEntries(dataId, siteId), []);
+            await CorePromiseUtils.ignoreErrors(AddonModDataOffline.getDatabaseEntries(dataId, siteId), []);
 
         if (!offlineActions.length) {
             // Nothing to sync.
-            await CoreUtils.ignoreErrors(this.setSyncTime(dataId, siteId));
+            await CorePromiseUtils.ignoreErrors(this.setSyncTime(dataId, siteId));
 
             return result;
         }
@@ -204,18 +211,18 @@ export class AddonModDataSyncProvider extends CoreCourseActivitySyncBaseProvider
             offlineEntries[entry.entryid].push(entry);
         });
 
-        const promises = CoreUtils.objectToArray(offlineEntries).map((entryActions) =>
+        const promises = CoreObject.toArray(offlineEntries).map((entryActions) =>
             this.syncEntry(database, entryActions, result, siteId));
 
         await Promise.all(promises);
 
         if (result.updated) {
             // Data has been sent to server. Now invalidate the WS calls.
-            await CoreUtils.ignoreErrors(AddonModData.invalidateContent(database.coursemodule, courseId, siteId));
+            await CorePromiseUtils.ignoreErrors(AddonModData.invalidateContent(database.coursemodule, courseId, siteId));
         }
 
         // Sync finished, set sync time.
-        await CoreUtils.ignoreErrors(this.setSyncTime(dataId, siteId));
+        await CorePromiseUtils.ignoreErrors(this.setSyncTime(dataId, siteId));
 
         return result;
     }
@@ -243,7 +250,7 @@ export class AddonModDataSyncProvider extends CoreCourseActivitySyncBaseProvider
         }
 
         // Sync done. Send event.
-        CoreEvents.trigger(AddonModDataSyncProvider.AUTO_SYNCED, {
+        CoreEvents.trigger(ADDON_MOD_DATA_AUTO_SYNCED, {
             dataId: database.id,
             entryId: syncEntryResult.entryId,
             offlineEntryId: syncEntryResult.offlineId,
@@ -293,7 +300,7 @@ export class AddonModDataSyncProvider extends CoreCourseActivitySyncBaseProvider
 
                 timemodified = entry.entry.timemodified;
             } catch (error) {
-                if (error && CoreUtils.isWebServiceError(error)) {
+                if (CoreWSError.isWebServiceError(error)) {
                     // The WebService has thrown an error, this means the entry has been deleted.
                     timemodified = -1;
                 } else {
@@ -325,9 +332,9 @@ export class AddonModDataSyncProvider extends CoreCourseActivitySyncBaseProvider
                 await AddonModData.deleteEntryOnline(entryId, siteId);
                 entryResult.deleted = true;
             } catch (error) {
-                if (error && CoreUtils.isWebServiceError(error)) {
+                if (CoreWSError.isWebServiceError(error)) {
                     // The WebService has thrown an error, this means it cannot be performed. Discard.
-                    entryResult.discardError = CoreTextUtils.getErrorMessageFromError(error);
+                    entryResult.discardError = CoreErrorHelper.getErrorMessageFromError(error);
                 } else {
                     // Couldn't connect to server, reject.
                     throw error;
@@ -346,7 +353,7 @@ export class AddonModDataSyncProvider extends CoreCourseActivitySyncBaseProvider
             try {
                 await Promise.all(editAction.fields.map(async (field) => {
                     // Upload Files if asked.
-                    const value = CoreTextUtils.parseJSON<CoreFileUploaderStoreFilesResult | null>(field.value || '', null);
+                    const value = CoreText.parseJSON<CoreFileUploaderStoreFilesResult | null>(field.value || '', null);
                     if (value && (value.online || value.offline)) {
                         let files: CoreFileEntry[] = value.online || [];
 
@@ -383,9 +390,9 @@ export class AddonModDataSyncProvider extends CoreCourseActivitySyncBaseProvider
                     await AddonModData.editEntryOnline(entryId, editAction.fields, siteId);
                 }
             } catch (error) {
-                if (error && CoreUtils.isWebServiceError(error)) {
+                if (CoreWSError.isWebServiceError(error)) {
                     // The WebService has thrown an error, this means it cannot be performed. Discard.
-                    entryResult.discardError = CoreTextUtils.getErrorMessageFromError(error);
+                    entryResult.discardError = CoreErrorHelper.getErrorMessageFromError(error);
                 } else {
                     // Couldn't connect to server, reject.
                     throw error;
@@ -401,9 +408,9 @@ export class AddonModDataSyncProvider extends CoreCourseActivitySyncBaseProvider
             try {
                 await AddonModData.approveEntryOnline(entryId, approveAction.action == AddonModDataAction.APPROVE, siteId);
             } catch (error) {
-                if (error && CoreUtils.isWebServiceError(error)) {
+                if (CoreWSError.isWebServiceError(error)) {
                     // The WebService has thrown an error, this means it cannot be performed. Discard.
-                    entryResult.discardError = CoreTextUtils.getErrorMessageFromError(error);
+                    entryResult.discardError = CoreErrorHelper.getErrorMessageFromError(error);
                 } else {
                     // Couldn't connect to server, reject.
                     throw error;
@@ -453,7 +460,7 @@ export class AddonModDataSyncProvider extends CoreCourseActivitySyncBaseProvider
                         });
                     }
 
-                    return CoreUtils.allPromises(subPromises);
+                    return CorePromiseUtils.allPromises(subPromises);
                 }));
 
         await Promise.all(promises);
@@ -486,3 +493,15 @@ export type AddonModDataAutoSyncData = {
     offlineEntryId?: number;
     deleted?: boolean;
 };
+
+declare module '@singletons/events' {
+
+    /**
+     * Augment CoreEventsData interface with events specific to this service.
+     *
+     * @see https://www.typescriptlang.org/docs/handbook/declaration-merging.html#module-augmentation
+     */
+    export interface CoreEventsData {
+        [ADDON_MOD_DATA_AUTO_SYNCED]: AddonModDataAutoSyncData;
+    }
+}

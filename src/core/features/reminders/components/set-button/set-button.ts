@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreReminderData, CoreReminders, CoreRemindersService } from '@features/reminders/services/reminders';
+import { CoreReminderData, CoreReminders } from '@features/reminders/services/reminders';
 import { Component, Input, OnInit } from '@angular/core';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreRemindersSetReminderMenuComponent } from '../set-reminder-menu/set-reminder-menu';
+import { CorePopovers } from '@services/overlays/popovers';
 import { Translate } from '@singletons';
-import { CoreTimeUtils } from '@services/utils/time';
+import { CoreTime } from '@singletons/time';
+import { CoreToasts } from '@services/overlays/toasts';
+import { REMINDERS_DISABLED } from '@features/reminders/constants';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component that displays a button to set a reminder.
@@ -25,6 +27,10 @@ import { CoreTimeUtils } from '@services/utils/time';
 @Component({
     selector: 'core-reminders-set-button',
     templateUrl: 'set-button.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class CoreRemindersSetButtonComponent implements OnInit {
 
@@ -71,7 +77,10 @@ export class CoreRemindersSetButtonComponent implements OnInit {
         }
 
         // Open popover.
-        const reminderTime = await CoreDomUtils.openPopover<{timeBefore: number}>({
+        const { CoreRemindersSetReminderMenuComponent }
+            = await import('../set-reminder-menu/set-reminder-menu');
+
+        const reminderTime = await CorePopovers.open<{timeBefore: number}>({
             component: CoreRemindersSetReminderMenuComponent,
             componentProps: {
                 initialValue: this.timebefore,
@@ -100,7 +109,7 @@ export class CoreRemindersSetButtonComponent implements OnInit {
             const reminderTime = this.time - this.timebefore;
 
             this.reminderMessage = Translate.instant('core.reminders.reminderset', {
-                $a: CoreTimeUtils.userDate(reminderTime * 1000),
+                $a: CoreTime.userDate(reminderTime * 1000),
             });
         } else {
             this.reminderMessage = undefined;
@@ -125,9 +134,12 @@ export class CoreRemindersSetButtonComponent implements OnInit {
             type: this.type,
         });
 
-        if (timebefore === undefined || timebefore === CoreRemindersService.DISABLED) {
+        if (timebefore === undefined || timebefore === REMINDERS_DISABLED) {
             this.setTimebefore(undefined);
-            CoreDomUtils.showToast('core.reminders.reminderunset', true);
+            CoreToasts.show({
+                message: 'core.reminders.reminderunset',
+                translateMessage: true,
+            });
 
             return;
         }
@@ -139,7 +151,7 @@ export class CoreRemindersSetButtonComponent implements OnInit {
             component: this.component,
             instanceId: this.instanceId,
             type: this.type,
-            title: this.label + ' ' + this.title,
+            title: `${this.label} ${this.title}`,
             url: this.url,
             time: this.time,
         };
@@ -148,8 +160,8 @@ export class CoreRemindersSetButtonComponent implements OnInit {
         await CoreReminders.addReminder(reminder);
 
         const time = this.time - timebefore;
-        const text = Translate.instant('core.reminders.reminderset', { $a: CoreTimeUtils.userDate(time * 1000) });
-        CoreDomUtils.showToast(text);
+        const message = Translate.instant('core.reminders.reminderset', { $a: CoreTime.userDate(time * 1000) });
+        CoreToasts.show({ message });
     }
 
 }

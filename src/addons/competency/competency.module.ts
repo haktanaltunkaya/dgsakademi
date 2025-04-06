@@ -17,8 +17,6 @@ import { CoreContentLinksDelegate } from '@features/contentlinks/services/conten
 import { CoreCourseOptionsDelegate } from '@features/course/services/course-options-delegate';
 import { CorePushNotificationsDelegate } from '@features/pushnotifications/services/push-delegate';
 import { CoreUserDelegate } from '@features/user/services/user-delegate';
-import { AddonCompetencyProvider } from './services/competency';
-import { AddonCompetencyHelperProvider } from './services/competency-helper';
 import { AddonCompetencyCompetencyLinkHandler } from './services/handlers/competency-link';
 import { AddonCompetencyCourseOptionHandler } from './services/handlers/course-option';
 import { AddonCompetencyPlanLinkHandler } from './services/handlers/plan-link';
@@ -27,41 +25,147 @@ import { AddonCompetencyPushClickHandler } from './services/handlers/push-click'
 import { AddonCompetencyUserCompetencyLinkHandler } from './services/handlers/user-competency-link';
 import { AddonCompetencyUserHandler } from './services/handlers/user';
 import { Routes } from '@angular/router';
-import { CoreMainMenuRoutingModule } from '@features/mainmenu/mainmenu-routing.module';
 import { CoreMainMenuTabRoutingModule } from '@features/mainmenu/mainmenu-tab-routing.module';
 import { CoreCourseIndexRoutingModule } from '@features/course/course-routing.module';
-import { COURSE_PAGE_NAME } from '@features/course/course.module';
-import { PARTICIPANTS_PAGE_NAME } from '@features/user/user.module';
+import { PARTICIPANTS_PAGE_NAME } from '@features/user/constants';
+import { CORE_COURSE_PAGE_NAME } from '@features/course/constants';
+import {
+    ADDON_COMPETENCY_LEARNING_PLANS_PAGE,
+    ADDON_COMPETENCY_COMPETENCIES_PAGE,
+    ADDON_COMPETENCY_SUMMARY_PAGE,
+} from './constants';
+import { conditionalRoutes } from '@/app/app-routing.module';
+import { CoreScreen } from '@services/screen';
 
-// List of providers (without handlers).
-export const ADDON_COMPETENCY_SERVICES: Type<unknown>[] = [
-    AddonCompetencyProvider,
-    AddonCompetencyHelperProvider,
-];
+/**
+ * Get competency services.
+ *
+ * @returns Competency services.
+ */
+export async function getCompetencyServices(): Promise<Type<unknown>[]> {
+    const { AddonCompetencyProvider } = await import('@addons/competency/services/competency');
+    const { AddonCompetencyHelperProvider } = await import('@addons/competency/services/competency-helper');
 
-export const ADDON_COMPETENCY_LEARNING_PLANS_PAGE = 'learning-plans';
-export const ADDON_COMPETENCY_COMPETENCIES_PAGE = 'competencies';
-export const ADDON_COMPETENCY_SUMMARY_PAGE = 'summary';
+    return [
+        AddonCompetencyProvider,
+        AddonCompetencyHelperProvider,
+    ];
+}
+
+/**
+ * Routes for competency learning plans.
+ *
+ * @returns Routes.
+ */
+function getCompetencyLearningPlansRoutes(): Routes {
+    const mobileRoutes: Routes = [
+        {
+            path: '',
+            pathMatch: 'full',
+            loadComponent: () => import('./pages/planlist/planlist'),
+        },
+        {
+            path: `:planId/${ADDON_COMPETENCY_COMPETENCIES_PAGE}`,
+            loadComponent: () => import('./pages/plan/plan'),
+        },
+        {
+            path: `:planId/${ADDON_COMPETENCY_COMPETENCIES_PAGE}/:competencyId`,
+            loadComponent: () => import('./pages/competency/competency'),
+        },
+    ];
+
+    const tabletRoutes: Routes = [
+        {
+            path: '',
+            loadComponent: () => import('./pages/planlist/planlist'),
+            loadChildren: () => [
+                {
+                    path: `:planId/${ADDON_COMPETENCY_COMPETENCIES_PAGE}`,
+                    loadComponent: () => import('./pages/plan/plan'),
+                },
+            ],
+        },
+        {
+            path: `:planId/${ADDON_COMPETENCY_COMPETENCIES_PAGE}`,
+            loadComponent: () => import('./pages/competencies/competencies'),
+            loadChildren: () => [
+                {
+                    path: ':competencyId',
+                    loadComponent: () => import('./pages/competency/competency'),
+                },
+            ],
+        },
+    ];
+
+    return [
+        ...conditionalRoutes(mobileRoutes, () => CoreScreen.isMobile),
+        ...conditionalRoutes(tabletRoutes, () => CoreScreen.isTablet),
+        {
+            path: `:planId/${ADDON_COMPETENCY_COMPETENCIES_PAGE}/:competencyId/${ADDON_COMPETENCY_SUMMARY_PAGE}`,
+            loadComponent: () => import('./pages/competencysummary/competencysummary'),
+        },
+    ];
+}
+
+/**
+ * Routes for competency course details.
+ *
+ * @returns Routes.
+ */
+function getCompetencyCourseDetailsRoutes(): Routes {
+    const mobileRoutes: Routes = [
+        {
+            path: '',
+            loadComponent: () => import('./pages/coursecompetencies/coursecompetencies'),
+        },
+        {
+            path: ':competencyId',
+            loadComponent: () => import('./pages/competency/competency'),
+        },
+    ];
+
+    const tabletRoutes: Routes = [
+        {
+            path: '',
+            loadComponent: () => import('./pages/competencies/competencies'),
+            loadChildren: () => [
+                {
+                    path: ':competencyId',
+                    loadComponent: () => import('./pages/competency/competency'),
+                },
+            ],
+        },
+    ];
+
+    return [
+        ...conditionalRoutes(mobileRoutes, () => CoreScreen.isMobile),
+        ...conditionalRoutes(tabletRoutes, () => CoreScreen.isTablet),
+        {
+            path: `:competencyId/${ADDON_COMPETENCY_SUMMARY_PAGE}`,
+            loadComponent: () => import('./pages/competencysummary/competencysummary'),
+        },
+    ];
+}
 
 const mainMenuChildrenRoutes: Routes = [
     {
         path: ADDON_COMPETENCY_LEARNING_PLANS_PAGE,
-        loadChildren: () => import('./competency-learning-plans-lazy.module').then(m => m.AddonCompetencyLearningPlansLazyModule),
+        loadChildren: () => getCompetencyLearningPlansRoutes(),
     },
     {
-        path: `${COURSE_PAGE_NAME}/:courseId/${ADDON_COMPETENCY_COMPETENCIES_PAGE}`,
-        loadChildren: () => import('./competency-course-details-lazy.module').then(m => m.AddonCompetencyCourseDetailsLazyModule),
+        path: `${CORE_COURSE_PAGE_NAME}/:courseId/${ADDON_COMPETENCY_COMPETENCIES_PAGE}`,
+        loadChildren: () => getCompetencyCourseDetailsRoutes(),
     },
     {
-        path: `${COURSE_PAGE_NAME}/:courseId/${PARTICIPANTS_PAGE_NAME}/:userId/${ADDON_COMPETENCY_COMPETENCIES_PAGE}`,
-        loadChildren: () => import('./competency-course-details-lazy.module').then(m => m.AddonCompetencyCourseDetailsLazyModule),
+        path: `${CORE_COURSE_PAGE_NAME}/:courseId/${PARTICIPANTS_PAGE_NAME}/:userId/${ADDON_COMPETENCY_COMPETENCIES_PAGE}`,
+        loadChildren: () => getCompetencyCourseDetailsRoutes(),
     },
 ];
 
 const courseIndexRoutes: Routes = [
     {
         path: ADDON_COMPETENCY_COMPETENCIES_PAGE,
-        loadChildren: () => import('./competency-course-contents-lazy.module').then(m => m.AddonCompetencyCourseContentsLazyModule),
+        loadComponent: () => import('./pages/coursecompetencies/coursecompetencies'),
     },
 ];
 
@@ -70,7 +174,6 @@ const courseIndexRoutes: Routes = [
         CoreMainMenuTabRoutingModule.forChild(mainMenuChildrenRoutes),
         CoreCourseIndexRoutingModule.forChild({ children: courseIndexRoutes }),
     ],
-    exports: [CoreMainMenuRoutingModule],
     providers: [
         {
             provide: APP_INITIALIZER,

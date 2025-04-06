@@ -16,8 +16,10 @@ import { Component, Input, ViewChild, OnDestroy, Type, OnChanges, SimpleChanges 
 import { CoreBlockDelegate } from '../../services/block-delegate';
 import { CoreDynamicComponent } from '@components/dynamic-component/dynamic-component';
 import { Subscription } from 'rxjs';
-import { CoreCourseBlock } from '@/core/features/course/services/course';
+import { CoreCourseBlock } from '@features/course/services/course';
 import type { ICoreBlockComponent } from '@features/block/classes/base-block-component';
+import { ContextLevel } from '@/core/constants';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component to render a block.
@@ -25,16 +27,20 @@ import type { ICoreBlockComponent } from '@features/block/classes/base-block-com
 @Component({
     selector: 'core-block',
     templateUrl: 'core-block.html',
-    styleUrls: ['block.scss'],
+    styleUrl: 'block.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class CoreBlockComponent implements OnChanges, OnDestroy {
 
     @ViewChild(CoreDynamicComponent) dynamicComponent?: CoreDynamicComponent<ICoreBlockComponent>;
 
-    @Input() block!: CoreCourseBlock; // The block to render.
-    @Input() contextLevel!: string; // The context where the block will be used.
-    @Input() instanceId!: number; // The instance ID associated with the context level.
-    @Input() extraData!: Record<string, unknown>; // Any extra data to be passed to the block.
+    @Input({ required: true }) block!: CoreCourseBlock; // The block to render.
+    @Input({ required: true }) contextLevel!: ContextLevel; // The context where the block will be used.
+    @Input({ required: true }) instanceId!: number; // The instance ID associated with the context level.
+    @Input() extraData?: Record<string, unknown>; // Any extra data to be passed to the block.
     @Input() labelledBy?: string;
 
     componentClass?: Type<ICoreBlockComponent>; // The class of the component to render.
@@ -100,7 +106,7 @@ export class CoreBlockComponent implements OnChanges, OnDestroy {
     }
 
     /**
-     * On destroy of the component, clear up any subscriptions.
+     * @inheritdoc
      */
     ngOnDestroy(): void {
         this.blockSubscription?.unsubscribe();

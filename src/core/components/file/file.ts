@@ -18,15 +18,24 @@ import { CoreFilepool } from '@services/filepool';
 import { CoreFileHelper } from '@services/file-helper';
 import { CorePluginFileDelegate } from '@services/plugin-file-delegate';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreMimetypeUtils } from '@services/utils/mimetype';
-import { CoreUrlUtils } from '@services/utils/url';
-import { CoreUtils, CoreUtilsOpenFileOptions, OpenFileAction } from '@services/utils/utils';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreConstants } from '@/core/constants';
+import { CoreMimetype } from '@singletons/mimetype';
+import { CoreUrl } from '@singletons/url';
+import { CoreText } from '@singletons/text';
+import { DownloadStatus } from '@/core/constants';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
 import { CoreWSFile } from '@services/ws';
 import { CorePlatform } from '@services/platform';
+import { toBoolean } from '@/core/transforms/boolean';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreOpener, CoreOpenerOpenFileOptions, OpenFileAction } from '@singletons/opener';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { Translate } from '@singletons';
+import { CoreBaseModule } from '@/core/base.module';
+import { CoreFormatDatePipe } from '@pipes/format-date';
+import { CoreDownloadRefreshComponent } from '@components/download-refresh/download-refresh';
+import { CoreAriaButtonClickDirective } from '@directives/aria-button';
+import { CoreFaIconDirective } from '@directives/fa-icon';
+import { CoreUpdateNonReactiveAttributesDirective } from '@directives/update-non-reactive-attributes';
 
 /**
  * Component to handle a remote file. Shows the file name, icon (depending on mimetype) and a button
@@ -35,17 +44,27 @@ import { CorePlatform } from '@services/platform';
 @Component({
     selector: 'core-file',
     templateUrl: 'core-file.html',
+    styleUrl: 'core-file.scss',
+    standalone: true,
+    imports: [
+        CoreBaseModule,
+        CoreAriaButtonClickDirective,
+        CoreDownloadRefreshComponent,
+        CoreUpdateNonReactiveAttributesDirective,
+        CoreFaIconDirective,
+        CoreFormatDatePipe,
+    ],
 })
 export class CoreFileComponent implements OnInit, OnDestroy {
 
     @Input() file?: CoreWSFile; // The file.
     @Input() component?: string; // Component the file belongs to.
     @Input() componentId?: string | number; // Component ID.
-    @Input() canDelete?: boolean | string; // Whether file can be deleted.
-    @Input() alwaysDownload?: boolean | string; // Whether it should always display the refresh button when the file is downloaded.
-    @Input() canDownload?: boolean | string = true; // Whether file can be downloaded.
-    @Input() showSize?: boolean | string = true; // Whether show filesize.
-    @Input() showTime?: boolean | string = true; // Whether show file time modified.
+    @Input({ transform: toBoolean }) canDelete = false; // Whether file can be deleted.
+    @Input({ transform: toBoolean }) alwaysDownload = false; // True to always display the refresh button when file is downloaded.
+    @Input({ transform: toBoolean }) canDownload = true; // Whether file can be downloaded.
+    @Input({ transform: toBoolean }) showSize = true; // Whether show filesize.
+    @Input({ transform: toBoolean }) showTime = true; // Whether show file time modified.
     @Output() onDelete: EventEmitter<void>; // Will notify when the delete button is clicked.
 
     isDownloading?: boolean;
@@ -53,7 +72,7 @@ export class CoreFileComponent implements OnInit, OnDestroy {
     fileIcon?: string;
     fileName!: string;
     fileSizeReadable?: string;
-    state?: string;
+    state?: DownloadStatus;
     timemodified!: number;
     isIOS = false;
     openButtonIcon = '';
@@ -77,10 +96,6 @@ export class CoreFileComponent implements OnInit, OnDestroy {
             return;
         }
 
-        this.canDelete = CoreUtils.isTrueOrOne(this.canDelete);
-        this.alwaysDownload = CoreUtils.isTrueOrOne(this.alwaysDownload);
-        this.canDownload = CoreUtils.isTrueOrOne(this.canDownload);
-
         this.fileUrl = CoreFileHelper.getFileUrl(this.file);
         this.timemodified = this.file.timemodified || 0;
         this.siteId = CoreSites.getCurrentSiteId();
@@ -90,20 +105,23 @@ export class CoreFileComponent implements OnInit, OnDestroy {
         this.isIOS = CorePlatform.isIOS();
         this.defaultIsOpenWithPicker = CoreFileHelper.defaultIsOpenWithPicker();
         this.openButtonIcon = this.defaultIsOpenWithPicker ? 'fas-file' : 'fas-share-from-square';
-        this.openButtonLabel = this.defaultIsOpenWithPicker ? 'core.openfile' : 'core.openwith';
+        this.openButtonLabel = this.defaultIsOpenWithPicker ? 'core.openfile' : 'core.share';
 
-        if (CoreUtils.isTrueOrOne(this.showSize) && this.fileSize && this.fileSize >= 0) {
-            this.fileSizeReadable = CoreTextUtils.bytesToSize(this.fileSize, 2);
+        if (this.showSize && this.fileSize && this.fileSize >= 0) {
+            this.fileSizeReadable = CoreText.bytesToSize(this.fileSize, 2);
         }
 
-        this.showTime = CoreUtils.isTrueOrOne(this.showTime) && this.timemodified > 0;
+        this.showTime = this.showTime && this.timemodified > 0;
 
         if ('isexternalfile' in this.file && this.file.isexternalfile) {
             this.alwaysDownload = true; // Always show the download button in external files.
         }
 
-        this.fileIcon = 'mimetype' in this.file && this.file.mimetype ?
-            CoreMimetypeUtils.getMimetypeIcon(this.file.mimetype) : CoreMimetypeUtils.getFileIcon(this.fileName);
+        const site = CoreSites.getCurrentSite();
+
+        this.fileIcon = 'mimetype' in this.file && this.file.mimetype
+            ? CoreMimetype.getMimetypeIcon(this.file.mimetype, site)
+            : CoreMimetype.getFileIcon(this.fileName, site);
 
         if (this.canDownload) {
             this.calculateState();
@@ -138,7 +156,7 @@ export class CoreFileComponent implements OnInit, OnDestroy {
         this.canDownload = site.canDownloadFiles();
 
         this.state = state;
-        this.isDownloading = this.canDownload && state === CoreConstants.DOWNLOADING;
+        this.isDownloading = this.canDownload && state === DownloadStatus.DOWNLOADING;
         this.isDownloaded = this.canDownload && CoreFileHelper.isStateDownloaded(state);
     }
 
@@ -157,7 +175,7 @@ export class CoreFileComponent implements OnInit, OnDestroy {
             return;
         }
 
-        const options: CoreUtilsOpenFileOptions = {};
+        const options: CoreOpenerOpenFileOptions = {};
         if (isOpenButton) {
             // Use the non-default method.
             options.iOSOpenFileAction = this.defaultIsOpenWithPicker ? OpenFileAction.OPEN : OpenFileAction.OPEN_WITH;
@@ -171,7 +189,7 @@ export class CoreFileComponent implements OnInit, OnDestroy {
                 }
             }, undefined, options);
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'core.errordownloading', true);
+            CoreAlerts.showError(error, { default: Translate.instant('core.errordownloading') });
         }
     }
 
@@ -193,12 +211,12 @@ export class CoreFileComponent implements OnInit, OnDestroy {
             return;
         }
 
-        if (!this.canDownload || !this.state || this.state == CoreConstants.NOT_DOWNLOADABLE) {
+        if (!this.canDownload || !this.state || this.state === DownloadStatus.NOT_DOWNLOADABLE) {
             // File cannot be downloaded, just open it.
-            if (CoreUrlUtils.isLocalFileUrl(this.fileUrl)) {
-                CoreUtils.openFile(this.fileUrl);
+            if (CoreUrl.isLocalFileUrl(this.fileUrl)) {
+                CoreOpener.openFile(this.fileUrl);
             } else {
-                CoreUtils.openOnlineFile(CoreUrlUtils.unfixPluginfileURL(this.fileUrl));
+                CoreOpener.openOnlineFile(CoreUrl.unfixPluginfileURL(this.fileUrl));
             }
 
             return;
@@ -206,7 +224,7 @@ export class CoreFileComponent implements OnInit, OnDestroy {
 
         if (!CoreNetwork.isOnline() && (!openAfterDownload || (openAfterDownload &&
                 !CoreFileHelper.isStateDownloaded(this.state)))) {
-            CoreDomUtils.showErrorModal('core.networkerrormsg', true);
+            CoreAlerts.showError(Translate.instant('core.networkerrormsg'));
 
             return;
         }
@@ -216,7 +234,7 @@ export class CoreFileComponent implements OnInit, OnDestroy {
             try {
                 await this.openFile();
             } catch (error) {
-                CoreDomUtils.showErrorModalDefault(error, 'core.errordownloading', true);
+                CoreAlerts.showError(error, { default: Translate.instant('core.errordownloading') });
             }
         } else {
             try {
@@ -224,12 +242,12 @@ export class CoreFileComponent implements OnInit, OnDestroy {
                 const size = await CorePluginFileDelegate.getFileSize(this.file, this.siteId);
 
                 if (size) {
-                    await CoreDomUtils.confirmDownloadSize({ size: size, total: true });
+                    await CoreAlerts.confirmDownloadSize({ size: size, total: true });
                 }
 
                 // User confirmed, add the file to queue.
                 // @todo Is the invalidate really needed?
-                await CoreUtils.ignoreErrors(CoreFilepool.invalidateFileByUrl(this.siteId, this.fileUrl));
+                await CorePromiseUtils.ignoreErrors(CoreFilepool.invalidateFileByUrl(this.siteId, this.fileUrl));
 
                 this.isDownloading = true;
 
@@ -246,11 +264,11 @@ export class CoreFileComponent implements OnInit, OnDestroy {
                         this.file,
                     );
                 } catch (error) {
-                    CoreDomUtils.showErrorModalDefault(error, 'core.errordownloading', true);
+                    CoreAlerts.showError(error, { default: Translate.instant('core.errordownloading') });
                     this.calculateState();
                 }
             } catch (error) {
-                CoreDomUtils.showErrorModalDefault(error, 'core.errordownloading', true);
+                CoreAlerts.showError(error, { default: Translate.instant('core.errordownloading') });
             }
         }
     }

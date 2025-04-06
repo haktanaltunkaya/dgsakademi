@@ -14,12 +14,12 @@
 
 import { Injectable } from '@angular/core';
 import { CoreBlockHandlerData } from '@features/block/services/block-delegate';
-import { CoreBlockOnlyTitleComponent } from '@features/block/components/only-title-block/only-title-block';
 import { CoreBlockBaseHandler } from '@features/block/classes/base-block-handler';
 import { makeSingleton } from '@singletons';
 import { CoreCourseBlock } from '@features/course/services/course';
 import { CORE_SEARCH_PAGE_NAME } from '@features/search/services/handlers/mainmenu';
 import { CoreSearchGlobalSearch } from '@features/search/services/global-search';
+import { ContextLevel } from '@/core/constants';
 
 /**
  * Block handler.
@@ -40,8 +40,14 @@ export class AddonBlockGlobalSearchHandlerService extends CoreBlockBaseHandler {
     /**
      * @inheritdoc
      */
-    getDisplayData(block: CoreCourseBlock, contextLevel: string, instanceId: number): CoreBlockHandlerData | undefined {
-        const isCourseSearch = contextLevel === 'course';
+    async getDisplayData(
+        block: CoreCourseBlock,
+        contextLevel: ContextLevel,
+        instanceId: number,
+    ): Promise<CoreBlockHandlerData | undefined> {
+        const isCourseSearch = contextLevel === ContextLevel.COURSE;
+
+        const { CoreBlockOnlyTitleComponent } = await import('@features/block/components/only-title-block/only-title-block');
 
         return {
             title: isCourseSearch ? 'core.search' : 'addon.block_globalsearch.pluginname',

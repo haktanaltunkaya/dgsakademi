@@ -21,32 +21,41 @@ import { CoreMainMenuRoutingModule } from '@features/mainmenu/mainmenu-routing.m
 import { CoreMainMenuTabRoutingModule } from '@features/mainmenu/mainmenu-tab-routing.module';
 import { CorePushNotificationsDelegate } from '@features/pushnotifications/services/push-delegate';
 import { CoreSettingsDelegate } from '@features/settings/services/settings-delegate';
-import { AddonNotificationsMainMenuHandler, AddonNotificationsMainMenuHandlerService } from './services/handlers/mainmenu';
+import { AddonNotificationsMainMenuHandler } from './services/handlers/mainmenu';
 import { AddonNotificationsCronHandler } from './services/handlers/cron';
 import { AddonNotificationsPushClickHandler } from './services/handlers/push-click';
-import { AddonNotificationsSettingsHandler, AddonNotificationsSettingsHandlerService } from './services/handlers/settings';
+import { AddonNotificationsSettingsHandler } from './services/handlers/settings';
 import { CoreSitePreferencesRoutingModule } from '@features/settings/settings-site-routing.module';
-import { AddonNotificationsProvider } from './services/notifications';
-import { AddonNotificationsHelperProvider } from './services/notifications-helper';
 import { CoreContentLinksDelegate } from '@features/contentlinks/services/contentlinks-delegate';
 import { AddonNotificationsPreferencesLinkHandler } from './services/handlers/preferences-link';
 import { AddonNotificationsLinkHandler } from './services/handlers/notifications-link';
+import { ADDONS_NOTICATIONS_MAIN_PAGE_NAME, ADDONS_NOTICATIONS_SETTINGS_PAGE_NAME } from './constants';
 
-export const ADDON_NOTIFICATIONS_SERVICES: Type<unknown>[] = [
-    AddonNotificationsProvider,
-    AddonNotificationsHelperProvider,
-];
+/**
+ * Get notifications services.
+ *
+ * @returns Returns notifications services.
+ */
+export async function getNotificationsServices(): Promise<Type<unknown>[]> {
+    const { AddonNotificationsProvider } = await import('@addons/notifications/services/notifications');
+    const { AddonNotificationsHelperProvider } = await import('@addons/notifications/services/notifications-helper');
+
+    return [
+        AddonNotificationsProvider,
+        AddonNotificationsHelperProvider,
+    ];
+}
 
 const routes: Routes = [
     {
-        path: AddonNotificationsMainMenuHandlerService.PAGE_NAME,
-        loadChildren: () => import('./notifications-lazy.module').then(m => m.AddonNotificationsLazyModule),
+        path: ADDONS_NOTICATIONS_MAIN_PAGE_NAME,
+        loadChildren: () => import('./notifications-lazy.module'),
     },
 ];
 const preferencesRoutes: Routes = [
     {
-        path: AddonNotificationsSettingsHandlerService.PAGE_NAME,
-        loadChildren: () => import('./notifications-settings-lazy.module').then(m => m.AddonNotificationsSettingsLazyModule),
+        path: ADDONS_NOTICATIONS_SETTINGS_PAGE_NAME,
+        loadComponent: () => import('@addons/notifications/pages/settings/settings'),
     },
 ];
 
@@ -56,7 +65,6 @@ const preferencesRoutes: Routes = [
         CoreMainMenuTabRoutingModule.forChild(routes),
         CoreSitePreferencesRoutingModule.forChild(preferencesRoutes),
     ],
-    exports: [CoreMainMenuRoutingModule],
     providers: [
         {
             provide: APP_INITIALIZER,

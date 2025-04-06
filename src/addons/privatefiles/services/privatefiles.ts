@@ -15,18 +15,20 @@
 import { Injectable } from '@angular/core';
 
 import { CoreSites } from '@services/sites';
-import { CoreMimetypeUtils } from '@services/utils/mimetype';
+import { CoreMimetype } from '@singletons/mimetype';
 import { CoreWSExternalWarning } from '@services/ws';
 import { CoreSite } from '@classes/sites/site';
 import { makeSingleton } from '@singletons';
-
-const ROOT_CACHE_KEY = 'mmaFiles:';
+import { ContextLevel, CoreCacheUpdateFrequency } from '@/core/constants';
+import { CoreFileUploader } from '@features/fileuploader/services/fileuploader';
 
 /**
  * Service to handle my files and site files.
  */
 @Injectable({ providedIn: 'root' })
 export class AddonPrivateFilesProvider {
+
+    protected static readonly ROOT_CACHE_KEY = 'mmaFiles:';
 
     // Keep old names for backwards compatibility.
     static readonly PRIVATE_FILES_COMPONENT = 'mmaFilesMy';
@@ -82,7 +84,7 @@ export class AddonPrivateFilesProvider {
 
         const preSets = {
             cacheKey: this.getFilesListCacheKey(params),
-            updateFrequency: CoreSite.FREQUENCY_SOMETIMES,
+            updateFrequency: CoreCacheUpdateFrequency.SOMETIMES,
         };
 
         const result: AddonPrivateFilesGetFilesWSResult = await site.read('core_files_get_files', params, preSets);
@@ -95,9 +97,9 @@ export class AddonPrivateFilesProvider {
             entry.fileurl = entry.url;
 
             if (entry.isdir) {
-                entry.imgPath = CoreMimetypeUtils.getFolderIcon();
+                entry.imgPath = CoreMimetype.getFileIconForType('folder', site);
             } else {
-                entry.imgPath = CoreMimetypeUtils.getFileIcon(entry.filename);
+                entry.imgPath = CoreMimetype.getFileIcon(entry.filename, site);
             }
 
             return entry;
@@ -114,7 +116,7 @@ export class AddonPrivateFilesProvider {
     protected getFilesListCacheKey(params: AddonPrivateFilesGetFilesWSParams): string {
         const root = !params.component ? 'site' : 'my';
 
-        return ROOT_CACHE_KEY + 'list:' + root + ':' + params.contextid + ':' + params.filepath;
+        return `${AddonPrivateFilesProvider.ROOT_CACHE_KEY}list:${root}:${params.contextid}:${params.filepath}`;
     }
 
     /**
@@ -136,7 +138,7 @@ export class AddonPrivateFilesProvider {
             contextid: -1,
             component: 'user',
             filearea: 'private',
-            contextlevel: 'user',
+            contextlevel: ContextLevel.USER,
             instanceid: CoreSites.getCurrentSite()?.getUserId(),
             itemid: 0,
             filepath: '',
@@ -161,7 +163,7 @@ export class AddonPrivateFilesProvider {
         };
         const preSets = {
             cacheKey: this.getPrivateFilesInfoCacheKey(userId),
-            updateFrequency: CoreSite.FREQUENCY_SOMETIMES,
+            updateFrequency: CoreCacheUpdateFrequency.SOMETIMES,
         };
 
         return site.read('core_user_get_private_files_info', params, preSets);
@@ -174,7 +176,7 @@ export class AddonPrivateFilesProvider {
      * @returns Cache key.
      */
     protected getPrivateFilesInfoCacheKey(userId: number): string {
-        return this.getPrivateFilesInfoCommonCacheKey() + ':' + userId;
+        return `${this.getPrivateFilesInfoCommonCacheKey()}:${userId}`;
     }
 
     /**
@@ -183,7 +185,7 @@ export class AddonPrivateFilesProvider {
      * @returns Cache key.
      */
     protected getPrivateFilesInfoCommonCacheKey(): string {
-        return ROOT_CACHE_KEY + 'privateInfo';
+        return `${AddonPrivateFilesProvider.ROOT_CACHE_KEY}privateInfo`;
     }
 
     /**
@@ -217,7 +219,6 @@ export class AddonPrivateFilesProvider {
      * @param root Root of the directory ('my' for private files, 'site' for site files).
      * @param params Params to the directory.
      * @param siteId Site ID. If not defined, use current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateDirectory(root?: 'my' | 'site', params?: AddonPrivateFilesGetFilesWSParams, siteId?: string): Promise<void> {
         if (!root) {
@@ -241,7 +242,6 @@ export class AddonPrivateFilesProvider {
      * Invalidates private files info for all users.
      *
      * @param siteId Site ID. If not defined, use current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidatePrivateFilesInfo(siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -254,7 +254,6 @@ export class AddonPrivateFilesProvider {
      *
      * @param userId User ID. If not defined, current user in the site.
      * @param siteId Site ID. If not defined, use current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidatePrivateFilesInfoForUser(userId?: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -387,6 +386,41 @@ export class AddonPrivateFilesProvider {
         return site.write('core_user_add_user_private_files', params, preSets);
     }
 
+    /**
+     * Delete a private file.
+     *
+     * @param files Private files to remove.
+     * @param siteId Site ID.
+     */
+    async deleteFiles(files: AddonPrivateFilesFile[], siteId?: string): Promise<void> {
+        const site = await CoreSites.getSite(siteId);
+
+        const { draftitemid } = await site.write<AddonPrivateFilesPreparePrivateFilesForEditionWSResponse>(
+            'core_user_prepare_private_files_for_edition',
+            {},
+        );
+
+        await CoreFileUploader.deleteDraftFiles(draftitemid, files.map(file => ({
+            filename: file.filename,
+            filepath: file.filepath,
+        })));
+
+        await site.write('core_user_update_private_files', { draftitemid });
+    }
+
+    /**
+     * Can delete private files in site.
+     *
+     * @param siteId Site ID
+     *
+     * @returns true or false.
+     */
+    async canDeletePrivateFiles(siteId?: string): Promise<boolean> {
+        const site = await CoreSites.getSite(siteId);
+
+        return site.wsAvailable('core_user_update_private_files') && site.canUseAdvancedFeature('privatefiles');
+    }
+
 }
 
 export const AddonPrivateFiles = makeSingleton(AddonPrivateFilesProvider);
@@ -416,6 +450,7 @@ export type AddonPrivateFilesFile = {
 export type AddonPrivateFilesFileCalculatedData = {
     fileurl: string; // File URL, using same name as CoreWSExternalFile.
     imgPath?: string; // Path to file icon's image.
+    selected?: boolean;
 };
 /**
  * Params of WS core_files_get_files.
@@ -428,7 +463,7 @@ export type AddonPrivateFilesGetFilesWSParams = {
     filepath: string; // File path.
     filename: string; // File name.
     modified?: number; // Timestamp to return files changed after this time.
-    contextlevel?: string; // The context level for the file location.
+    contextlevel?: ContextLevel; // The context level for the file location.
     instanceid?: number; // The instance id for where the file is located.
 };
 
@@ -470,4 +505,13 @@ export type AddonPrivateFilesGetUserInfoWSResult = {
  */
 type AddonPrivateFilesAddUserPrivateFilesWSParams = {
     draftid: number; // Draft area id.
+};
+
+/**
+ * Body of core_user_prepare_private_files_for_edition WS response.
+ */
+type AddonPrivateFilesPreparePrivateFilesForEditionWSResponse = {
+    areaoptions: { name: string; value: string | number }[];
+    draftitemid: number;
+    warnings?: CoreWSExternalWarning[];
 };

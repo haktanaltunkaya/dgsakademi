@@ -17,7 +17,8 @@ import { Injectable } from '@angular/core';
 import { CoreCourseActivityPrefetchHandlerBase } from '@features/course/classes/activity-prefetch-handler';
 import { CoreCourseAnyModuleData } from '@features/course/services/course';
 import { makeSingleton } from '@singletons';
-import { AddonModLti, AddonModLtiProvider } from '../lti';
+import { AddonModLti } from '../lti';
+import { ADDON_MOD_LTI_COMPONENT_LEGACY, ADDON_MOD_LTI_MODNAME } from '../../constants';
 
 /**
  * Handler to prefetch LTIs. LTIs cannot be prefetched, but the handler will be used to invalidate some data on course PTR.
@@ -26,8 +27,8 @@ import { AddonModLti, AddonModLtiProvider } from '../lti';
 export class AddonModLtiPrefetchHandlerService extends CoreCourseActivityPrefetchHandlerBase {
 
     name = 'AddonModLti';
-    modName = 'lti';
-    component = AddonModLtiProvider.COMPONENT;
+    modName = ADDON_MOD_LTI_MODNAME;
+    component = ADDON_MOD_LTI_COMPONENT_LEGACY;
 
     /**
      * @inheritdoc

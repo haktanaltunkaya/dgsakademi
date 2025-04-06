@@ -19,9 +19,10 @@ import { CoreContentLinksAction } from '@features/contentlinks/services/contentl
 import { CoreCourse } from '@features/course/services/course';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSitesReadingStrategy } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
 import { makeSingleton } from '@singletons';
-import { AddonModLessonModuleHandlerService } from './module';
+import { ADDON_MOD_LESSON_FEATURE_NAME, ADDON_MOD_LESSON_PAGE_NAME } from '../../constants';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreAlerts } from '@services/overlays/alerts';
 
 /**
  * Handler to treat links to lesson report.
@@ -30,7 +31,7 @@ import { AddonModLessonModuleHandlerService } from './module';
 export class AddonModLessonReportLinkHandlerService extends CoreContentLinksHandlerBase {
 
     name = 'AddonModLessonReportLinkHandler';
-    featureName = 'CoreCourseModuleDelegate_AddonModLesson';
+    featureName = ADDON_MOD_LESSON_FEATURE_NAME;
     pattern = /\/mod\/lesson\/report\.php.*([&?]id=\d+)/;
 
     /**
@@ -47,12 +48,12 @@ export class AddonModLessonReportLinkHandlerService extends CoreContentLinksHand
         params: Record<string, string>,
     ): CoreContentLinksAction[] | Promise<CoreContentLinksAction[]> {
         return [{
-            action: (siteId) => {
+            action: async (siteId) => {
                 if (!params.action || params.action == 'reportoverview') {
                     // Go to overview.
-                    this.openReportOverview(Number(params.id), Number(params.group), siteId);
+                    await this.openReportOverview(Number(params.id), Number(params.group), siteId);
                 } else if (params.action == 'reportdetail') {
-                    this.openUserRetake(Number(params.id), Number(params.userid), Number(params.try), siteId);
+                    await this.openUserRetake(Number(params.id), Number(params.userid), Number(params.try), siteId);
                 }
             },
         }];
@@ -86,7 +87,7 @@ export class AddonModLessonReportLinkHandlerService extends CoreContentLinksHand
      */
     protected async openReportOverview(moduleId: number, groupId?: number, siteId?: string): Promise<void> {
 
-        const modal = await CoreDomUtils.showModalLoading();
+        const modal = await CoreLoadings.show();
 
         try {
             // Get the module object.
@@ -106,11 +107,11 @@ export class AddonModLessonReportLinkHandlerService extends CoreContentLinksHand
             };
 
             CoreNavigator.navigateToSitePath(
-                `${AddonModLessonModuleHandlerService.PAGE_NAME}/${module.course}/${module.id}`,
+                `${ADDON_MOD_LESSON_PAGE_NAME}/${module.course}/${module.id}`,
                 { params, siteId },
             );
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Error processing link.');
+            CoreAlerts.showError(error, { default: 'Error processing link.' });
         } finally {
             modal.dismiss();
         }
@@ -132,7 +133,7 @@ export class AddonModLessonReportLinkHandlerService extends CoreContentLinksHand
         siteId: string,
     ): Promise<void> {
 
-        const modal = await CoreDomUtils.showModalLoading();
+        const modal = await CoreLoadings.show();
 
         try {
             // Get the module object.
@@ -141,15 +142,15 @@ export class AddonModLessonReportLinkHandlerService extends CoreContentLinksHand
                 { siteId, readingStrategy: CoreSitesReadingStrategy.PREFER_CACHE },
             );
             const params = {
-                retake: retake || 0,
+                retake: retake ?? 0,
             };
 
             CoreNavigator.navigateToSitePath(
-                AddonModLessonModuleHandlerService.PAGE_NAME + `/${module.course}/${module.id}/user-retake/${userId}`,
+                `${ADDON_MOD_LESSON_PAGE_NAME}/${module.course}/${module.id}/user-retake/${userId}`,
                 { params, siteId },
             );
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Error processing link.');
+            CoreAlerts.showError(error, { default: 'Error processing link.' });
         } finally {
             modal.dismiss();
         }

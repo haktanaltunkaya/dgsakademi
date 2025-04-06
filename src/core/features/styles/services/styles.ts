@@ -17,7 +17,7 @@ import { CoreError } from '@classes/errors/error';
 import { CoreSitePublicConfigResponse } from '@classes/sites/unauthenticated-site';
 import { CoreApp } from '@services/app';
 import { CoreSites } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { makeSingleton } from '@singletons';
 import { CoreEvents } from '@singletons/events';
 import { Md5 } from 'ts-md5';
@@ -148,8 +148,15 @@ export class CoreStylesService {
             this.removeSite(site.getId());
         });
 
-        // Load temporary styles when site config is checked in login.
+        // Load temporary styles when site config is checked in login/reconnect.
         CoreEvents.on(CoreEvents.LOGIN_SITE_CHECKED, (data) => {
+            if (data.siteId) {
+                // Reconnecting to a site, enable the site styles.
+                this.enableSiteStyles(data.siteId);
+
+                return;
+            }
+
             this.loadTmpStyles(data.config).catch((error) => {
                 this.logger.error('Error loading tmp styles', error);
             });
@@ -163,8 +170,9 @@ export class CoreStylesService {
                 return;
             }
 
-            // The tmp styles are from a site that wasn't added in the end. Just remove them.
+            // User didn't access the site, unload tmp styles and site styles if any.
             this.unloadTmpStyles();
+            this.clear();
         });
     }
 
@@ -201,14 +209,12 @@ export class CoreStylesService {
      *
      * @param siteId Site Id.
      * @param handler Style handler.
-     * @param disabled Whether the element should be disabled.
      * @param config Site public config.
      * @returns New element.
      */
     protected async setStyle(
         siteId: string,
         handler: CoreStyleHandler,
-        disabled: boolean,
         config?: CoreSitePublicConfigResponse,
     ): Promise<void> {
         let contents = '';
@@ -218,7 +224,7 @@ export class CoreStylesService {
             contents = (await handler.getStyle(siteId, config)).trim();
         }
 
-        const hash = <string>Md5.hashAsciiStr(contents);
+        const hash = Md5.hashAsciiStr(contents);
 
         // Update the styles only if they have changed.
         if (this.stylesEls[siteId][handler.name] === hash) {
@@ -235,11 +241,12 @@ export class CoreStylesService {
             return;
         }
 
+        const isDisabled = this.isStylElementDisabled(styleEl);
         styleEl.innerHTML = contents;
         this.stylesEls[siteId][handler.name] = hash;
 
         // Adding styles to a style element automatically enables it. Disable it again if needed.
-        this.disableStyleElement(styleEl, disabled);
+        this.disableStyleElement(styleEl, isDisabled);
     }
 
     /**
@@ -328,6 +335,17 @@ export class CoreStylesService {
     }
 
     /**
+     * Check if a style element is disabled.
+     *
+     * @param element Element to check.
+     * @returns True if it's disabled.
+     */
+    protected isStylElementDisabled(element: HTMLStyleElement): boolean {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (<any> element).disabled ?? element.getAttribute('media') === 'disabled';
+    }
+
+    /**
      * Enable the styles of a certain site.
      *
      * @param siteId Site ID. If not defined, current site.
@@ -365,8 +383,8 @@ export class CoreStylesService {
             this.disableStyleElementByName(siteIdentifier, sourceName, disabled);
         }
 
-        await CoreUtils.allPromises(this.styleHandlers.map(async (handler) => {
-            await this.setStyle(siteIdentifier, handler, disabled);
+        await CorePromiseUtils.allPromises(this.styleHandlers.map(async (handler) => {
+            await this.setStyle(siteIdentifier, handler);
         }));
 
         if (!disabled) {
@@ -384,8 +402,8 @@ export class CoreStylesService {
         // Create the style and add it to the header.
         this.createStyleElements(CoreStylesService.TMP_SITE_ID, true);
 
-        await CoreUtils.allPromises(this.styleHandlers.map(async (handler) => {
-            await this.setStyle(CoreStylesService.TMP_SITE_ID, handler, false, config);
+        await CorePromiseUtils.allPromises(this.styleHandlers.map(async (handler) => {
+            await this.setStyle(CoreStylesService.TMP_SITE_ID, handler, config);
         }));
 
         CoreApp.setSystemUIColors();
@@ -397,7 +415,7 @@ export class CoreStylesService {
      * @returns Promise resolved when loaded.
      */
     protected async preloadCurrentSite(): Promise<void> {
-        const siteId = await CoreUtils.ignoreErrors(CoreSites.getStoredCurrentSiteId());
+        const siteId = await CorePromiseUtils.ignoreErrors(CoreSites.getStoredCurrentSiteId());
 
         if (!siteId) {
             // No current site stored.
@@ -415,7 +433,7 @@ export class CoreStylesService {
     protected async preloadSites(): Promise<void> {
         const ids = await CoreSites.getSitesIds();
 
-        await CoreUtils.allPromises(ids.map((siteId) => this.addSite(siteId)));
+        await CorePromiseUtils.allPromises(ids.map((siteId) => this.addSite(siteId)));
     }
 
     /**

@@ -14,12 +14,13 @@
 
 import { Injectable } from '@angular/core';
 
-import { CoreApp } from '@services/app';
+import { CoreMedia } from '@singletons/media';
 import { CorePlatform } from '@services/platform';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreArray } from '@singletons/array';
 import { makeSingleton } from '@singletons';
 import { CoreFileUploaderHandler, CoreFileUploaderHandlerData, CoreFileUploaderHandlerResult } from '../fileuploader-delegate';
 import { CoreFileUploaderHelper } from '../fileuploader-helper';
+
 /**
  * Handler to record an audio to upload it.
  */
@@ -33,7 +34,7 @@ export class CoreFileUploaderAudioHandlerService implements CoreFileUploaderHand
      * @inheritdoc
      */
     async isEnabled(): Promise<boolean> {
-        return CorePlatform.isMobile() || (CoreApp.canGetUserMedia() && CoreApp.canRecordMedia());
+        return CorePlatform.isMobile() || (CoreMedia.canGetUserMedia() && CoreMedia.canRecordMedia());
     }
 
     /**
@@ -42,10 +43,10 @@ export class CoreFileUploaderAudioHandlerService implements CoreFileUploaderHand
     getSupportedMimetypes(mimetypes: string[]): string[] {
         if (CorePlatform.isIOS()) {
             // In iOS it's recorded as WAV.
-            return CoreUtils.filterByRegexp(mimetypes, /^audio\/wav$/);
+            return CoreArray.filterByRegexp(mimetypes, /^audio\/wav$/);
         } else if (CorePlatform.isAndroid()) {
             // In Android we don't know the format the audio will be recorded, so accept any audio mimetype.
-            return CoreUtils.filterByRegexp(mimetypes, /^audio\//);
+            return CoreArray.filterByRegexp(mimetypes, /^audio\//);
         } else {
             // In browser, support audio formats that are supported by MediaRecorder.
             if (MediaRecorder) {

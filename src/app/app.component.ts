@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { AfterViewInit, Component, OnInit, ViewChild } from '@angular/core';
-import { IonRouterOutlet } from '@ionic/angular';
+import { IonRouterOutlet, IonicModule } from '@ionic/angular';
 import { BackButtonEvent } from '@ionic/core';
 
 import { CoreLoginHelper } from '@features/login/services/login-helper';
@@ -22,17 +22,21 @@ import { CoreApp } from '@services/app';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSubscriptions } from '@singletons/subscriptions';
 import { CoreWindow } from '@singletons/window';
-import { CoreUtils } from '@services/utils/utils';
 import { CorePlatform } from '@services/platform';
 import { CoreLogger } from '@singletons/logger';
 import { CorePromisedValue } from '@classes/promised-value';
 import { register } from 'swiper/element/bundle';
+import { CoreWait } from '@singletons/wait';
+import { CoreOpener } from '@singletons/opener';
+import { BackButtonPriority } from '@/core/constants';
 
 register();
 
 @Component({
     selector: 'app-root',
     templateUrl: 'app.component.html',
+    standalone: true,
+    imports: [IonicModule],
 })
 export class AppComponent implements OnInit, AfterViewInit {
 
@@ -50,7 +54,7 @@ export class AppComponent implements OnInit, AfterViewInit {
         CorePlatform.resume.subscribe(() => {
             // Wait a second before setting it to false since in iOS there could be some frozen WS calls.
             setTimeout(() => {
-                if (CoreLoginHelper.isWaitingForBrowser() && !CoreUtils.isInAppBrowserOpen()) {
+                if (CoreLoginHelper.isWaitingForBrowser() && !CoreOpener.isInAppBrowserOpen()) {
                     CoreLoginHelper.stopWaitingForBrowser();
                     CoreLoginHelper.checkLogout();
                 }
@@ -69,8 +73,7 @@ export class AppComponent implements OnInit, AfterViewInit {
 
         // Quit app with back button.
         document.addEventListener('ionBackButton', (event: BackButtonEvent) => {
-            // This callback should have the lowest priority in the app.
-            event.detail.register(-100, async () => {
+            event.detail.register(BackButtonPriority.QUIT_APP, async () => {
                 const initialPath = CoreNavigator.getCurrentPath();
                 if (initialPath.startsWith('/main/')) {
                     // Main menu has its own callback to handle back. If this callback is called it means we should exit app.
@@ -83,7 +86,7 @@ export class AppComponent implements OnInit, AfterViewInit {
                 // Check if the path changes due to the back navigation handler, to know if we're at root level.
                 // Ionic doc recommends IonRouterOutlet.canGoBack, but there's no easy way to get the current outlet from here.
                 // The path seems to change immediately (0 ms timeout), but use 50ms just in case.
-                await CoreUtils.wait(50);
+                await CoreWait.wait(50);
 
                 if (CoreNavigator.getCurrentPath() != initialPath) {
                     // Ionic has navigated back, nothing else to do.
@@ -93,6 +96,30 @@ export class AppComponent implements OnInit, AfterViewInit {
                 // Quit the app.
                 CoreApp.closeApp();
             });
+        });
+
+        // Workaround for error "Blocked aria-hidden on an element because its descendant retained
+        // focus. The focus must not be hidden from assistive technology users. Avoid using
+        // aria-hidden on a focused element or its ancestor. Consider using the inert attribute
+        // instead, which will also prevent focus. For more details, see the aria-hidden section of the
+        // WAI-ARIA specification at https://w3c.github.io/aria/#aria-hidden."
+        const observer = new MutationObserver((mutations) => {
+            if (!(document.activeElement instanceof HTMLElement)) {
+                return;
+            }
+            for (const mutation of mutations) {
+                if (mutation.target instanceof HTMLElement &&
+                        mutation.target.ariaHidden === 'true' &&
+                        mutation.target.contains(document.activeElement)) {
+                    document.activeElement.blur();
+
+                    return;
+                }
+            }
+        });
+        observer.observe(document.body, {
+            attributeFilter: ['aria-hidden'],
+            subtree: true,
         });
 
         // @todo Pause Youtube videos in Android when app is put in background or screen is locked?

@@ -12,20 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreConstants } from '@/core/constants';
+import { DownloadStatus } from '@/core/constants';
 import { Component, OnDestroy, OnInit } from '@angular/core';
-import { CoreCourse, CoreCourseProvider } from '@features/course/services/course';
+import { CoreQueueRunner } from '@classes/queue-runner';
+import { CORE_COURSE_ALL_COURSES_CLEARED, COURSE_STATUS_CHANGED_EVENT } from '@features/course/constants';
+import { CoreCourse } from '@features/course/services/course';
 import { CoreCourseHelper } from '@features/course/services/course-helper';
-import { CoreCourseModulePrefetchDelegate } from '@features/course/services/module-prefetch-delegate';
 import { CoreCourses, CoreEnrolledCourseData } from '@features/courses/services/courses';
 import { CoreSettingsHelper, CoreSiteSpaceUsage } from '@features/settings/services/settings-helper';
 import { CoreSiteHome } from '@features/sitehome/services/sitehome';
+import { CoreLoadings } from '@services/overlays/loadings';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
 import { Translate } from '@singletons';
 import { CoreArray } from '@singletons/array';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreErrorHelper } from '@services/error-helper';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreCourseDownloadStatusHelper } from '@features/course/services/course-download-status-helper';
+import { ADDON_STORAGE_MANAGER_PAGE_NAME } from '@addons/storagemanager/constants';
 
 /**
  * Page that displays downloaded courses and allows the user to delete them.
@@ -33,9 +39,13 @@ import { CoreEventObserver, CoreEvents } from '@singletons/events';
 @Component({
     selector: 'page-addon-storagemanager-courses-storage',
     templateUrl: 'courses-storage.html',
-    styleUrls: ['courses-storage.scss'],
+    styleUrl: 'courses-storage.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
-export class AddonStorageManagerCoursesStoragePage implements OnInit, OnDestroy {
+export default class AddonStorageManagerCoursesStoragePage implements OnInit, OnDestroy {
 
     userCourses: CoreEnrolledCourseData[] = [];
     downloadedCourses: DownloadedCourse[] = [];
@@ -50,6 +60,8 @@ export class AddonStorageManagerCoursesStoragePage implements OnInit, OnDestroy 
     courseStatusObserver?: CoreEventObserver;
     siteId: string;
 
+    private downloadedCoursesQueue = new CoreQueueRunner();
+
     constructor() {
         this.siteId = CoreSites.getCurrentSiteId();
     }
@@ -60,11 +72,11 @@ export class AddonStorageManagerCoursesStoragePage implements OnInit, OnDestroy 
     async ngOnInit(): Promise<void> {
         this.userCourses = await CoreCourses.getUserCourses();
         this.courseStatusObserver = CoreEvents.on(
-            CoreEvents.COURSE_STATUS_CHANGED,
+            COURSE_STATUS_CHANGED_EVENT,
             ({ courseId, status }) => this.onCourseUpdated(courseId, status),
         );
 
-        const downloadedCourseIds = await CoreCourse.getDownloadedCourseIds();
+        const downloadedCourseIds = await CoreCourseDownloadStatusHelper.getDownloadedCourseIds();
         const downloadedCourses = await Promise.all(
             this.userCourses
                 .filter((course) => downloadedCourseIds.indexOf(course.id) !== -1)
@@ -76,20 +88,18 @@ export class AddonStorageManagerCoursesStoragePage implements OnInit, OnDestroy 
             const siteHomeId = CoreSites.getCurrentSiteHomeId();
             const size = await this.calculateDownloadedCourseSize(siteHomeId);
             if (size > 0) {
-                const status = await CoreCourse.getCourseStatus(siteHomeId);
+                const status = await CoreCourseDownloadStatusHelper.getCourseStatus(siteHomeId);
 
                 downloadedCourses.push({
                     id: siteHomeId,
                     title: Translate.instant('core.sitehome.sitehome'),
                     totalSize: size,
-                    isDownloading: status === CoreConstants.DOWNLOADING,
+                    isDownloading: status === DownloadStatus.DOWNLOADING,
                 });
             }
         }
 
-        this.spaceUsage = await CoreSettingsHelper.getSiteSpaceUsage(this.siteId);
-
-        this.setDownloadedCourses(downloadedCourses);
+        await this.downloadedCoursesQueue.run(() => this.setDownloadedCourses(downloadedCourses));
 
         this.loaded = true;
     }
@@ -111,24 +121,26 @@ export class AddonStorageManagerCoursesStoragePage implements OnInit, OnDestroy 
         event.stopPropagation();
 
         try {
-            await CoreDomUtils.showDeleteConfirm('addon.storagemanager.confirmdeletecourses');
+            await CoreAlerts.confirmDelete(Translate.instant('addon.storagemanager.confirmdeletecourses'));
         } catch (error) {
-            if (!CoreDomUtils.isCanceledError(error)) {
+            if (!CoreErrorHelper.isCanceledError(error)) {
                 throw error;
             }
 
             return;
         }
 
-        const modal = await CoreDomUtils.showModalLoading('core.deleting', true);
+        const modal = await CoreLoadings.show('core.deleting', true);
         const deletedCourseIds = this.completelyDownloadedCourses.map((course) => course.id);
 
         try {
             await Promise.all(deletedCourseIds.map((courseId) => CoreCourseHelper.deleteCourseFiles(courseId)));
 
-            this.setDownloadedCourses(this.downloadedCourses.filter((course) => !deletedCourseIds.includes(course.id)));
+            await this.downloadedCoursesQueue.run(async () => {
+                await this.setDownloadedCourses(this.downloadedCourses.filter((course) => !deletedCourseIds.includes(course.id)));
+            });
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, Translate.instant('core.errordeletefile'));
+            CoreAlerts.showError(error, { default: Translate.instant('core.errordeletefile') });
         } finally {
             modal.dismiss();
         }
@@ -145,26 +157,25 @@ export class AddonStorageManagerCoursesStoragePage implements OnInit, OnDestroy 
         event.stopPropagation();
 
         try {
-            await CoreDomUtils.showDeleteConfirm(
-                'addon.storagemanager.confirmdeletedatafrom',
-                { name: course.title },
-            );
+            await CoreAlerts.confirmDelete(Translate.instant('addon.storagemanager.confirmdeletedatafrom', { name: course.title }));
         } catch (error) {
-            if (!CoreDomUtils.isCanceledError(error)) {
+            if (!CoreErrorHelper.isCanceledError(error)) {
                 throw error;
             }
 
             return;
         }
 
-        const modal = await CoreDomUtils.showModalLoading('core.deleting', true);
+        const modal = await CoreLoadings.show('core.deleting', true);
 
         try {
             await CoreCourseHelper.deleteCourseFiles(course.id);
 
-            this.setDownloadedCourses(CoreArray.withoutItem(this.downloadedCourses, course));
+            await this.downloadedCoursesQueue.run(async () => {
+                await this.setDownloadedCourses(CoreArray.withoutItem(this.downloadedCourses, course));
+            });
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, Translate.instant('core.errordeletefile'));
+            CoreAlerts.showError(error, { default: Translate.instant('core.errordeletefile') });
         } finally {
             modal.dismiss();
         }
@@ -175,9 +186,9 @@ export class AddonStorageManagerCoursesStoragePage implements OnInit, OnDestroy 
      *
      * @param courseId Updated course id.
      */
-    private async onCourseUpdated(courseId: number, status: string): Promise<void> {
-        if (courseId == CoreCourseProvider.ALL_COURSES_CLEARED) {
-            this.setDownloadedCourses([]);
+    private async onCourseUpdated(courseId: number, status: DownloadStatus): Promise<void> {
+        if (courseId == CORE_COURSE_ALL_COURSES_CLEARED) {
+            await this.downloadedCoursesQueue.run(() => this.setDownloadedCourses([]));
 
             return;
         }
@@ -188,10 +199,10 @@ export class AddonStorageManagerCoursesStoragePage implements OnInit, OnDestroy 
             return;
         }
 
-        course.isDownloading = status === CoreConstants.DOWNLOADING;
+        course.isDownloading = status === DownloadStatus.DOWNLOADING;
         course.totalSize = await this.calculateDownloadedCourseSize(course.id);
 
-        this.setDownloadedCourses(this.downloadedCourses);
+        await this.downloadedCoursesQueue.run(() => this.setDownloadedCourses(this.downloadedCourses));
     }
 
     /**
@@ -199,7 +210,10 @@ export class AddonStorageManagerCoursesStoragePage implements OnInit, OnDestroy 
      *
      * @param courses Courses info.
      */
-    private setDownloadedCourses(courses: DownloadedCourse[]): void {
+    private async setDownloadedCourses(courses: DownloadedCourse[]): Promise<void> {
+        // Downloaded courses changed, update site usage too.
+        this.spaceUsage = await CoreSettingsHelper.getSiteSpaceUsage(this.siteId);
+
         this.downloadedCourses = courses.sort((a, b) => b.totalSize - a.totalSize);
         this.completelyDownloadedCourses = courses.filter((course) => !course.isDownloading);
         this.totalSize = this.downloadedCourses.reduce((totalSize, course) => totalSize + course.totalSize, 0);
@@ -213,13 +227,13 @@ export class AddonStorageManagerCoursesStoragePage implements OnInit, OnDestroy 
      */
     private async getDownloadedCourse(course: CoreEnrolledCourseData): Promise<DownloadedCourse> {
         const totalSize = await this.calculateDownloadedCourseSize(course.id);
-        const status = await CoreCourse.getCourseStatus(course.id);
+        const status = await CoreCourseDownloadStatusHelper.getCourseStatus(course.id);
 
         return {
             id: course.id,
             title: course.displayname || course.fullname,
             totalSize,
-            isDownloading: status === CoreConstants.DOWNLOADING,
+            isDownloading: status === DownloadStatus.DOWNLOADING,
         };
     }
 
@@ -231,15 +245,9 @@ export class AddonStorageManagerCoursesStoragePage implements OnInit, OnDestroy 
      */
     private async calculateDownloadedCourseSize(courseId: number): Promise<number> {
         const sections = await CoreCourse.getSections(courseId);
-        const modules = CoreArray.flatten(sections.map((section) => section.modules));
-        const promisedModuleSizes = modules.map(async (module) => {
-            const size = await CoreCourseModulePrefetchDelegate.getModuleStoredSize(module, courseId);
+        const modules = CoreCourse.getSectionsModules(sections);
 
-            return isNaN(size) ? 0 : size;
-        });
-        const moduleSizes = await Promise.all(promisedModuleSizes);
-
-        return moduleSizes.reduce((totalSize, moduleSize) => totalSize + moduleSize, 0);
+        return CoreCourseHelper.getModulesDownloadedSize(modules, courseId);
     }
 
     /**
@@ -248,7 +256,7 @@ export class AddonStorageManagerCoursesStoragePage implements OnInit, OnDestroy 
      * @param courseId Course Id.
      */
     openCourse(courseId: number, title: string): void {
-        CoreNavigator.navigateToSitePath('/storage/' + courseId, { params: { title } });
+        CoreNavigator.navigateToSitePath(`/${ADDON_STORAGE_MANAGER_PAGE_NAME}/${courseId}`, { params: { title } });
     }
 
     /**

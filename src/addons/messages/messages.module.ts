@@ -19,10 +19,10 @@ import { CoreMainMenuRoutingModule } from '@features/mainmenu/mainmenu-routing.m
 import { MESSAGES_OFFLINE_SITE_SCHEMA } from './services/database/messages';
 import { CORE_SITE_SCHEMAS } from '@services/sites';
 import { CoreMainMenuDelegate } from '@features/mainmenu/services/mainmenu-delegate';
-import { AddonMessagesMainMenuHandler, AddonMessagesMainMenuHandlerService } from './services/handlers/mainmenu';
+import { AddonMessagesMainMenuHandler } from './services/handlers/mainmenu';
 import { CoreCronDelegate } from '@services/cron';
 import { CoreSettingsDelegate } from '@features/settings/services/settings-delegate';
-import { AddonMessagesSettingsHandler, AddonMessagesSettingsHandlerService } from './services/handlers/settings';
+import { AddonMessagesSettingsHandler } from './services/handlers/settings';
 import { CoreMainMenuTabRoutingModule } from '@features/mainmenu/mainmenu-tab-routing.module';
 import { CoreContentLinksDelegate } from '@features/contentlinks/services/contentlinks-delegate';
 import { AddonMessagesIndexLinkHandler } from './services/handlers/index-link';
@@ -34,28 +34,38 @@ import { CoreUserDelegate } from '@features/user/services/user-delegate';
 import { AddonMessagesSendMessageUserHandler } from './services/handlers/user-send-message';
 import { NgZone } from '@singletons';
 import { CoreNetwork } from '@services/network';
-import { AddonMessagesSync, AddonMessagesSyncProvider } from './services/messages-sync';
+import { AddonMessagesSync } from './services/messages-sync';
 import { AddonMessagesSyncCronHandler } from './services/handlers/sync-cron';
 import { CoreSitePreferencesRoutingModule } from '@features/settings/settings-site-routing.module';
-import { AddonMessagesProvider } from './services/messages';
-import { AddonMessagesOfflineProvider } from './services/messages-offline';
+import { ADDON_MESSAGES_PAGE_NAME, ADDON_MESSAGES_SETTINGS_PAGE_NAME } from './constants';
 
-export const ADDON_MESSAGES_SERVICES: Type<unknown>[] = [
-    AddonMessagesProvider,
-    AddonMessagesOfflineProvider,
-    AddonMessagesSyncProvider,
-];
+/**
+ * Get messages services.
+ *
+ * @returns Returns messages services.
+ */
+export async function getMessagesServices(): Promise<Type<unknown>[]> {
+    const { AddonMessagesProvider } = await import('@addons/messages/services/messages');
+    const { AddonMessagesOfflineProvider } = await import('@addons/messages/services/messages-offline');
+    const { AddonMessagesSyncProvider } = await import('@addons/messages/services/messages-sync');
+
+    return [
+        AddonMessagesProvider,
+        AddonMessagesOfflineProvider,
+        AddonMessagesSyncProvider,
+    ];
+}
 
 const mainMenuChildrenRoutes: Routes = [
     {
-        path: AddonMessagesMainMenuHandlerService.PAGE_NAME,
-        loadChildren: () => import('./messages-lazy.module').then(m => m.AddonMessagesLazyModule),
+        path: ADDON_MESSAGES_PAGE_NAME,
+        loadChildren: () => import('./messages-lazy.module'),
     },
 ];
 const preferencesRoutes: Routes = [
     {
-        path: AddonMessagesSettingsHandlerService.PAGE_NAME,
-        loadChildren: () => import('./messages-settings-lazy.module').then(m => m.AddonMessagesSettingsLazyModule),
+        path: ADDON_MESSAGES_SETTINGS_PAGE_NAME,
+        loadComponent: () => import('./pages/settings/settings'),
     },
 ];
 

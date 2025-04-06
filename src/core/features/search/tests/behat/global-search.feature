@@ -1,4 +1,4 @@
-@core_search @app @javascript @lms_from4.3
+@core_search @app @core @javascript @lms_from4.3
 Feature: Test Global Search
 
   Background:
@@ -75,7 +75,7 @@ Feature: Test Global Search
     When I press "Test page 01" in the app
     Then I should find "Test page content" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And global search expects the query "forum" and will return:
       | type     | idnumber  |
       | activity | forum     |
@@ -87,7 +87,7 @@ Feature: Test Global Search
     When I press "Test forum" in the app
     Then I should find "Test forum intro" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Clear search" in the app
     Then I should find "What are you searching for?" in the app
     But I should not find "Test forum" in the app
@@ -97,6 +97,11 @@ Feature: Test Global Search
     And I set the field "Search" to "noresults" in the app
     And I press "Search" "button" in the app
     Then I should find "No results for" in the app
+    And the following events should have been logged for "student1" in the app:
+      | name                              | other             |
+      | \core\event\search_results_viewed | {"q":"page"}      |
+      | \core\event\search_results_viewed | {"q":"forum"}     |
+      | \core\event\search_results_viewed | {"q":"noresults"} |
 
     # TODO test other results like course, user, and messages (global search generator not supported)
 

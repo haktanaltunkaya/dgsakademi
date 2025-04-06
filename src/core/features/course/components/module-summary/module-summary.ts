@@ -12,27 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CoreConstants } from '@/core/constants';
+import { DownloadStatus } from '@/core/constants';
 import { AddonBlog } from '@addons/blog/services/blog';
-import { AddonBlogMainMenuHandlerService } from '@addons/blog/services/handlers/mainmenu';
+import { ADDON_BLOG_MAINMENU_PAGE_NAME } from '@addons/blog/constants';
 import { Component, Input, OnDestroy, OnInit } from '@angular/core';
 import { Params } from '@angular/router';
 import { CoreCourse } from '@features/course/services/course';
 import { CoreCourseHelper, CoreCourseModuleData } from '@features/course/services/course-helper';
 import { CoreCourseModuleDelegate } from '@features/course/services/module-delegate';
 import { CoreCourseModulePrefetchDelegate } from '@features/course/services/module-prefetch-delegate';
-import { CoreCourses, CoreEnrolledCourseData } from '@features/courses/services/courses';
+import { CoreCourseAnyCourseData } from '@features/courses/services/courses';
 import { CoreGradesFormattedRow, CoreGradesFormattedTableRow, CoreGradesHelper } from '@features/grades/services/grades-helper';
 import { CoreNetwork } from '@services/network';
 import { CoreFilepool } from '@services/filepool';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
-import { ModalController, NgZone } from '@singletons';
+import { CoreText } from '@singletons/text';
+import { CoreUtils } from '@singletons/utils';
+import { ModalController, NgZone, Translate } from '@singletons';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
 import { Subscription } from 'rxjs';
+import { CoreSharedModule } from '@/core/shared.module';
+import { toBoolean } from '@/core/transforms/boolean';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { ModFeature } from '@addons/mod/constants';
+import { CoreCourseModuleHelper } from '@features/course/services/course-module-helper';
 
 /**
  * Component to display a module summary modal.
@@ -40,7 +45,11 @@ import { Subscription } from 'rxjs';
 @Component({
     selector: 'core-course-module-summary',
     templateUrl: 'module-summary.html',
-    styleUrls: ['module-summary.scss'],
+    styleUrl: 'module-summary.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class CoreCourseModuleSummaryComponent implements OnInit, OnDestroy {
 
@@ -49,7 +58,7 @@ export class CoreCourseModuleSummaryComponent implements OnInit, OnDestroy {
     @Input() moduleId = 0; // Module ID the component belongs to.
     @Input() component = ''; // Component name.
     @Input() description = ''; // Module description.
-    @Input() hasOffline = false; // If it has offline data to be synced.
+    @Input({ transform: toBoolean }) hasOffline = false; // If it has offline data to be synced.
     @Input() displayOptions: CoreCourseModuleSummaryDisplayOptions = {};
 
     loaded = false; // If the component has been loaded.
@@ -67,9 +76,10 @@ export class CoreCourseModuleSummaryComponent implements OnInit, OnDestroy {
     grades?: CoreGradesFormattedRow[];
     blog = false; // If blog is available.
     isOnline = false; // If the app is online or not.
-    course?: CoreEnrolledCourseData;
+    course?: CoreCourseAnyCourseData;
     modicon = '';
     moduleNameTranslated = '';
+    isTeacher = false;
 
     protected onlineSubscription: Subscription; // It will observe the status of the network connection.
     protected packageStatusObserver?: CoreEventObserver; // Observer of package status.
@@ -111,10 +121,10 @@ export class CoreCourseModuleSummaryComponent implements OnInit, OnDestroy {
         }, this.displayOptions);
 
         this.displayOptions.displayGrades = this.displayOptions.displayGrades &&
-            CoreCourseModuleDelegate.supportsFeature(this.module.modname, CoreConstants.FEATURE_GRADE_HAS_GRADE, true);
+            CoreCourseModuleDelegate.supportsFeature(this.module.modname, ModFeature.GRADE_HAS_GRADE, true);
 
         this.displayOptions.displayDescription = this.displayOptions.displayDescription &&
-            CoreCourseModuleDelegate.supportsFeature(this.module.modname, CoreConstants.FEATURE_SHOW_DESCRIPTION, true);
+            CoreCourseModuleDelegate.supportsFeature(this.module.modname, ModFeature.SHOW_DESCRIPTION, true);
 
         this.fetchContent();
 
@@ -122,7 +132,7 @@ export class CoreCourseModuleSummaryComponent implements OnInit, OnDestroy {
             this.packageStatusObserver = CoreEvents.on(
                 CoreEvents.PACKAGE_STATUS_CHANGED,
                 (data) => {
-                    if (data.componentId == module.id && data.component == this.component) {
+                    if (data.componentId === this.module?.id && data.component == this.component) {
                         this.getPackageStatus();
                     }
                 },
@@ -135,11 +145,7 @@ export class CoreCourseModuleSummaryComponent implements OnInit, OnDestroy {
                     return;
                 }
 
-                const moduleSize = await CoreCourseModulePrefetchDelegate.getModuleStoredSize(this.module, this.courseId);
-
-                if (moduleSize) {
-                    this.size = moduleSize;
-                }
+                this.size = await CoreCourseModulePrefetchDelegate.getModuleStoredSize(this.module, this.courseId);
             }, 1000);
 
             this.fileStatusObserver = CoreEvents.on(
@@ -174,9 +180,10 @@ export class CoreCourseModuleSummaryComponent implements OnInit, OnDestroy {
         this.componentId = this.module.id;
         this.externalUrl = this.module.url;
         this.courseId = this.courseId || this.module.course;
-        this.moduleNameTranslated = CoreCourse.translateModuleName(this.module.modname, this.module.modplural);
+        this.moduleNameTranslated = CoreCourseModuleHelper.translateModuleName(this.module.modname, this.module.modplural);
 
-        this.blog = await AddonBlog.isPluginEnabled();
+        this.blog = !CoreSites.getCurrentSite()?.isFeatureDisabled('CoreCourseOptionsDelegate_AddonBlog') &&
+            await AddonBlog.isPluginEnabled();
 
         try {
             await Promise.all([
@@ -186,7 +193,7 @@ export class CoreCourseModuleSummaryComponent implements OnInit, OnDestroy {
                 this.fetchCourse(),
             ]);
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
+            CoreAlerts.showError(error);
         }
 
         this.loaded = true;
@@ -216,15 +223,15 @@ export class CoreCourseModuleSummaryComponent implements OnInit, OnDestroy {
         const moduleInfo =
             await CoreCourseHelper.getModulePrefetchInfo(this.module, this.courseId, refresh, this.component);
 
-        this.canPrefetch = moduleInfo.status != CoreConstants.NOT_DOWNLOADABLE;
+        this.canPrefetch = moduleInfo.status !== DownloadStatus.NOT_DOWNLOADABLE;
         this.downloadTimeReadable = '';
 
         if (this.canPrefetch) {
             if (moduleInfo.downloadTime && moduleInfo.downloadTime > 0) {
-                this.downloadTimeReadable = CoreTextUtils.ucFirst(moduleInfo.downloadTimeReadable);
+                this.downloadTimeReadable = CoreText.capitalize(moduleInfo.downloadTimeReadable);
             }
-            this.prefetchLoading = moduleInfo.status == CoreConstants.DOWNLOADING;
-            this.prefetchDisabled = moduleInfo.status == CoreConstants.DOWNLOADED;
+            this.prefetchLoading = moduleInfo.status === DownloadStatus.DOWNLOADING;
+            this.prefetchDisabled = moduleInfo.status === DownloadStatus.DOWNLOADED;
         }
 
         if (moduleInfo.size && moduleInfo.size > 0) {
@@ -238,7 +245,7 @@ export class CoreCourseModuleSummaryComponent implements OnInit, OnDestroy {
     async gotoBlog(): Promise<void> {
         const params: Params = { cmId: this.moduleId };
 
-        await CoreNavigator.navigateToSitePath(AddonBlogMainMenuHandlerService.PAGE_NAME, { params });
+        await CoreNavigator.navigateToSitePath(ADDON_BLOG_MAINMENU_PAGE_NAME, { params });
     }
 
     /**
@@ -269,13 +276,9 @@ export class CoreCourseModuleSummaryComponent implements OnInit, OnDestroy {
      * Fetch course.
      */
     protected async fetchCourse(): Promise<void> {
-        // Fix that.
-        try {
-            this.course = await CoreCourses.getUserCourse(this.courseId, true);
-        } catch {
-            // The user is not enrolled in the course. Use getCourses to see if it's an admin/manager and can see the course.
-            this.course = await CoreCourses.getCourse(this.courseId);
-        }
+        this.course = await CoreCourseHelper.getCourseInfo(this.courseId);
+
+        this.isTeacher = await CorePromiseUtils.ignoreErrors(CoreCourseHelper.guessIsTeacher(this.courseId, this.course), false);
     }
 
     /**
@@ -313,7 +316,7 @@ export class CoreCourseModuleSummaryComponent implements OnInit, OnDestroy {
             // We need to call getDownloadSize, the package might have been updated.
             const size = await CoreCourseModulePrefetchDelegate.getModuleDownloadSize(this.module, this.courseId, true);
 
-            await CoreDomUtils.confirmDownloadSize(size);
+            await CoreAlerts.confirmDownloadSize(size);
 
             await CoreCourseModulePrefetchDelegate.prefetchModule(this.module, this.courseId, true);
 
@@ -322,7 +325,7 @@ export class CoreCourseModuleSummaryComponent implements OnInit, OnDestroy {
             this.prefetchLoading = false;
 
             if (!this.isDestroyed) {
-                CoreDomUtils.showErrorModalDefault(error, 'core.errordownloading', true);
+                CoreAlerts.showError(error, { default: Translate.instant('core.errordownloading') });
             }
         }
     }
@@ -336,13 +339,15 @@ export class CoreCourseModuleSummaryComponent implements OnInit, OnDestroy {
         }
 
         if (this.prefetchLoading) {
-            CoreDomUtils.showAlertTranslated(undefined, 'core.course.cannotdeletewhiledownloading');
+            CoreAlerts.show({ message: Translate.instant('core.course.cannotdeletewhiledownloading') });
 
             return;
         }
 
         try {
-            await CoreDomUtils.showDeleteConfirm('addon.storagemanager.confirmdeletedatafrom', { name: this.module.name });
+            await CoreAlerts.confirmDelete(
+                Translate.instant('addon.storagemanager.confirmdeletedatafrom', { name: this.module.name }),
+            );
 
             this.removeFilesLoading = true;
 
@@ -350,7 +355,7 @@ export class CoreCourseModuleSummaryComponent implements OnInit, OnDestroy {
 
         } catch (error) {
             if (!this.isDestroyed &&error) {
-                CoreDomUtils.showErrorModal(error);
+                CoreAlerts.showError(error);
             }
         } finally {
             this.removeFilesLoading = false;

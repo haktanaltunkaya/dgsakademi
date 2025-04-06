@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { CoreSharedModule } from '@/core/shared.module';
 import { Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChange } from '@angular/core';
 import { CoreCourseHelper, CoreCourseModuleCompletionData } from '@features/course/services/course-helper';
 import { CoreUser } from '@features/user/services/user';
@@ -26,6 +27,10 @@ import { CoreEventObserver, CoreEvents } from '@singletons/events';
 @Component({
     selector: 'core-course-module-manual-completion',
     templateUrl: 'core-course-module-manual-completion.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class CoreCourseModuleManualCompletionComponent implements OnInit, OnChanges, OnDestroy {
 
@@ -80,10 +85,10 @@ export class CoreCourseModuleManualCompletionComponent implements OnInit, OnChan
                 },
             };
             const setByLangKey = this.completion.state ? 'completion_setby:manual:done' : 'completion_setby:manual:markdone';
-            this.accessibleDescription = Translate.instant('core.course.' + setByLangKey, setByData);
+            this.accessibleDescription = Translate.instant(`core.course.${setByLangKey}`, setByData);
         } else {
             const langKey = this.completion.state ? 'completion_manual:aria:done' : 'completion_manual:aria:markdone';
-            this.accessibleDescription = Translate.instant('core.course.' + langKey, { $a: this.moduleName });
+            this.accessibleDescription = Translate.instant(`core.course.${langKey}`, { $a: this.moduleName });
         }
     }
 

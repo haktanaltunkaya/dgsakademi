@@ -16,10 +16,9 @@ import { Injectable, Type } from '@angular/core';
 
 import { CoreSites } from '@services/sites';
 import { CoreCourseModuleHandler, CoreCourseModuleHandlerData } from '../module-delegate';
-import { CoreCourse } from '../course';
 import { CoreCourseModuleData } from '../course-helper';
-import { CoreCourseUnsupportedModuleComponent } from '@features/course/components/unsupported-module/unsupported-module';
 import { CoreNavigationOptions, CoreNavigator } from '@services/navigator';
+import { CoreCourseModuleHelper } from '../course-module-helper';
 
 /**
  * Default handler used when the module doesn't have a specific implementation.
@@ -46,9 +45,9 @@ export class CoreCourseModuleDefaultHandler implements CoreCourseModuleHandler {
     ): CoreCourseModuleHandlerData {
         // Return the default data.
         const defaultData: CoreCourseModuleHandlerData = {
-            icon: CoreCourse.getModuleIconSrc(module.modname, module.modicon),
+            icon: CoreCourseModuleHelper.getModuleIconSrc(module.modname, module.modicon),
             title: module.name,
-            class: 'core-course-default-handler core-course-module-' + module.modname + '-handler',
+            class: `core-course-default-handler core-course-module-${module.modname}-handler`,
             action: async (event: Event, module: CoreCourseModuleData, courseId: number, options?: CoreNavigationOptions) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -79,6 +78,9 @@ export class CoreCourseModuleDefaultHandler implements CoreCourseModuleHandler {
      * @inheritdoc
      */
     async getMainComponent(): Promise<Type<unknown>> {
+        const { CoreCourseUnsupportedModuleComponent } =
+            await import('@features/course/components/unsupported-module/unsupported-module');
+
         return CoreCourseUnsupportedModuleComponent;
     }
 
@@ -97,7 +99,7 @@ export class CoreCourseModuleDefaultHandler implements CoreCourseModuleHandler {
         options.params = options.params || {};
         Object.assign(options.params, { module });
 
-        await CoreNavigator.navigateToSitePath('course/' + courseId + '/' + module.id +'/module-preview', options);
+        await CoreNavigator.navigateToSitePath(`course/${courseId}/${module.id}/module-preview`, options);
     }
 
 }

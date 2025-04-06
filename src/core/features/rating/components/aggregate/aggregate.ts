@@ -20,10 +20,10 @@ import {
     CoreRatingInfoItem,
     CoreRatingProvider,
 } from '@features/rating/services/rating';
+import { CoreModals } from '@services/overlays/modals';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
-import { CoreRatingRatingsComponent } from '../ratings/ratings';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component that displays the aggregation of a rating item.
@@ -31,15 +31,19 @@ import { CoreRatingRatingsComponent } from '../ratings/ratings';
 @Component({
     selector: 'core-rating-aggregate',
     templateUrl: 'core-rating-aggregate.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class CoreRatingAggregateComponent implements OnChanges, OnDestroy {
 
-    @Input() ratingInfo!: CoreRatingInfo;
-    @Input() contextLevel!: ContextLevel;
-    @Input() instanceId!: number;
-    @Input() itemId!: number;
-    @Input() aggregateMethod!: number;
-    @Input() scaleId!: number;
+    @Input({ required: true }) ratingInfo!: CoreRatingInfo;
+    @Input({ required: true }) contextLevel!: ContextLevel;
+    @Input({ required: true }) instanceId!: number;
+    @Input({ required: true }) itemId!: number;
+    @Input({ required: true }) aggregateMethod!: number;
+    @Input({ required: true }) scaleId!: number;
     @Input() courseId?: number;
 
     item?: CoreRatingInfoItem;
@@ -118,7 +122,10 @@ export class CoreRatingAggregateComponent implements OnChanges, OnDestroy {
             return;
         }
 
-        await CoreDomUtils.openModal({
+        const { CoreRatingRatingsComponent } =
+            await import('@features/rating/components/ratings/ratings');
+
+        await CoreModals.openModal({
             component: CoreRatingRatingsComponent,
             componentProps: {
                 contextLevel: this.contextLevel,

@@ -20,6 +20,9 @@ import {
     ChangeDetectionStrategy,
 } from '@angular/core';
 import { CoreGroupInfo } from '@services/groups';
+import { CoreBaseModule } from '@/core/base.module';
+import { CoreFaIconDirective } from '@directives/fa-icon';
+import { CoreFormatTextDirective } from '@directives/format-text';
 
 /**
  * Component to display a group selector.
@@ -27,13 +30,20 @@ import { CoreGroupInfo } from '@services/groups';
 @Component({
     selector: 'core-group-selector',
     templateUrl: 'group-selector.html',
+    styleUrl: 'group-selector.scss',
     changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: true,
+    imports: [
+        CoreBaseModule,
+        CoreFaIconDirective,
+        CoreFormatTextDirective,
+    ],
 })
 export class CoreGroupSelectorComponent {
 
     @Input() groupInfo?: CoreGroupInfo;
     @Input() multipleGroupsMessage?: string;
-    @Input() selected!: number;
+    @Input({ required: true }) selected!: number;
     @Input() courseId?: number;
     @Output() selectedChange = new EventEmitter<number>();
 

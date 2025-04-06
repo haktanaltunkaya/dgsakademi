@@ -19,18 +19,14 @@ import { CoreFileUploader, CoreFileUploaderStoreFilesResult } from '@features/fi
 import { CoreFile } from '@services/file';
 import { CoreFileEntry, CoreFileHelper } from '@services/file-helper';
 import { CoreFileSession } from '@services/file-session';
-import { CoreSites } from '@services/sites';
+import { CoreSites, CoreSitesReadingStrategy } from '@services/sites';
 import { CoreSync } from '@services/sync';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreUtils } from '@singletons/utils';
 import { Translate } from '@singletons';
 import { CoreEventObserver, CoreEvents } from '@singletons/events';
 import { CoreFormFields, CoreForms } from '@singletons/form';
 import { AddonWorkshopAssessmentStrategyDelegate } from '../../services/assessment-strategy-delegate';
 import {
-    AddonModWorkshopProvider,
-    AddonModWorkshopOverallFeedbackMode,
     AddonModWorkshop,
     AddonModWorkshopData,
     AddonModWorkshopGetWorkshopAccessInformationWSResponse,
@@ -38,7 +34,20 @@ import {
 } from '../../services/workshop';
 import { AddonModWorkshopHelper, AddonModWorkshopSubmissionAssessmentWithFormData } from '../../services/workshop-helper';
 import { AddonModWorkshopOffline } from '../../services/workshop-offline';
-import { ADDON_MOD_WORKSHOP_COMPONENT } from '@addons/mod/workshop/constants';
+import {
+    ADDON_MOD_WORKSHOP_ASSESSMENT_INVALIDATED,
+    ADDON_MOD_WORKSHOP_ASSESSMENT_SAVED,
+    ADDON_MOD_WORKSHOP_COMPONENT,
+    AddonModWorkshopOverallFeedbackMode,
+} from '@addons/mod/workshop/constants';
+import { toBoolean } from '@/core/transforms/boolean';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreWSError } from '@classes/errors/wserror';
+import { CoreObject } from '@singletons/object';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreEditorRichTextEditorComponent } from '@features/editor/components/rich-text-editor/rich-text-editor';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Component that displays workshop assessment strategy form.
@@ -46,15 +55,20 @@ import { ADDON_MOD_WORKSHOP_COMPONENT } from '@addons/mod/workshop/constants';
 @Component({
     selector: 'addon-mod-workshop-assessment-strategy',
     templateUrl: 'addon-mod-workshop-assessment-strategy.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreEditorRichTextEditorComponent,
+    ],
 })
 export class AddonModWorkshopAssessmentStrategyComponent implements OnInit, OnDestroy {
 
-    @Input() workshop!: AddonModWorkshopData;
-    @Input() access!: AddonModWorkshopGetWorkshopAccessInformationWSResponse;
-    @Input() assessmentId!: number;
-    @Input() userId!: number;
-    @Input() strategy!: string;
-    @Input() edit = false;
+    @Input({ required: true }) workshop!: AddonModWorkshopData;
+    @Input({ required: true }) access!: AddonModWorkshopGetWorkshopAccessInformationWSResponse;
+    @Input({ required: true }) assessmentId!: number;
+    @Input({ required: true }) userId!: number;
+    @Input({ required: true }) strategy!: string;
+    @Input({ transform: toBoolean }) edit = false;
 
     @ViewChild('assessmentForm') formElement!: ElementRef;
 
@@ -135,13 +149,13 @@ export class AddonModWorkshopAssessmentStrategyComponent implements OnInit, OnDe
             try {
                 await this.load();
                 this.obsInvalidated = CoreEvents.on(
-                    AddonModWorkshopProvider.ASSESSMENT_INVALIDATED,
+                    ADDON_MOD_WORKSHOP_ASSESSMENT_INVALIDATED,
                     () => this.load(),
                     CoreSites.getCurrentSiteId(),
                 );
             } catch (error) {
                 this.componentClass = undefined;
-                CoreDomUtils.showErrorModalDefault(error, 'Error loading assessment.');
+                CoreAlerts.showError(error, { default: 'Error loading assessment.' });
             } finally {
                 this.assessmentStrategyLoaded = true;
             }
@@ -161,6 +175,8 @@ export class AddonModWorkshopAssessmentStrategyComponent implements OnInit, OnDe
         this.data.assessment = await AddonModWorkshopHelper.getReviewerAssessmentById(this.workshop.id, this.assessmentId, {
             userId: this.userId,
             cmId: this.workshop.coursemodule,
+            filter: this.edit ? false : undefined,
+            readingStrategy: this.edit ? CoreSitesReadingStrategy.PREFER_NETWORK : undefined,
         });
 
         if (!this.data.assessment.form) {
@@ -182,7 +198,7 @@ export class AddonModWorkshopAssessmentStrategyComponent implements OnInit, OnDe
 
                 // Override assessment plugins values.
                 this.data.assessment.form.current = AddonModWorkshop.parseFields(
-                    CoreUtils.objectToArrayOfObjects(offlineData, 'name', 'value'),
+                    CoreObject.toArrayOfObjects(offlineData, 'name', 'value'),
                 );
 
                 // Override offline files.
@@ -234,7 +250,7 @@ export class AddonModWorkshopAssessmentStrategyComponent implements OnInit, OnDe
             if (this.edit) {
                 CoreFileSession.setFiles(
                     ADDON_MOD_WORKSHOP_COMPONENT,
-                    this.workshop.id + '_' + this.assessmentId,
+                    `${this.workshop.id}_${this.assessmentId}`,
                     this.data.assessment.feedbackattachmentfiles,
                 );
                 if (this.access.canallocate) {
@@ -250,12 +266,12 @@ export class AddonModWorkshopAssessmentStrategyComponent implements OnInit, OnDe
      * @returns True if data has changed.
      */
     hasDataChanged(): boolean {
-        if (!this.assessmentStrategyLoaded || !this.workshop.strategy) {
+        if (!this.assessmentStrategyLoaded || !this.workshop.strategy || !this.edit) {
             return false;
         }
 
         // Compare feedback text.
-        const text = CoreTextUtils.restorePluginfileUrls(this.feedbackText, this.data.assessment?.feedbackcontentfiles || []);
+        const text = CoreFileHelper.restorePluginfileUrls(this.feedbackText, this.data.assessment?.feedbackcontentfiles || []);
         if (this.originalData.text != text) {
             return true;
         }
@@ -267,7 +283,7 @@ export class AddonModWorkshopAssessmentStrategyComponent implements OnInit, OnDe
         // Compare feedback files.
         const files = CoreFileSession.getFiles(
             ADDON_MOD_WORKSHOP_COMPONENT,
-            this.workshop.id + '_' + this.assessmentId,
+            `${this.workshop.id}_${this.assessmentId}`,
         ) || [];
         if (CoreFileUploader.areFileListDifferent(files, this.originalData.files)) {
             return true;
@@ -292,13 +308,13 @@ export class AddonModWorkshopAssessmentStrategyComponent implements OnInit, OnDe
 
         const files = CoreFileSession.getFiles(
             ADDON_MOD_WORKSHOP_COMPONENT,
-            this.workshop.id + '_' + this.assessmentId,
+            `${this.workshop.id}_${this.assessmentId}`,
         ) || [];
 
         let saveOffline = false;
         let allowOffline = !files.length;
 
-        const modal = await CoreDomUtils.showModalLoading('core.sending', true);
+        const modal = await CoreLoadings.show('core.sending', true);
 
         this.data.fieldErrors = {};
 
@@ -313,7 +329,7 @@ export class AddonModWorkshopAssessmentStrategyComponent implements OnInit, OnDe
                     saveOffline,
                 );
             } catch (error) {
-                if (CoreUtils.isWebServiceError(error)) {
+                if (CoreWSError.isWebServiceError(error)) {
                     throw error;
                 }
 
@@ -329,7 +345,7 @@ export class AddonModWorkshopAssessmentStrategyComponent implements OnInit, OnDe
                 );
             }
 
-            const text = CoreTextUtils.restorePluginfileUrls(this.feedbackText, this.data.assessment?.feedbackcontentfiles || []);
+            const text = CoreFileHelper.restorePluginfileUrls(this.feedbackText, this.data.assessment?.feedbackcontentfiles || []);
 
             let assessmentData: CoreFormFields<unknown>;
             try {
@@ -380,9 +396,9 @@ export class AddonModWorkshopAssessmentStrategyComponent implements OnInit, OnDe
                 promises.push(AddonModWorkshop.invalidateAssessmentData(this.workshop.id, this.assessmentId));
             }
 
-            await CoreUtils.ignoreErrors(Promise.all(promises));
+            await CorePromiseUtils.ignoreErrors(Promise.all(promises));
 
-            CoreEvents.trigger(AddonModWorkshopProvider.ASSESSMENT_SAVED, {
+            CoreEvents.trigger(ADDON_MOD_WORKSHOP_ASSESSMENT_SAVED, {
                 workshopId: this.workshop.id,
                 assessmentId: this.assessmentId,
                 userId: CoreSites.getCurrentSiteUserId(),
@@ -393,7 +409,7 @@ export class AddonModWorkshopAssessmentStrategyComponent implements OnInit, OnDe
                 CoreFileUploader.clearTmpFiles(files);
             }
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Error saving assessment.');
+            CoreAlerts.showError(error, { default: 'Error saving assessment.' });
         } finally {
             modal.dismiss();
         }

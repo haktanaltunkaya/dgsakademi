@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { NgModule } from '@angular/core';
+import { NgModule, Type } from '@angular/core';
 
 import { Badge } from '@awesome-cordova-plugins/badge/ngx';
 import { Camera } from '@awesome-cordova-plugins/camera/ngx';
@@ -21,10 +21,8 @@ import { Clipboard } from '@awesome-cordova-plugins/clipboard/ngx';
 import { Device } from '@awesome-cordova-plugins/device/ngx';
 import { File } from '@awesome-cordova-plugins/file/ngx';
 import { FileOpener } from '@awesome-cordova-plugins/file-opener/ngx';
-import { Geolocation } from '@awesome-cordova-plugins/geolocation/ngx';
 import { HTTP } from '@awesome-cordova-plugins/http/ngx';
 import { InAppBrowser } from '@awesome-cordova-plugins/in-app-browser/ngx';
-import { WebView } from '@awesome-cordova-plugins/ionic-webview/ngx';
 import { Keyboard } from '@awesome-cordova-plugins/keyboard/ngx';
 import { LocalNotifications } from '@awesome-cordova-plugins/local-notifications/ngx';
 import { MediaCapture } from '@awesome-cordova-plugins/media-capture/ngx';
@@ -34,51 +32,64 @@ import { SplashScreen } from '@awesome-cordova-plugins/splash-screen/ngx';
 import { SQLite } from '@awesome-cordova-plugins/sqlite/ngx';
 import { StatusBar } from '@awesome-cordova-plugins/status-bar/ngx';
 import { WebIntent } from '@awesome-cordova-plugins/web-intent/ngx';
+import { WebView } from '@awesome-cordova-plugins/ionic-webview/ngx';
 import { Zip } from '@features/native/plugins/zip';
+import { Geolocation } from '@features/emulator/services/geolocation';
 
-export const CORE_NATIVE_SERVICES = [
-    Badge,
-    Camera,
-    Chooser,
-    Clipboard,
-    Device,
-    File,
-    FileOpener,
-    Geolocation,
-    HTTP,
-    InAppBrowser,
-    Keyboard,
-    LocalNotifications,
-    MediaCapture,
-    Push,
-    QRScanner,
-    SplashScreen,
-    StatusBar,
-    SQLite,
-    WebIntent,
-    WebView,
-    Zip,
-];
-
-@NgModule({
-    providers: [
+/**
+ * Get native services.
+ *
+ * @returns Returns native services.
+ */
+export async function getNativeServices(): Promise<Type<unknown>[]> {
+    return [
         Badge,
         Camera,
+        Chooser,
         Clipboard,
         Device,
         File,
         FileOpener,
-        Geolocation,
+        Geolocation, // eslint-disable-line deprecation/deprecation
         HTTP,
         InAppBrowser,
         Keyboard,
         LocalNotifications,
         MediaCapture,
+        Push,
+        QRScanner,
         SplashScreen,
         SQLite,
         StatusBar,
         WebIntent,
         WebView,
+        Zip,
+    ];
+}
+
+@NgModule({
+    providers: [
+        Badge,
+        Camera,
+        Chooser,
+        Clipboard,
+        Device,
+        File,
+        FileOpener,
+        Geolocation, // eslint-disable-line deprecation/deprecation
+        HTTP,
+        InAppBrowser,
+        Keyboard,
+        LocalNotifications,
+        MediaCapture,
+        Push,
+        QRScanner,
+        SplashScreen,
+        SQLite,
+        StatusBar,
+        WebIntent,
+        WebView,
+        Zip,
     ],
 })
 export class CoreNativeModule {}

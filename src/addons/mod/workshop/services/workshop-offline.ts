@@ -16,8 +16,8 @@ import { Injectable } from '@angular/core';
 import { CoreFileUploaderStoreFilesResult } from '@features/fileuploader/services/fileuploader';
 import { CoreFile } from '@services/file';
 import { CoreSites } from '@services/sites';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreTimeUtils } from '@services/utils/time';
+import { CoreText } from '@singletons/text';
+import { CoreTime } from '@singletons/time';
 import { makeSingleton } from '@singletons';
 import { CoreFormFields } from '@singletons/form';
 import { CorePath } from '@singletons/path';
@@ -31,7 +31,7 @@ import {
     EVALUATE_SUBMISSIONS_TABLE,
     SUBMISSIONS_TABLE,
 } from './database/workshop';
-import { AddonModWorkshopAction } from './workshop';
+import { AddonModWorkshopAction } from '../constants';
 
 /**
  * Service to handle offline workshop.
@@ -214,7 +214,7 @@ export class AddonModWorkshopOfflineProvider {
 
         const site = await CoreSites.getSite(siteId);
 
-        const timemodified = CoreTimeUtils.timestamp();
+        const timemodified = CoreTime.timestamp();
 
         const submission: AddonModWorkshopSubmissionDBRecord = {
             workshopid: workshopId,
@@ -239,7 +239,7 @@ export class AddonModWorkshopOfflineProvider {
     protected parseSubmissionRecord(record: AddonModWorkshopSubmissionDBRecord): AddonModWorkshopOfflineSubmission {
         return {
             ...record,
-            attachmentsid: CoreTextUtils.parseJSON(record.attachmentsid),
+            attachmentsid: CoreText.parseJSON(record.attachmentsid),
         };
     }
 
@@ -340,7 +340,7 @@ export class AddonModWorkshopOfflineProvider {
             courseid: courseId,
             inputdata: JSON.stringify(inputData),
             assessmentid: assessmentId,
-            timemodified: CoreTimeUtils.timestamp(),
+            timemodified: CoreTime.timestamp(),
         };
 
         await site.getDb().insertRecord(ASSESSMENTS_TABLE, assessment);
@@ -355,7 +355,7 @@ export class AddonModWorkshopOfflineProvider {
     protected parseAssessmentRecord(record: AddonModWorkshopAssessmentDBRecord): AddonModWorkshopOfflineAssessment {
         return {
             ...record,
-            inputdata: CoreTextUtils.parseJSON(record.inputdata),
+            inputdata: CoreText.parseJSON(record.inputdata),
         };
     }
 
@@ -465,7 +465,7 @@ export class AddonModWorkshopOfflineProvider {
             workshopid: workshopId,
             courseid: courseId,
             submissionid: submissionId,
-            timemodified: CoreTimeUtils.timestamp(),
+            timemodified: CoreTime.timestamp(),
             feedbacktext: feedbackText,
             published: Number(published),
             gradeover: JSON.stringify(gradeOver),
@@ -486,7 +486,7 @@ export class AddonModWorkshopOfflineProvider {
         return {
             ...record,
             published: Boolean(record.published),
-            gradeover: CoreTextUtils.parseJSON(record.gradeover),
+            gradeover: CoreText.parseJSON(record.gradeover),
         };
     }
 
@@ -596,7 +596,7 @@ export class AddonModWorkshopOfflineProvider {
             workshopid: workshopId,
             courseid: courseId,
             assessmentid: assessmentId,
-            timemodified: CoreTimeUtils.timestamp(),
+            timemodified: CoreTime.timestamp(),
             feedbacktext: feedbackText || '',
             weight: weight,
             gradinggradeover: JSON.stringify(gradingGradeOver),
@@ -616,7 +616,7 @@ export class AddonModWorkshopOfflineProvider {
     ): AddonModWorkshopOfflineEvaluateAssessment {
         return {
             ...record,
-            gradinggradeover: CoreTextUtils.parseJSON(record.gradinggradeover),
+            gradinggradeover: CoreText.parseJSON(record.gradinggradeover),
         };
     }
 
@@ -631,7 +631,7 @@ export class AddonModWorkshopOfflineProvider {
         const site = await CoreSites.getSite(siteId);
 
         const siteFolderPath = CoreFile.getSiteFolder(site.getId());
-        const workshopFolderPath = 'offlineworkshop/' + workshopId + '/';
+        const workshopFolderPath = `offlineworkshop/${workshopId}/`;
 
         return CorePath.concatenatePaths(siteFolderPath, workshopFolderPath);
     }

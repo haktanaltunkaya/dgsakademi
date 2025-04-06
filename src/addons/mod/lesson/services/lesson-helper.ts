@@ -15,19 +15,26 @@
 import { Injectable } from '@angular/core';
 import { FormBuilder, FormControl, FormGroup } from '@angular/forms';
 
-import { CoreDomUtils } from '@services/utils/dom';
+import { CoreDom } from '@singletons/dom';
 import { CoreFormFields } from '@singletons/form';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreTimeUtils } from '@services/utils/time';
+import { CoreText } from '@singletons/text';
+import { CoreTime } from '@singletons/time';
 import { makeSingleton, Translate } from '@singletons';
 import {
     AddonModLesson,
     AddonModLessonAttemptsOverviewsAttemptWSData,
+    AddonModLessonGetAccessInformationWSResponse,
     AddonModLessonGetPageDataWSResponse,
-    AddonModLessonProvider,
+    AddonModLessonLessonWSData,
 } from './lesson';
-import { CoreTime } from '@singletons/time';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreUtils } from '@singletons/utils';
+import { AddonModLessonPageSubtype } from '../constants';
+import { convertTextToHTMLElement } from '@/core/utils/create-html-element';
+import { CoreError } from '@classes/errors/error';
+import { CorePrompts } from '@services/overlays/prompts';
+import { CoreSites } from '@services/sites';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreCourseCommonModWSOptions } from '@features/course/services/course';
 
 /**
  * Helper service that provides some features for quiz.
@@ -46,7 +53,7 @@ export class AddonModLessonHelperProvider {
      * @returns Formatted data.
      */
     formatActivityLink(activityLink: string): AddonModLessonActivityLink {
-        const element = CoreDomUtils.convertToElement(activityLink);
+        const element = convertTextToHTMLElement(activityLink);
         const anchor = element.querySelector('a');
 
         if (!anchor) {
@@ -76,7 +83,7 @@ export class AddonModLessonHelperProvider {
             buttonText: '',
             content: '',
         };
-        const element = CoreDomUtils.convertToElement(html);
+        const element = convertTextToHTMLElement(html);
 
         // Search the input button.
         const button = <HTMLInputElement> element.querySelector('input[type="button"]');
@@ -100,7 +107,7 @@ export class AddonModLessonHelperProvider {
      */
     getPageButtonsFromHtml(html: string): AddonModLessonPageButton[] {
         const buttons: AddonModLessonPageButton[] = [];
-        const element = CoreDomUtils.convertToElement(html);
+        const element = convertTextToHTMLElement(html);
 
         // Get the container of the buttons if it exists.
         let buttonsContainer = element.querySelector('.branchbuttoncontainer');
@@ -152,7 +159,7 @@ export class AddonModLessonHelperProvider {
      */
     getPageContentsFromPageData(data: AddonModLessonGetPageDataWSResponse): string {
         // Search the page contents inside the whole page HTML. Use data.pagecontent because it's filtered.
-        const element = CoreDomUtils.convertToElement(data.pagecontent || '');
+        const element = convertTextToHTMLElement(data.pagecontent || '');
         const contents = element.querySelector('.contents');
 
         if (contents) {
@@ -161,7 +168,7 @@ export class AddonModLessonHelperProvider {
 
         // Cannot find contents element.
         if (AddonModLesson.isQuestionPage(data.page?.type || -1) ||
-                data.page?.qtype == AddonModLessonProvider.LESSON_PAGE_BRANCHTABLE) {
+                data.page?.qtype == AddonModLessonPageSubtype.BRANCHTABLE) {
             // Return page.contents to prevent having duplicated elements (some elements like videos might not work).
             return data.page?.contents || '';
         } else {
@@ -178,7 +185,7 @@ export class AddonModLessonHelperProvider {
      * @returns Question data.
      */
     getQuestionFromPageData(questionForm: FormGroup, pageData: AddonModLessonGetPageDataWSResponse): AddonModLessonQuestion {
-        const element = CoreDomUtils.convertToElement(pageData.pagecontent || '');
+        const element = convertTextToHTMLElement(pageData.pagecontent || '');
 
         // Get the container of the question answers if it exists.
         const fieldContainer = <HTMLElement> element.querySelector('.fcontainer');
@@ -202,19 +209,19 @@ export class AddonModLessonHelperProvider {
         }
 
         switch (pageData.page?.qtype) {
-            case AddonModLessonProvider.LESSON_PAGE_TRUEFALSE:
-            case AddonModLessonProvider.LESSON_PAGE_MULTICHOICE:
+            case AddonModLessonPageSubtype.TRUEFALSE:
+            case AddonModLessonPageSubtype.MULTICHOICE:
                 return this.getMultiChoiceQuestionData(questionForm, question, fieldContainer);
 
-            case AddonModLessonProvider.LESSON_PAGE_NUMERICAL:
-            case AddonModLessonProvider.LESSON_PAGE_SHORTANSWER:
+            case AddonModLessonPageSubtype.NUMERICAL:
+            case AddonModLessonPageSubtype.SHORTANSWER:
                 return this.getInputQuestionData(questionForm, question, fieldContainer, pageData.page.qtype);
 
-            case AddonModLessonProvider.LESSON_PAGE_ESSAY: {
+            case AddonModLessonPageSubtype.ESSAY: {
                 return this.getEssayQuestionData(questionForm, question, fieldContainer);
             }
 
-            case AddonModLessonProvider.LESSON_PAGE_MATCHING: {
+            case AddonModLessonPageSubtype.MATCHING: {
                 return this.getMatchingQuestionData(questionForm, question, fieldContainer);
             }
         }
@@ -269,9 +276,14 @@ export class AddonModLessonHelperProvider {
 
             if (option.checked || multiChoiceQuestion.multi) {
                 // Add the control.
-                const value = multiChoiceQuestion.multi ?
-                    { value: option.checked, disabled: option.disabled } : option.checked;
-                questionForm.addControl(option.name, this.formBuilder.control(value));
+                if (multiChoiceQuestion.multi) {
+                    questionForm.addControl(
+                        option.name,
+                        this.formBuilder.control({ value: option.checked, disabled: option.disabled }),
+                    );
+                } else {
+                    questionForm.addControl(option.name, this.formBuilder.control(option.value));
+                }
                 controlAdded = true;
             }
 
@@ -327,7 +339,7 @@ export class AddonModLessonHelperProvider {
 
         // Init the control.
         questionForm.addControl(input.name, this.formBuilder.control({
-            value: questionType === AddonModLessonProvider.LESSON_PAGE_NUMERICAL ? CoreUtils.formatFloat(input.value) : input.value,
+            value: questionType === AddonModLessonPageSubtype.NUMERICAL ? CoreUtils.formatFloat(input.value) : input.value,
             disabled: input.readOnly,
         }));
 
@@ -458,13 +470,13 @@ export class AddonModLessonHelperProvider {
      * @returns Object with the data to render the answer. If the answer doesn't require any parsing, return a string with the HTML.
      */
     getQuestionPageAnswerDataFromHtml(html: string): AddonModLessonAnswerData {
-        const element = CoreDomUtils.convertToElement(html);
+        const element = convertTextToHTMLElement(html);
 
         // Check if it has a checkbox.
         let input = element.querySelector<HTMLInputElement>('input[type="checkbox"][name*="answer"]');
         if (input) {
             // Truefalse or multichoice.
-            const successBadge = element.querySelector<HTMLElement>('.badge.badge-success');
+            const successBadge = element.querySelector<HTMLElement>('.badge.bg-success, .badge.badge-success');
             const data: AddonModLessonCheckboxAnswerData = {
                 isCheckbox: true,
                 checked: !!input.checked,
@@ -534,7 +546,7 @@ export class AddonModLessonHelperProvider {
             if (hasGrade) {
                 data.grade = Translate.instant('core.percentagenumber', { $a: retake.grade });
             }
-            data.timestart = CoreTimeUtils.userDate(retake.timestart * 1000);
+            data.timestart = CoreTime.userDate(retake.timestart * 1000);
             if (includeDuration) {
                 data.duration = CoreTime.formatTime(retake.timeend - retake.timestart);
             }
@@ -542,11 +554,11 @@ export class AddonModLessonHelperProvider {
             // The user has not completed the retake.
             data.grade = Translate.instant('addon.mod_lesson.notcompleted');
             if (retake.timestart) {
-                data.timestart = CoreTimeUtils.userDate(retake.timestart * 1000);
+                data.timestart = CoreTime.userDate(retake.timestart * 1000);
             }
         }
 
-        return Translate.instant('addon.mod_lesson.retakelabel' + (includeDuration ? 'full' : 'short'), data);
+        return Translate.instant(`addon.mod_lesson.retakelabel${includeDuration ? 'full' : 'short'}`, data);
     }
 
     /**
@@ -562,7 +574,7 @@ export class AddonModLessonHelperProvider {
 
             // Add some HTML to the answer if needed.
             if (textarea) {
-                data[textarea.name] = CoreTextUtils.formatHtmlLines(<string> data[textarea.name] || '');
+                data[textarea.name] = CoreText.formatHtmlLines(<string> data[textarea.name] || '');
             }
         } else if (question.template == 'multichoice' && (<AddonModLessonMultichoiceQuestion> question).multi) {
             // Only send the options with value set to true.
@@ -583,16 +595,106 @@ export class AddonModLessonHelperProvider {
      * @returns Feedback without the question text.
      */
     removeQuestionFromFeedback(html: string): string {
-        const element = CoreDomUtils.convertToElement(html);
+        const element = convertTextToHTMLElement(html);
 
         // Remove the question text.
-        CoreDomUtils.removeElement(element, '.generalbox:not(.feedback):not(.correctanswer)');
+        CoreDom.removeElement(element, '.generalbox:not(.feedback):not(.correctanswer)');
 
         return element.innerHTML.trim();
     }
 
-}
+    /**
+     * Get the lesson password if needed. If not stored, it can ask the user to enter it.
+     *
+     * @param lessonId Lesson ID.
+     * @param options Other options.
+     * @returns Promise resolved when done.
+     */
+    async getLessonPassword(
+        lessonId: number,
+        options: AddonModLessonGetPasswordOptions = {},
+    ): Promise<AddonModLessonGetPasswordResult> {
 
+        options.siteId = options.siteId || CoreSites.getCurrentSiteId();
+
+        // Get access information to check if password is needed.
+        const accessInfo = await AddonModLesson.getAccessInformation(lessonId, options);
+
+        if (!accessInfo.preventaccessreasons.length) {
+            // Password not needed.
+            return { accessInfo };
+        }
+
+        const passwordNeeded = accessInfo.preventaccessreasons.length == 1 &&
+            AddonModLesson.isPasswordProtected(accessInfo);
+
+        if (!passwordNeeded) {
+            // Lesson cannot be played, reject.
+            throw new CoreError(accessInfo.preventaccessreasons[0].message);
+        }
+
+        // The lesson requires a password. Check if there is one in DB.
+        let password = await CorePromiseUtils.ignoreErrors(AddonModLesson.getStoredPassword(lessonId));
+
+        if (password) {
+            try {
+                return await this.validatePassword(lessonId, accessInfo, password, options);
+            } catch {
+                // Error validating it.
+            }
+        }
+
+        // Ask for the password if allowed.
+        if (!options.askPassword) {
+            // Cannot ask for password, reject.
+            throw new CoreError(accessInfo.preventaccessreasons[0].message);
+        }
+
+        // Create and show the modal.
+        const response = await CorePrompts.promptPassword({
+            title: 'addon.mod_lesson.enterpassword',
+            placeholder: 'core.login.password',
+            submit: 'addon.mod_lesson.continue',
+        });
+        password = response.password;
+
+        return this.validatePassword(lessonId, accessInfo, password, options);
+    }
+
+    /**
+     * Validate the password.
+     *
+     * @param lessonId Lesson ID.
+     * @param accessInfo Lesson access info.
+     * @param password Password to check.
+     * @param options Other options.
+     * @returns Promise resolved when done.
+     */
+    protected async validatePassword(
+        lessonId: number,
+        accessInfo: AddonModLessonGetAccessInformationWSResponse,
+        password: string,
+        options: CoreCourseCommonModWSOptions = {},
+    ): Promise<AddonModLessonGetPasswordResult> {
+
+        options.siteId = options.siteId || CoreSites.getCurrentSiteId();
+
+        const lesson = await AddonModLesson.getLessonWithPassword(lessonId, {
+            password,
+            ...options, // Include all options.
+        });
+
+        // Password is ok, store it and return the data.
+        await AddonModLesson.storePassword(lesson.id, password, options.siteId);
+
+        return {
+            password,
+            lesson,
+            accessInfo,
+        };
+    }
+
+}
 export const AddonModLessonHelper = makeSingleton(AddonModLessonHelperProvider);
 
 /**
@@ -743,4 +845,20 @@ export type AddonModLessonActivityLink = {
     formatted: boolean;
     label: string;
     href: string;
+};
+
+/**
+ * Options to pass to get lesson password.
+ */
+export type AddonModLessonGetPasswordOptions = CoreCourseCommonModWSOptions & {
+    askPassword?: boolean; // True if we should ask for password if needed, false otherwise.
+};
+
+/**
+ * Result of getLessonPassword.
+ */
+export type AddonModLessonGetPasswordResult = {
+    password?: string;
+    lesson?: AddonModLessonLessonWSData;
+    accessInfo: AddonModLessonGetAccessInformationWSResponse;
 };

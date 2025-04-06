@@ -16,20 +16,24 @@ import { Component, ViewChild, OnInit, OnDestroy } from '@angular/core';
 import { CoreSendMessageFormComponent } from '@components/send-message-form/send-message-form';
 import { CanLeave } from '@guards/can-leave';
 import { IonContent } from '@ionic/angular';
-import { CoreApp } from '@services/app';
 import { CoreNetwork } from '@services/network';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { NgZone, Translate } from '@singletons';
 import { CoreEvents } from '@singletons/events';
 import { Subscription } from 'rxjs';
-import { AddonModChatUsersModalComponent, AddonModChatUsersModalResult } from '../../components/users-modal/users-modal';
-import { AddonModChat, AddonModChatProvider, AddonModChatUser } from '../../services/chat';
+import { AddonModChatUsersModalResult } from '../../components/users-modal/users-modal';
+import { AddonModChat, AddonModChatUser } from '../../services/chat';
 import { AddonModChatFormattedMessage, AddonModChatHelper } from '../../services/chat-helper';
 import { CoreTime } from '@singletons/time';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
+import { CoreKeyboard } from '@singletons/keyboard';
+import { CoreWait } from '@singletons/wait';
+import { CoreModals } from '@services/overlays/modals';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays a chat session.
@@ -38,8 +42,14 @@ import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
     selector: 'page-addon-mod-chat-chat',
     templateUrl: 'chat.html',
     styleUrls: ['../../../../../theme/components/discussion.scss', 'chat.scss'],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
-export class AddonModChatChatPage implements OnInit, OnDestroy, CanLeave {
+export default class AddonModChatChatPage implements OnInit, OnDestroy, CanLeave {
+
+    protected static readonly POLL_INTERVAL = 4000;
 
     @ViewChild(IonContent) content?: IonContent;
     @ViewChild(CoreSendMessageFormComponent) sendMessageForm?: CoreSendMessageFormComponent;
@@ -103,7 +113,7 @@ export class AddonModChatChatPage implements OnInit, OnDestroy, CanLeave {
             this.startPolling();
             this.logView();
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'addon.mod_chat.errorwhileconnecting', true);
+            CoreAlerts.showError(error, { default: Translate.instant('addon.mod_chat.errorwhileconnecting') });
             CoreNavigator.back();
         } finally {
             this.loaded = true;
@@ -164,7 +174,7 @@ export class AddonModChatChatPage implements OnInit, OnDestroy, CanLeave {
 
             const message = this.messages[index];
 
-            if (message.beep && message.beep != String(this.currentUserId)) {
+            if (message.beep && message.beep !== this.currentUserId) {
                 this.loadMessageBeepWho(message);
             }
         }
@@ -183,8 +193,10 @@ export class AddonModChatChatPage implements OnInit, OnDestroy, CanLeave {
      * Display the chat users modal.
      */
     async showChatUsers(): Promise<void> {
+        const { AddonModChatUsersModalComponent } = await import('../../components/users-modal/users-modal');
+
         // Create the toc modal.
-        const modalData = await CoreDomUtils.openSideModal<AddonModChatUsersModalResult>({
+        const modalData = await CoreModals.openSideModal<AddonModChatUsersModalResult>({
             component: AddonModChatUsersModalComponent,
             componentProps: {
                 sessionId: this.sessionId,
@@ -194,7 +206,7 @@ export class AddonModChatChatPage implements OnInit, OnDestroy, CanLeave {
 
         if (modalData) {
             if (modalData.talkTo) {
-                this.newMessage = `To ${modalData.talkTo}: ` + (this.sendMessageForm?.message || '');
+                this.newMessage = `To ${modalData.talkTo}: ${this.sendMessageForm?.message || ''}`;
             }
             if (modalData.beepTo) {
                 this.sendMessage('', modalData.beepTo);
@@ -210,11 +222,11 @@ export class AddonModChatChatPage implements OnInit, OnDestroy, CanLeave {
      * @param id User Id before parsing.
      * @returns User fullname.
      */
-    protected async getUserFullname(id: string): Promise<string> {
-        const idNumber = parseInt(id, 10);
+    protected async getUserFullname(id: string | number): Promise<string> {
+        const idNumber = Number(id);
 
         if (isNaN(idNumber)) {
-            return id;
+            return String(id);
         }
 
         const user = this.users.find((user) => user.id == idNumber);
@@ -233,10 +245,10 @@ export class AddonModChatChatPage implements OnInit, OnDestroy, CanLeave {
                 return user.fullname;
             }
 
-            return id;
+            return String(id);
         } catch {
             // Ignore errors.
-            return id;
+            return String(id);
         }
     }
 
@@ -251,8 +263,8 @@ export class AddonModChatChatPage implements OnInit, OnDestroy, CanLeave {
 
         // Start polling.
         this.polling = window.setInterval(() => {
-            CoreUtils.ignoreErrors(this.fetchMessagesInterval());
-        }, AddonModChatProvider.POLL_INTERVAL);
+            CorePromiseUtils.ignoreErrors(this.fetchMessagesInterval());
+        }, AddonModChatChatPage.POLL_INTERVAL);
     }
 
     /**
@@ -287,7 +299,7 @@ export class AddonModChatChatPage implements OnInit, OnDestroy, CanLeave {
             } catch (error) {
                 // Fail again. Stop polling if needed.
                 this.stopPolling();
-                CoreDomUtils.showErrorModalDefault(error, 'addon.mod_chat.errorwhileretrievingmessages', true);
+                CoreAlerts.showError(error, { default: Translate.instant('addon.mod_chat.errorwhileretrievingmessages') });
 
                 throw error;
             }
@@ -317,14 +329,14 @@ export class AddonModChatChatPage implements OnInit, OnDestroy, CanLeave {
             await AddonModChat.sendMessage(this.sessionId!, text, beep);
 
             // Update messages to show the sent message.
-            CoreUtils.ignoreErrors(this.fetchMessagesInterval());
+            CorePromiseUtils.ignoreErrors(this.fetchMessagesInterval());
         } catch (error) {
             // Only close the keyboard if an error happens, we want the user to be able to send multiple
             // messages without the keyboard being closed.
-            CoreApp.closeKeyboard();
+            CoreKeyboard.close();
 
             this.newMessage = text;
-            CoreDomUtils.showErrorModalDefault(error, 'addon.mod_chat.errorwhilesendingmessage', true);
+            CoreAlerts.showError(error, { default: Translate.instant('addon.mod_chat.errorwhilesendingmessage') });
         } finally {
             this.sending = false;
         }
@@ -336,7 +348,7 @@ export class AddonModChatChatPage implements OnInit, OnDestroy, CanLeave {
      * @returns Promise resolved when done.
      */
     async reconnect(): Promise<void> {
-        const modal = await CoreDomUtils.showModalLoading();
+        const modal = await CoreLoadings.show();
 
         try {
             // Call startPolling would take a while for the first execution, so we'll execute it manually to check if it works now.
@@ -356,7 +368,7 @@ export class AddonModChatChatPage implements OnInit, OnDestroy, CanLeave {
      */
     async scrollToBottom(): Promise<void> {
         // Need a timeout to leave time to the view to be rendered.
-        await CoreUtils.nextTick();
+        await CoreWait.nextTick();
         if (!this.viewDestroyed) {
             this.content?.scrollToBottom();
         }
@@ -373,7 +385,7 @@ export class AddonModChatChatPage implements OnInit, OnDestroy, CanLeave {
         }
 
         // Modified, confirm user wants to go back.
-        await CoreDomUtils.showConfirm(Translate.instant('addon.mod_chat.confirmloss'));
+        await CoreAlerts.confirm(Translate.instant('addon.mod_chat.confirmloss'));
 
         return true;
     }

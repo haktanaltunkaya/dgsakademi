@@ -15,11 +15,12 @@
 import { Injectable, ViewContainerRef } from '@angular/core';
 
 import { CoreSites } from '@services/sites';
-import { CoreFilterFilter, CoreFilterFormatTextOptions } from './filter';
+import { CoreFilter, CoreFilterFilter, CoreFilterFormatTextOptions, CoreFilterStateValue } from './filter';
 import { CoreFilterDefaultHandler } from './handlers/default-filter';
 import { CoreDelegate, CoreDelegateHandler } from '@classes/delegate';
 import { CoreSite } from '@classes/sites/site';
 import { makeSingleton } from '@singletons';
+import { ContextLevel } from '@/core/constants';
 
 /**
  * Interface that all filter handlers must implement.
@@ -84,7 +85,14 @@ export class CoreFilterDelegateService extends CoreDelegate<CoreFilterHandler> {
     protected handlerNameProperty = 'filterName';
 
     constructor(protected defaultHandler: CoreFilterDefaultHandler) {
-        super('CoreFilterDelegate', true);
+        super('CoreFilterDelegate');
+    }
+
+    /**
+     * @inheritdoc
+     */
+    async isEnabled(): Promise<boolean> {
+        return CoreFilter.canGetFiltersInSite();
     }
 
     /**
@@ -99,21 +107,27 @@ export class CoreFilterDelegateService extends CoreDelegate<CoreFilterHandler> {
      */
     async filterText(
         text: string,
-        filters?: CoreFilterFilter[],
-        options?: CoreFilterFormatTextOptions,
+        filters: CoreFilterFilter[] = [],
+        options: CoreFilterFormatTextOptions = {},
         skipFilters?: string[],
         siteId?: string,
     ): Promise<string> {
+        if (!filters.length) {
+            return this.removeNolinkTags(text);
+        }
 
         // Wait for filters to be initialized.
-        await this.handlersInitPromise;
+        await this.waitForReady();
+        const enabled = this.hasHandlers(true);
+        if (!enabled) {
+            // No enabled filters, return the text.
+            return this.removeNolinkTags(text);
+        }
 
         const site = await CoreSites.getSite(siteId);
 
-        filters = filters || [];
-        options = options || {};
-
         for (let i = 0; i < filters.length; i++) {
+
             const filter = filters[i];
             if (!this.isEnabledAndShouldApply(filter, options, site, skipFilters)) {
                 continue;
@@ -128,14 +142,21 @@ export class CoreFilterDelegateService extends CoreDelegate<CoreFilterHandler> {
 
                 text = newText || text;
             } catch (error) {
-                this.logger.error('Error applying filter' + filter.filter, error);
+                this.logger.error(`Error applying filter${filter.filter}`, error);
             }
         }
 
-        // Remove <nolink> tags for XHTML compatibility.
-        text = text.replace(/<\/?nolink>/gi, '');
+        return this.removeNolinkTags(text);
+    }
 
-        return text;
+    /**
+     * Remove <nolink> tags for XHTML compatibility.
+     *
+     * @param text The text to process.
+     * @returns The text with <nolink> tags removed.
+     */
+    protected removeNolinkTags(text: string): string {
+        return text.replace(/<\/?nolink>/gi, '');
     }
 
     /**
@@ -145,7 +166,7 @@ export class CoreFilterDelegateService extends CoreDelegate<CoreFilterHandler> {
      * @param instanceId Instance ID.
      * @returns Filters.
      */
-    getEnabledFilters(contextLevel: string, instanceId: number): CoreFilterFilter[] {
+    getEnabledFilters(contextLevel: ContextLevel, instanceId: number): CoreFilterFilter[] {
         const filters: CoreFilterFilter[] = [];
 
         for (const name in this.enabledHandlers) {
@@ -157,7 +178,7 @@ export class CoreFilterDelegateService extends CoreDelegate<CoreFilterHandler> {
                 filter: handler.filterName,
                 inheritedstate: 1,
                 instanceid: instanceId,
-                localstate: 1,
+                localstate: CoreFilterStateValue.ON,
             });
         }
 
@@ -189,7 +210,11 @@ export class CoreFilterDelegateService extends CoreDelegate<CoreFilterHandler> {
     ): Promise<void> {
 
         // Wait for filters to be initialized.
-        await this.handlersInitPromise;
+        await this.waitForReady();
+        const enabled = this.hasHandlers(true);
+        if (!enabled) {
+            return;
+        }
 
         const site = await CoreSites.getSite(siteId);
 
@@ -209,7 +234,7 @@ export class CoreFilterDelegateService extends CoreDelegate<CoreFilterHandler> {
                     [container, filter, options, viewContainerRef, component, componentId, siteId],
                 );
             } catch (error) {
-                this.logger.error('Error handling HTML' + filter.filter, error);
+                this.logger.error(`Error handling HTML${filter.filter}`, error);
             }
         }
     }
@@ -230,7 +255,10 @@ export class CoreFilterDelegateService extends CoreDelegate<CoreFilterHandler> {
         skipFilters?: string[],
     ): boolean {
 
-        if (filter.localstate == -1 || (filter.localstate == 0 && filter.inheritedstate == -1)) {
+        if (
+            filter.localstate === CoreFilterStateValue.OFF ||
+            (filter.localstate === CoreFilterStateValue.INHERIT && filter.inheritedstate === CoreFilterStateValue.OFF)
+        ) {
             // Filter is disabled, ignore it.
             return false;
         }
@@ -240,7 +268,7 @@ export class CoreFilterDelegateService extends CoreDelegate<CoreFilterHandler> {
             return false;
         }
 
-        if (skipFilters && skipFilters.indexOf(filter.filter) != -1) {
+        if (skipFilters && skipFilters.indexOf(filter.filter) !== -1) {
             // Skip this filter.
             return false;
         }
@@ -258,15 +286,13 @@ export class CoreFilterDelegateService extends CoreDelegate<CoreFilterHandler> {
      */
     async shouldBeApplied(filters: CoreFilterFilter[], options: CoreFilterFormatTextOptions, site?: CoreSite): Promise<boolean> {
         // Wait for filters to be initialized.
-        await this.handlersInitPromise;
-
-        for (let i = 0; i < filters.length; i++) {
-            if (this.shouldFilterBeApplied(filters[i], options, site)) {
-                return true;
-            }
+        await this.waitForReady();
+        const enabled = this.hasHandlers(true);
+        if (!enabled) {
+            return false;
         }
 
-        return false;
+        return filters.some((filter) => this.shouldFilterBeApplied(filter, options, site));
     }
 
     /**

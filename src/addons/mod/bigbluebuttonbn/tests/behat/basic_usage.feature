@@ -1,4 +1,4 @@
-@addon_mod_bigbluebuttonbn @app @javascript @lms_from4.0
+@addon_mod_bigbluebuttonbn @app @mod @mod_bigbluebuttonbn @javascript
 Feature: Test basic usage of BBB activity in app
   In order to join a BBB meeting while using the mobile app
   As a student
@@ -25,16 +25,17 @@ Feature: Test basic usage of BBB activity in app
       | bigbluebuttonbn | BBB 1 | Test BBB description | C1     | bbb1     | 0    | ## 1 January 2050 00:00 ## | 0                          |
       | bigbluebuttonbn | BBB 2 | Test BBB description | C1     | bbb2     | 0    | 0                          | ## 1 January 2000 00:00 ## |
       | bigbluebuttonbn | BBB 3 | Test BBB description | C1     | bbb3     | 0    | ## 1 January 2000 00:00 ## | ## 1 January 2050 00:00 ## |
-    And I entered the bigbluebuttonbn activity "BBB 1" on course "Course 1" as "student1" in the app
+    And I entered the course "Course 1" as "student1" in the app
+    And I press "BBB 1" in the app
     Then I should find "The session has not started yet." in the app
     And I should find "Saturday, 1 January 2050, 12:00 AM" within "Open" "ion-item" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "BBB 2" in the app
     Then I should find "The session has ended." in the app
     And I should find "Saturday, 1 January 2000, 12:00 AM" within "Close" "ion-item" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "BBB 3" in the app
     Then I should find "This room is ready. You can join the session now." in the app
     And I should find "Saturday, 1 January 2000, 12:00 AM" within "Open" "ion-item" in the app
@@ -49,11 +50,17 @@ Feature: Test basic usage of BBB activity in app
     And I should be able to press "Join session" in the app
 
     When I press "Join session" in the app
+    # TODO: This step will make behat github actions work but we should find a better way to wait for the room to start.
+    And I wait "3" seconds
     And I wait for the BigBlueButton room to start
     And I switch back to the app
     Then I should find "The session is in progress." in the app
     And I should find "1" near "Viewer" in the app
     And I should find "0" near "Moderator" in the app
+    And the following events should have been logged for "student1" in the app:
+      | name                                            | activity        | activityname | course   |
+      | \mod_bigbluebuttonbn\event\course_module_viewed | bigbluebuttonbn | Test BBB     | Course 1 |
+      | \mod_bigbluebuttonbn\event\meeting_joined	    | bigbluebuttonbn | Test BBB     | Course 1 |
 
   Scenario: Join meeting (moderator)
     Given the following "activities" exist:
@@ -64,6 +71,8 @@ Feature: Test basic usage of BBB activity in app
     And I should be able to press "Join session" in the app
 
     When I press "Join session" in the app
+    # TODO: This step will make behat github actions work but we should find a better way to wait for the room to start.
+    And I wait "3" seconds
     And I wait for the BigBlueButton room to start
     And I switch back to the app
     Then I should find "The session is in progress." in the app
@@ -79,14 +88,11 @@ Feature: Test basic usage of BBB activity in app
     And I should not be able to press "Join session" in the app
 
     # Join the session as moderator in a browser.
-    When I press "Information" in the app
-    And I press "Open in browser" in the app
-    And I switch to the browser tab opened by the app
-    And I log in as "teacher1"
+    When I open a browser tab with url "$WWWROOT"
+    And I am on the "bbb1" Activity page logged in as teacher1
     And I click on "Join session" "link"
     And I wait for the BigBlueButton room to start
     And I switch back to the app
-    And I press "Close" in the app
     And I pull to refresh until I find "The session is in progress" in the app
     Then I should find "1" near "Moderator" in the app
     And I should find "0" near "Viewer" in the app
@@ -96,26 +102,26 @@ Feature: Test basic usage of BBB activity in app
     And I press "Join session" in the app
     Then the app should have opened a browser tab with url "blindsidenetworks.com"
 
-  @lms_from4.1
   Scenario: Display right info based on instance type
     Given the following "activities" exist:
       | activity        | name              | course | idnumber | type |
       | bigbluebuttonbn | Room & recordings | C1     | bbb1     | 0    |
       | bigbluebuttonbn | Room only         | C1     | bbb2     | 1    |
       | bigbluebuttonbn | Recordings only   | C1     | bbb3     | 2    |
-    And I entered the bigbluebuttonbn activity "Room & recordings" on course "Course 1" as "student1" in the app
+    And I entered the course "Course 1" as "student1" in the app
+    And I press "Room & recordings" in the app
     Then I should find "This room is ready. You can join the session now." in the app
     And I should be able to press "Join session" in the app
     And I should find "Recordings" in the app
     And I should find "There are no recordings available." in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Room only" in the app
     Then I should find "This room is ready. You can join the session now." in the app
     And I should be able to press "Join session" in the app
     But I should not find "Recordings" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Recordings only" in the app
     Then I should find "Recordings" in the app
     But I should not find "This room is ready. You can join the session now." in the app

@@ -14,18 +14,26 @@
 
 import { CoreConstants } from '@/core/constants';
 import { Component, OnInit } from '@angular/core';
-import { FAQ_QRCODE_INFO_DONE, ONBOARDING_DONE } from '@features/login/constants';
+import {
+    ALWAYS_SHOW_LOGIN_FORM,
+    ALWAYS_SHOW_LOGIN_FORM_CHANGED,
+    FAQ_QRCODE_INFO_DONE,
+    ONBOARDING_DONE,
+} from '@features/login/constants';
 import { CoreSettingsHelper } from '@features/settings/services/settings-helper';
-import { CoreSitePlugins } from '@features/siteplugins/services/siteplugins';
 import { CoreUserTours } from '@features/usertours/services/user-tours';
 import { CoreCacheManager } from '@services/cache-manager';
 import { CoreConfig } from '@services/config';
+import { CoreEvents } from '@singletons/events';
 import { CoreFile } from '@services/file';
 import { CoreNavigator } from '@services/navigator';
 import { CorePlatform } from '@services/platform';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils, ToastDuration } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreToasts, ToastDuration } from '@services/overlays/toasts';
+import { CoreText } from '@singletons/text';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays the developer options.
@@ -33,12 +41,17 @@ import { CoreUtils } from '@services/utils/utils';
 @Component({
     selector: 'page-core-app-settings-dev',
     templateUrl: 'dev.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
-export class CoreSettingsDevPage implements OnInit {
+export default class CoreSettingsDevPage implements OnInit {
 
     rtl = false;
     forceSafeAreaMargins = false;
     direction = 'ltr';
+    alwaysShowLoginForm = false;
 
     remoteStyles = true;
     remoteStylesCount = 0;
@@ -54,6 +67,13 @@ export class CoreSettingsDevPage implements OnInit {
 
     siteId: string | undefined;
 
+    token?: string;
+    privateToken?: string;
+    filesAccessKey?: string;
+
+    autoLoginTimeBetweenRequests?: number;
+    lastAutoLoginTime?: number;
+
     async ngOnInit(): Promise<void> {
         this.rtl = CorePlatform.isRTL;
         this.RTLChanged();
@@ -61,7 +81,8 @@ export class CoreSettingsDevPage implements OnInit {
         this.forceSafeAreaMargins = document.documentElement.classList.contains('force-safe-area-margins');
         this.safeAreaChanged();
 
-        this.siteId = CoreSites.getCurrentSite()?.getId();
+        const currentSite = CoreSites.getCurrentSite();
+        this.siteId = currentSite?.getId();
 
         this.stagingSitesCount = CoreConstants.CONFIG.sites.filter((site) => site.staging).length;
 
@@ -69,8 +90,9 @@ export class CoreSettingsDevPage implements OnInit {
             this.enableStagingSites = await CoreSettingsHelper.hasEnabledStagingSites();
             this.previousEnableStagingSites = this.enableStagingSites;
         }
+        this.alwaysShowLoginForm = Boolean(await CoreConfig.get(ALWAYS_SHOW_LOGIN_FORM, 0));
 
-        if (!this.siteId) {
+        if (!currentSite) {
             return;
         }
 
@@ -81,6 +103,15 @@ export class CoreSettingsDevPage implements OnInit {
         this.pluginStylesCount = 0;
 
         this.userToursEnabled = !CoreUserTours.isDisabled();
+
+        const privateToken = currentSite.getPrivateToken();
+        const filesAccessKey = currentSite.getFilesAccessKey();
+        this.token = `...${currentSite.getToken().slice(-3)}`;
+        this.privateToken = privateToken && (`...${privateToken.slice(-3)}`);
+        this.filesAccessKey = filesAccessKey && (`...${filesAccessKey.slice(-3)}`);
+
+        this.autoLoginTimeBetweenRequests = await currentSite.getAutoLoginMinTimeBetweenRequests();
+        this.lastAutoLoginTime = currentSite.getLastAutoLoginTime();
 
         document.head.querySelectorAll('style').forEach((style) => {
             if (this.siteId && style.id.endsWith(this.siteId)) {
@@ -98,13 +129,14 @@ export class CoreSettingsDevPage implements OnInit {
             }
         });
 
+        const { CoreSitePlugins } = await import('@features/siteplugins/services/siteplugins');
         this.sitePlugins = CoreSitePlugins.getCurrentSitePluginList().map((plugin) => ({
             addon: plugin.addon,
             component: plugin.component,
             version: plugin.version,
         }));
 
-        const disabledFeatures = (await CoreSites.getCurrentSite()?.getPublicConfig())?.tool_mobile_disabledfeatures;
+        const disabledFeatures = (await currentSite.getPublicConfig())?.tool_mobile_disabledfeatures;
 
         this.disabledFeatures = disabledFeatures?.split(',').filter(feature => feature.trim().length > 0) ?? [];
     }
@@ -122,6 +154,15 @@ export class CoreSettingsDevPage implements OnInit {
      */
     safeAreaChanged(): void {
         document.documentElement.classList.toggle('force-safe-area-margins', this.forceSafeAreaMargins);
+    }
+
+    /**
+     * Called when always show login form is enabled or disabled.
+     */
+    async alwaysShowLoginFormChanged(): Promise<void> {
+        const value = Number(this.alwaysShowLoginForm);
+        await CoreConfig.set(ALWAYS_SHOW_LOGIN_FORM, value);
+        CoreEvents.trigger(ALWAYS_SHOW_LOGIN_FORM_CHANGED, { value });
     }
 
     /**
@@ -165,7 +206,12 @@ export class CoreSettingsDevPage implements OnInit {
      * Copies site info.
      */
     copyInfo(): void {
-        CoreUtils.copyToClipboard(JSON.stringify({ disabledFeatures: this.disabledFeatures, sitePlugins: this.sitePlugins }));
+        CoreText.copyToClipboard(JSON.stringify({
+            disabledFeatures: this.disabledFeatures,
+            sitePlugins: this.sitePlugins,
+            autoLoginTimeBetweenRequests: this.autoLoginTimeBetweenRequests,
+            lastAutoLoginTime: this.lastAutoLoginTime,
+        }));
     }
 
     /**
@@ -177,14 +223,14 @@ export class CoreSettingsDevPage implements OnInit {
         await CoreConfig.delete(ONBOARDING_DONE);
         await CoreConfig.delete(FAQ_QRCODE_INFO_DONE);
 
-        CoreDomUtils.showToast('User tours have been reseted');
+        CoreToasts.show({ message: 'User tours have been reseted' });
     }
 
     /**
      * Invalidate app caches.
      */
     async invalidateCaches(): Promise<void> {
-        const success = await CoreDomUtils.showOperationModals('Invalidating caches', true, async () => {
+        const success = await CoreLoadings.showOperationModals('Invalidating caches', false, async () => {
             await CoreCacheManager.invalidate();
 
             return true;
@@ -194,7 +240,10 @@ export class CoreSettingsDevPage implements OnInit {
             return;
         }
 
-        await CoreDomUtils.showToast('Caches invalidated', true, ToastDuration.LONG);
+        await CoreToasts.show({
+                message: 'Caches invalidated',
+                duration: ToastDuration.LONG,
+            });
     }
 
     /**
@@ -205,7 +254,7 @@ export class CoreSettingsDevPage implements OnInit {
         await CoreFile.clearDeletedSitesFolder(sites);
         await CoreFile.clearTmpFolder();
 
-        CoreDomUtils.showToast('File storage cleared');
+        CoreToasts.show({ message: 'File storage cleared' });
     }
 
     async setEnabledStagingSites(enabled: boolean): Promise<void> {
@@ -218,7 +267,7 @@ export class CoreSettingsDevPage implements OnInit {
             this.previousEnableStagingSites = enabled;
         } catch (error) {
             this.enableStagingSites = !enabled;
-            CoreDomUtils.showErrorModal(error);
+            CoreAlerts.showError(error);
         }
     }
 

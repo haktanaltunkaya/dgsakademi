@@ -14,7 +14,7 @@
 
 import { Injectable } from '@angular/core';
 import { CoreSettingsHandler, CoreSettingsHandlerData } from '@features/settings/services/settings-delegate';
-import { SHAREDFILES_PAGE_NAME } from '@features/sharedfiles/sharedfiles.module';
+import { SHAREDFILES_PAGE_NAME } from '@features/sharedfiles/constants';
 import { CorePlatform } from '@services/platform';
 import { makeSingleton } from '@singletons';
 
@@ -45,7 +45,7 @@ export class CoreSharedFilesSettingsHandlerService implements CoreSettingsHandle
         return {
             icon: 'fas-folder',
             title: 'core.sharedfiles.sharedfiles',
-            page: SHAREDFILES_PAGE_NAME + '/list/root',
+            page: `${SHAREDFILES_PAGE_NAME}/list/root`,
             params: { manage: true, hideSitePicker: true },
             class: 'core-sharedfiles-settings-handler',
         };

@@ -17,6 +17,10 @@ import { Component, OnInit, Input } from '@angular/core';
 import { AddonModAssignAssign, AddonModAssignPlugin, AddonModAssignSubmission } from '@addons/mod/assign/services/assign';
 import { AddonModAssignSubmissionDelegate } from '@addons/mod/assign/services/submission-delegate';
 import { CoreSitePluginsCompileInitComponent } from '@features/siteplugins/classes/compile-init-component';
+import { toBoolean } from '@/core/transforms/boolean';
+import { CoreCompileHtmlComponent } from '@features/compile/components/compile-html/compile-html';
+import { CoreSharedModule } from '@/core/shared.module';
+import { getModAssignComponentModules } from '@addons/mod/assign/assign.module';
 
 /**
  * Component that displays an assign submission plugin created using a site plugin.
@@ -25,20 +29,25 @@ import { CoreSitePluginsCompileInitComponent } from '@features/siteplugins/class
     selector: 'core-site-plugins-assign-submission',
     templateUrl: 'core-siteplugins-assign-submission.html',
     styles: [':host { display: contents; }'],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+        CoreCompileHtmlComponent,
+    ],
 })
 export class CoreSitePluginsAssignSubmissionComponent extends CoreSitePluginsCompileInitComponent implements OnInit {
 
-    @Input() assign!: AddonModAssignAssign; // The assignment.
-    @Input() submission!: AddonModAssignSubmission; // The submission.
-    @Input() plugin!: AddonModAssignPlugin; // The plugin object.
+    @Input({ required: true }) assign!: AddonModAssignAssign; // The assignment.
+    @Input({ required: true }) submission!: AddonModAssignSubmission; // The submission.
+    @Input({ required: true }) plugin!: AddonModAssignPlugin; // The plugin object.
     @Input() configs?: Record<string, string>; // The configs for the plugin.
-    @Input() edit = false; // Whether the user is editing.
-    @Input() allowOffline = false; // Whether to allow offline.
+    @Input({ transform: toBoolean }) edit = false; // Whether the user is editing.
+    @Input({ transform: toBoolean }) allowOffline = false; // Whether to allow offline.
 
     /**
      * @inheritdoc
      */
-    ngOnInit(): void {
+    async ngOnInit(): Promise<void> {
         // Pass the input and output data to the component.
         this.jsData.assign = this.assign;
         this.jsData.submission = this.submission;
@@ -46,6 +55,8 @@ export class CoreSitePluginsAssignSubmissionComponent extends CoreSitePluginsCom
         this.jsData.configs = this.configs;
         this.jsData.edit = this.edit;
         this.jsData.allowOffline = this.allowOffline;
+
+        this.extraImports = await getModAssignComponentModules();
 
         if (this.plugin) {
             this.getHandlerData(AddonModAssignSubmissionDelegate.getHandlerName(this.plugin.type));

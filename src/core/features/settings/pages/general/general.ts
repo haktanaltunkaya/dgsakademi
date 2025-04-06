@@ -17,17 +17,18 @@ import { CoreConstants } from '@/core/constants';
 import { CoreConfig } from '@services/config';
 import { CoreEvents } from '@singletons/events';
 import { CoreLang } from '@services/lang';
-import { CoreDomUtils } from '@services/utils/dom';
 import { CoreSettingsHelper, CoreColorScheme, CoreZoomLevel } from '../../services/settings-helper';
-import { CoreIframeUtils } from '@services/utils/iframe';
+import { CoreIframe } from '@singletons/iframe';
 import { Translate } from '@singletons';
 import { CoreSites } from '@services/sites';
-import { CoreUtils } from '@services/utils/utils';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { AlertButton } from '@ionic/angular';
 import { CoreNavigator } from '@services/navigator';
 import { CorePlatform } from '@services/platform';
 import { CoreAnalytics } from '@services/analytics';
 import { CoreNative } from '@features/native/services/native';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays the general settings.
@@ -35,14 +36,19 @@ import { CoreNative } from '@features/native/services/native';
 @Component({
     selector: 'page-core-app-settings-general',
     templateUrl: 'general.html',
-    styleUrls: ['general.scss'],
+    styleUrl: 'general.scss',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
-export class CoreSettingsGeneralPage {
+export default class CoreSettingsGeneralPage {
 
     languages: { code: string; name: string }[] = [];
     selectedLanguage = '';
     zoomLevels: { value: CoreZoomLevel; style: number; selected: boolean }[] = [];
     selectedZoomLevel = CoreZoomLevel.NONE;
+    pinchToZoom = false;
     richTextEditor = true;
     debugDisplay = false;
     analyticsAvailable = false;
@@ -98,6 +104,8 @@ export class CoreSettingsGeneralPage {
                 selected: value === this.selectedZoomLevel,
             }));
 
+        this.pinchToZoom = await CoreSettingsHelper.getPinchToZoom();
+
         this.richTextEditor = await CoreConfig.get(CoreConstants.SETTINGS_RICH_TEXT_EDITOR, true);
 
         this.debugDisplay = await CoreConfig.get(CoreConstants.SETTINGS_DEBUG_DISPLAY, false);
@@ -107,7 +115,7 @@ export class CoreSettingsGeneralPage {
             this.analyticsEnabled = await CoreConfig.get(CoreConstants.SETTINGS_ANALYTICS_ENABLED, true);
         }
 
-        this.displayIframeHelp = CoreIframeUtils.shouldDisplayHelp();
+        this.displayIframeHelp = CoreIframe.shouldDisplayHelp();
     }
 
     /**
@@ -153,7 +161,7 @@ export class CoreSettingsGeneralPage {
                 },
             ];
 
-            const alert = await CoreDomUtils.showAlertWithOptions(
+            const alert = await CoreAlerts.show(
                 {
                     message: Translate.instant('core.settings.changelanguagealert'),
                     buttons,
@@ -168,11 +176,14 @@ export class CoreSettingsGeneralPage {
 
     /**
      * Apply language changes and restart the app.
+     *
+     * IMPORTANT NOTE: If for any reason we decide to remove this method,
+     * we'll need to listen to lang change on Slides to change direction.
      */
     protected async applyLanguageAndRestart(): Promise<void> {
         // Invalidate cache for all sites to get the content in the right language.
         const sites = await CoreSites.getSitesInstances();
-        await CoreUtils.ignoreErrors(Promise.all(sites.map((site) => site.invalidateWsCache())));
+        await CorePromiseUtils.ignoreErrors(Promise.all(sites.map((site) => site.invalidateWsCache())));
 
         CoreEvents.trigger(CoreEvents.LANGUAGE_CHANGED, this.selectedLanguage);
 
@@ -201,6 +212,19 @@ export class CoreSettingsGeneralPage {
 
         CoreSettingsHelper.applyZoomLevel(this.selectedZoomLevel);
         CoreConfig.set(CoreConstants.SETTINGS_ZOOM_LEVEL, this.selectedZoomLevel);
+    }
+
+    /**
+     * Called when pinch-to-zoom is enabled or disabled.
+     *
+     * @param ev Event
+     */
+    pinchToZoomChanged(ev: Event): void {
+        ev.stopPropagation();
+        ev.preventDefault();
+
+        CoreSettingsHelper.applyPinchToZoom(this.pinchToZoom);
+        CoreConfig.set(CoreConstants.SETTINGS_PINCH_TO_ZOOM, this.pinchToZoom ? 1 : 0);
     }
 
     /**
@@ -238,7 +262,7 @@ export class CoreSettingsGeneralPage {
         ev.preventDefault();
 
         CoreConfig.set(CoreConstants.SETTINGS_DEBUG_DISPLAY, this.debugDisplay ? 1 : 0);
-        CoreDomUtils.setDebugDisplay(this.debugDisplay);
+        CoreAlerts.setDebugDisplay(this.debugDisplay);
     }
 
     /**

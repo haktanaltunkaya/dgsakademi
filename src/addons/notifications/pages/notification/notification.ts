@@ -15,7 +15,11 @@
 import { AddonLegacyNotificationsNotificationsSource } from '@addons/notifications/classes/legacy-notifications-source';
 import { AddonNotificationsNotificationsSource } from '@addons/notifications/classes/notifications-source';
 import { AddonNotificationsPushNotification } from '@addons/notifications/services/handlers/push-click';
-import { AddonNotifications, AddonNotificationsNotificationMessageFormatted } from '@addons/notifications/services/notifications';
+import {
+    AddonNotifications,
+    AddonNotificationsNotificationMessage,
+    AddonNotificationsNotificationMessageFormatted,
+} from '@addons/notifications/services/notifications';
 import {
     AddonNotificationsHelper,
 } from '@addons/notifications/services/notifications-helper';
@@ -26,9 +30,10 @@ import { CoreSwipeNavigationItemsManager } from '@classes/items-management/swipe
 import { CoreContentLinksAction, CoreContentLinksDelegate } from '@features/contentlinks/services/contentlinks-delegate';
 import { CoreAnalytics, CoreAnalyticsEventType } from '@services/analytics';
 import { CoreNavigator } from '@services/navigator';
+import { CoreAlerts } from '@services/overlays/alerts';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
 import { Translate } from '@singletons';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page to render a notification.
@@ -37,8 +42,12 @@ import { Translate } from '@singletons';
     selector: 'page-addon-notifications-notification',
     templateUrl: 'notification.html',
     styleUrls: ['../../notifications.scss', 'notification.scss'],
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
-export class AddonNotificationsNotificationPage implements OnInit, OnDestroy {
+export default class AddonNotificationsNotificationPage implements OnInit, OnDestroy {
 
     notifications?: AddonNotificationSwipeItemsManager;
     notification?: AddonNotificationsNotificationMessageFormatted;
@@ -60,18 +69,26 @@ export class AddonNotificationsNotificationPage implements OnInit, OnDestroy {
         try {
             notification = this.getNotification();
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
+            CoreAlerts.showError(error);
             CoreNavigator.back();
 
             return;
         }
 
-        this.notification = 'subject' in notification ?
-            notification :
-            await AddonNotifications.convertPushToMessage(notification);
+        if ('mobiletext' in notification) {
+            // Notification from WS and already formatted, just use it.
+            this.notification = notification;
+        } else if ('fullmessage' in notification) {
+            // It's a notification from WS but it isn't formatted for some reason. Format it now.
+            const notifications = await AddonNotifications.formatNotificationsData([notification]);
+            this.notification = notifications[0];
+        } else {
+            // Push notification, convert it to the right format.
+            this.notification = await AddonNotifications.convertPushToMessage(notification);
+        }
 
         await this.loadActions(this.notification);
-        AddonNotificationsHelper.markNotificationAsRead(notification);
+        AddonNotificationsHelper.markNotificationAsRead(this.notification);
 
         this.loaded = true;
 
@@ -212,11 +229,10 @@ class AddonNotificationSwipeItemsManager extends CoreSwipeNavigationItemsManager
      * @inheritdoc
      */
     protected getSelectedItemPathFromRoute(route: ActivatedRouteSnapshot | ActivatedRoute): string | null {
-        const snapshot = route instanceof ActivatedRouteSnapshot ? route : route.snapshot;
-
-        return snapshot.params.id;
+        return CoreNavigator.getRouteParams(route).id;
     }
 
 }
 
-type AddonNotificationsNotification = AddonNotificationsNotificationMessageFormatted | AddonNotificationsPushNotification;
+type AddonNotificationsNotification = AddonNotificationsNotificationMessageFormatted | AddonNotificationsPushNotification |
+    AddonNotificationsNotificationMessage;

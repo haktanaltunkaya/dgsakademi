@@ -22,12 +22,13 @@ import { CoreQuestionHandler } from '@features/question/services/question-delega
 import { CoreQuestionHelper } from '@features/question/services/question-helper';
 import { CoreFileSession } from '@services/file-session';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { convertTextToHTMLElement } from '@/core/utils/create-html-element';
+import { CoreText } from '@singletons/text';
+import { CoreObject } from '@singletons/object';
 import { CoreWSFile } from '@services/ws';
 import { makeSingleton, Translate } from '@singletons';
-import { AddonQtypeEssayComponent } from '../../component/essay';
+import { CoreFileHelper } from '@services/file-helper';
+import { QuestionCompleteGradableResponse } from '@features/question/constants';
 
 /**
  * Handler to support essay question type.
@@ -84,12 +85,12 @@ export class AddonQtypeEssayHandlerService implements CoreQuestionHandler {
     protected getAllowedOptions(question: CoreQuestionQuestionParsed): { text: boolean; attachments: boolean } {
         if (question.parsedSettings) {
             return {
-                text: question.parsedSettings.responseformat != 'noinline',
-                attachments: question.parsedSettings.attachments != '0',
+                text: question.parsedSettings.responseformat !== 'noinline',
+                attachments: question.parsedSettings.attachments !== '0',
             };
         }
 
-        const element = CoreDomUtils.convertToElement(question.html);
+        const element = convertTextToHTMLElement(question.html);
 
         return {
             text: !!element.querySelector('textarea[name*=_answer]'),
@@ -107,7 +108,9 @@ export class AddonQtypeEssayHandlerService implements CoreQuestionHandler {
     /**
      * @inheritdoc
      */
-    getComponent(): Type<unknown> {
+    async getComponent(): Promise<Type<unknown>> {
+        const { AddonQtypeEssayComponent } = await import('../../component/essay');
+
         return AddonQtypeEssayComponent;
     }
 
@@ -115,7 +118,7 @@ export class AddonQtypeEssayHandlerService implements CoreQuestionHandler {
      * @inheritdoc
      */
     getPreventSubmitMessage(question: CoreQuestionQuestionParsed): string | undefined {
-        const element = CoreDomUtils.convertToElement(question.html);
+        const element = convertTextToHTMLElement(question.html);
         const uploadFilesSupported = question.responsefileareas !== undefined;
 
         if (!uploadFilesSupported && element.querySelector('div[id*=filemanager]')) {
@@ -135,6 +138,8 @@ export class AddonQtypeEssayHandlerService implements CoreQuestionHandler {
         question: CoreQuestionQuestionParsed,
         answers: CoreQuestionsAnswers,
         onlineError: string | undefined,
+        component: string,
+        componentId: string | number,
     ): string | undefined {
         if (answers.answer === undefined) {
             // Not answered in offline.
@@ -143,6 +148,11 @@ export class AddonQtypeEssayHandlerService implements CoreQuestionHandler {
 
         if (!answers.answer) {
             // Not answered yet, no error.
+            return;
+        }
+
+        // Continue check in case the response completion cannot be determined.
+        if (this.isCompleteResponse(question, answers, component, componentId) === QuestionCompleteGradableResponse.YES) {
             return;
         }
 
@@ -177,7 +187,7 @@ export class AddonQtypeEssayHandlerService implements CoreQuestionHandler {
         }
 
         // Count the number of words in the response string.
-        const count = CoreTextUtils.countWords(answer);
+        const count = CoreText.countWords(answer);
         if (maxWords && count > maxWords) {
             return Translate.instant('addon.qtype_essay.maxwordlimitboundary', { $a: { limit: maxWords, count: count } });
         } else if (count < minWords) {
@@ -193,34 +203,38 @@ export class AddonQtypeEssayHandlerService implements CoreQuestionHandler {
         answers: CoreQuestionsAnswers,
         component: string,
         componentId: string | number,
-    ): number {
+    ):  QuestionCompleteGradableResponse {
 
         const hasTextAnswer = !!answers.answer;
         const uploadFilesSupported = question.responsefileareas !== undefined;
         const allowedOptions = this.getAllowedOptions(question);
 
         if (hasTextAnswer && this.checkInputWordCount(question, <string> answers.answer, undefined)) {
-            return 0;
+            return QuestionCompleteGradableResponse.NO;
         }
 
         if (!allowedOptions.attachments) {
-            return hasTextAnswer ? 1 : 0;
+            return hasTextAnswer ? QuestionCompleteGradableResponse.YES : QuestionCompleteGradableResponse.NO;
         }
 
         if (!uploadFilesSupported || !question.parsedSettings) {
             // We can't know if the attachments are required or if the user added any in web.
-            return -1;
+            return QuestionCompleteGradableResponse.UNKNOWN;
         }
 
         const questionComponentId = CoreQuestion.getQuestionComponentId(question, componentId);
         const attachments = CoreFileSession.getFiles(component, questionComponentId);
 
         if (!allowedOptions.text) {
-            return attachments && attachments.length >= Number(question.parsedSettings.attachmentsrequired) ? 1 : 0;
+            return attachments && attachments.length >= Number(question.parsedSettings.attachmentsrequired)
+                ? QuestionCompleteGradableResponse.YES
+                : QuestionCompleteGradableResponse.NO;
         }
 
-        return ((hasTextAnswer || question.parsedSettings.responserequired == '0') &&
-                (attachments && attachments.length >= Number(question.parsedSettings.attachmentsrequired))) ? 1 : 0;
+        return ((hasTextAnswer || question.parsedSettings.responserequired === '0') &&
+                (attachments && attachments.length >= Number(question.parsedSettings.attachmentsrequired)))
+                    ? QuestionCompleteGradableResponse.YES
+                    : QuestionCompleteGradableResponse.NO;
     }
 
     /**
@@ -238,16 +252,18 @@ export class AddonQtypeEssayHandlerService implements CoreQuestionHandler {
         answers: CoreQuestionsAnswers,
         component: string,
         componentId: string | number,
-    ): number {
+    ): QuestionCompleteGradableResponse {
         if (question.responsefileareas === undefined) {
-            return -1;
+            return QuestionCompleteGradableResponse.UNKNOWN;
         }
 
         const questionComponentId = CoreQuestion.getQuestionComponentId(question, componentId);
         const attachments = CoreFileSession.getFiles(component, questionComponentId);
 
         // Determine if the given response has online text or attachments.
-        return (answers.answer && answers.answer !== '') || (attachments && attachments.length > 0) ? 1 : 0;
+        return (answers.answer && answers.answer !== '') || (attachments && attachments.length > 0)
+            ? QuestionCompleteGradableResponse.YES
+            : QuestionCompleteGradableResponse.NO;
     }
 
     /**
@@ -265,7 +281,7 @@ export class AddonQtypeEssayHandlerService implements CoreQuestionHandler {
 
         // First check the inline text.
         const answerIsEqual = allowedOptions.text ?
-            CoreUtils.sameAtKeyMissingIsBlank(prevAnswers, newAnswers, 'answer') : true;
+            CoreObject.sameAtKeyMissingIsBlank(prevAnswers, newAnswers, 'answer') : true;
 
         if (!allowedOptions.attachments || !uploadFilesSupported || !answerIsEqual) {
             // No need to check attachments.
@@ -292,7 +308,7 @@ export class AddonQtypeEssayHandlerService implements CoreQuestionHandler {
         siteId?: string,
     ): Promise<void> {
 
-        const element = CoreDomUtils.convertToElement(question.html);
+        const element = convertTextToHTMLElement(question.html);
         const attachmentsInput = <HTMLInputElement> element.querySelector('.attachments input[name*=_attachments]');
 
         // Search the textarea to get its name.
@@ -341,7 +357,7 @@ export class AddonQtypeEssayHandlerService implements CoreQuestionHandler {
             const result = await CoreFileUploader.storeFilesToUpload(folderPath, attachments);
 
             // Store the files in the answers.
-            answers[attachmentsInput.name + '_offline'] = JSON.stringify(result);
+            answers[`${attachmentsInput.name}_offline`] = JSON.stringify(result);
         } else {
             // Check if any attachment was deleted.
             const originalAttachments = CoreQuestionHelper.getResponseFileAreaFiles(question, 'attachments');
@@ -374,7 +390,7 @@ export class AddonQtypeEssayHandlerService implements CoreQuestionHandler {
         siteId?: string,
     ): Promise<void> {
 
-        const element = CoreDomUtils.convertToElement(question.html);
+        const element = convertTextToHTMLElement(question.html);
         const attachmentsInput = <HTMLInputElement> element.querySelector('.attachments input[name*=_attachments]');
 
         if (attachmentsInput) {
@@ -386,7 +402,7 @@ export class AddonQtypeEssayHandlerService implements CoreQuestionHandler {
             return;
         }
 
-        const attachmentsData: CoreFileUploaderStoreFilesResult = CoreTextUtils.parseJSON(
+        const attachmentsData: CoreFileUploaderStoreFilesResult = CoreText.parseJSON(
             <string> answers.attachments_offline,
             {
                 online: [],
@@ -438,7 +454,7 @@ export class AddonQtypeEssayHandlerService implements CoreQuestionHandler {
             // Restore draftfile URLs.
             const site = await CoreSites.getSite(siteId);
 
-            answers[textarea.name] = CoreTextUtils.restoreDraftfileUrls(
+            answers[textarea.name] = CoreFileHelper.restoreDraftfileUrls(
                 site.getURL(),
                 <string> answers[textarea.name],
                 question.html,
@@ -450,16 +466,16 @@ export class AddonQtypeEssayHandlerService implements CoreQuestionHandler {
         if (question.isPlainText !== undefined) {
             isPlainText = question.isPlainText;
         } else if (question.parsedSettings) {
-            isPlainText = question.parsedSettings.responseformat == 'monospaced' ||
-                question.parsedSettings.responseformat == 'plain';
+            isPlainText = question.parsedSettings.responseformat === 'monospaced' ||
+                question.parsedSettings.responseformat === 'plain';
         } else {
-            const questionEl = CoreDomUtils.convertToElement(question.html);
+            const questionEl = convertTextToHTMLElement(question.html);
             isPlainText = !!questionEl.querySelector('.qtype_essay_monospaced') || !!questionEl.querySelector('.qtype_essay_plain');
         }
 
         if (!isPlainText) {
             // Add some HTML to the text if needed.
-            answers[textarea.name] = CoreTextUtils.formatHtmlLines(<string> answers[textarea.name] || '');
+            answers[textarea.name] = CoreText.formatHtmlLines(<string> answers[textarea.name] || '');
         }
     }
 

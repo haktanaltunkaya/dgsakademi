@@ -1,8 +1,8 @@
 <ion-header class="no-title">
     <ion-toolbar>
         <ion-buttons slot="end">
-            <ion-button fill="clear" (click)="closeModal()" [attr.aria-label]="'core.close' | translate">
-                <ion-icon name="fas-xmark" slot="icon-only" aria-hidden=true />
+            <ion-button fill="clear" (click)="closeModal()" [ariaLabel]="'core.close' | translate">
+                <ion-icon name="fas-xmark" slot="icon-only" aria-hidden="true" />
             </ion-button>
         </ion-buttons>
     </ion-toolbar>
@@ -11,7 +11,7 @@
     <ion-refresher slot="fixed" [disabled]="!loaded" (ionRefresh)="doRefresh($event.target)">
         <ion-refresher-content pullingText="{{ 'core.pulltorefresh' | translate }}" />
     </ion-refresher>
-    <core-loading [hideUntil]="loaded">
+    <core-loading [hideUntil]="loaded" placeholderType="column" placeholderHeight="120px">
         <ion-list *ngIf="blocks.length > 0">
             <ng-container *ngFor="let block of blocks">
                 <core-block *ngIf="block.visible" [block]="block" [contextLevel]="contextLevel" [instanceId]="instanceId" />

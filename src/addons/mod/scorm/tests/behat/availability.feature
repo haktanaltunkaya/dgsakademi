@@ -1,4 +1,4 @@
-@addon_mod_scorm @app @javascript
+@addon_mod_scorm @app @mod @mod_scorm @javascript
 Feature: Test availability options of SCORM activity in app
   Only open SCORMs should be allowed to be played
 
@@ -20,7 +20,6 @@ Feature: Test availability options of SCORM activity in app
       | scorm    | C1     | Current SCORM | mod/scorm/tests/packages/singlesco_scorm12.zip | ##yesterday## | ##tomorrow##  |
       | scorm    | C1     | Future SCORM  | mod/scorm/tests/packages/singlesco_scorm12.zip | ##tomorrow##  | ##+2 days##   |
 
-  @lms_from4.1
   Scenario: Only open SCORMs can be played
     Given I entered the course "Course 1" as "student1" in the app
     When I press "Past SCORM" in the app
@@ -29,13 +28,13 @@ Feature: Test availability options of SCORM activity in app
     And I should find "## yesterday ##%d %B %Y, %I:%M %p##" near "Closed:" in the app
     And I should not be able to press "Enter" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Current SCORM" in the app
     Then I should find "## yesterday ##%d %B %Y, %I:%M %p##" near "Opened:" in the app
     And I should find "## tomorrow ##%d %B %Y, %I:%M %p##" near "Closes:" in the app
     And I should be able to press "Enter" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Future SCORM" in the app
     Then I should find "Sorry, this activity is not available until ## tomorrow ##%A, %d %B %Y, %I:%M %p##" in the app
     And I should find "## tomorrow ##%d %B %Y, %I:%M %p##" near "Opens:" in the app

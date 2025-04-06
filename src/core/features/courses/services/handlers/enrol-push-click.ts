@@ -17,10 +17,11 @@ import { Params } from '@angular/router';
 import { CoreCourseHelper } from '@features/course/services/course-helper';
 import { CorePushNotificationsClickHandler } from '@features/pushnotifications/services/push-delegate';
 import { CorePushNotificationsNotificationBasicData } from '@features/pushnotifications/services/pushnotifications';
+import { CoreLoadings } from '@services/overlays/loadings';
 import { CoreNavigator } from '@services/navigator';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreUtils } from '@singletons/utils';
 import { makeSingleton } from '@singletons';
+import { CoreAlerts } from '@services/overlays/alerts';
 
 /**
  * Handler for enrol push notifications clicks.
@@ -51,7 +52,7 @@ export class CoreCoursesEnrolPushClickHandlerService implements CorePushNotifica
     async handleClick(notification: CoreCoursesEnrolNotificationData): Promise<void> {
         const courseId = notification.courseid;
 
-        const modal = await CoreDomUtils.showModalLoading();
+        const modal = await CoreLoadings.show();
 
         try {
             const result = await CoreCourseHelper.getCourse(courseId, notification.site);
@@ -59,7 +60,7 @@ export class CoreCoursesEnrolPushClickHandlerService implements CorePushNotifica
             const params: Params = {
                 course: result.course,
             };
-            let page = 'course/' + courseId;
+            let page = `course/${courseId}`;
 
             if (notification.contexturl?.indexOf('user/index.php') != -1) {
                 // Open the participants tab.
@@ -71,7 +72,7 @@ export class CoreCoursesEnrolPushClickHandlerService implements CorePushNotifica
 
             await CoreNavigator.navigateToSitePath(page, { params, siteId: notification.site });
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Error getting course.');
+            CoreAlerts.showError(error, { default: 'Error getting course.' });
         } finally {
             modal.dismiss();
         }

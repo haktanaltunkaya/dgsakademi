@@ -11,14 +11,14 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 import { Component, Input, OnDestroy, OnInit } from '@angular/core';
 import { CoreNetwork } from '@services/network';
 import { CoreSites } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { ModalController, NgZone } from '@singletons';
+import { ModalController, NgZone, Translate } from '@singletons';
 import { Subscription } from 'rxjs';
 import { AddonModChat, AddonModChatUser } from '../../services/chat';
+import { CoreSharedModule } from '@/core/shared.module';
+import { CoreAlerts } from '@services/overlays/alerts';
 
 /**
  * MMdal that displays the chat session users.
@@ -26,11 +26,15 @@ import { AddonModChat, AddonModChatUser } from '../../services/chat';
 @Component({
     selector: 'addon-mod-chat-users-modal',
     templateUrl: 'users-modal.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
 export class AddonModChatUsersModalComponent implements OnInit, OnDestroy {
 
-    @Input() sessionId!: string;
-    @Input() cmId!: number;
+    @Input({ required: true }) sessionId!: string;
+    @Input({ required: true }) cmId!: number;
 
     users: AddonModChatUser[] = [];
     usersLoaded = false;
@@ -59,7 +63,7 @@ export class AddonModChatUsersModalComponent implements OnInit, OnDestroy {
 
             this.users = data.users;
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'addon.mod_chat.errorwhilegettingchatusers', true);
+            CoreAlerts.showError(error, { default: Translate.instant('addon.mod_chat.errorwhilegettingchatusers') });
         } finally {
             this.usersLoaded = true;
         }

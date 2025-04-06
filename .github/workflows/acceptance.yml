@@ -16,6 +16,10 @@ on:
   pull_request:
     branches: [ main, v*.x ]
 
+concurrency:
+    group: acceptance-${{ github.ref }}
+    cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
 
   build:
@@ -58,50 +62,10 @@ jobs:
 
       - name: Prepare Behat tags
         id: set-tags
+        working-directory: app
         run: |
           if [ -z $BEHAT_TAGS ]; then
-            tags=(
-              "@addon_block_timeline"
-              "@addon_calendar"
-              "@addon_competency"
-              "@addon_messages"
-              "@addon_mod_assign"
-              "@addon_mod_bigbluebuttonbn"
-              "@addon_mod_book"
-              "@addon_mod_chat"
-              "@addon_mod_choice"
-              "@addon_mod_data"
-              "@addon_mod_feedback"
-              "@addon_mod_forum"
-              "@addon_mod_glossary"
-              "@addon_mod_lesson"
-              "@addon_mod_quiz"
-              "@addon_mod_scorm"
-              "@addon_mod_survey"
-              "@addon_mod_workshop"
-              "@addon_notifications"
-              "@core"
-              "@core_comments"
-              "@core_course"
-              "@core_courses"
-              "@core_grades"
-              "@core_login"
-              "@core_mainmenu"
-              "@core_reminders"
-              "@core_reportbuilder"
-              "@core_search"
-              "@core_settings"
-              "@core_siteplugins"
-              "@core_user"
-              "@core_usertour"
-            )
-
-            tags_json="["
-            for tag in "${tags[@]}"; do
-              tags_json+="\"$tag\","
-            done
-            tags_json="${tags_json%?}"
-            tags_json+="]"
+            tags_json=`.github/scripts/print_behat_tags_json.sh`
             echo "tags=$tags_json" >> $GITHUB_OUTPUT;
           else
             echo "tags=[\"$BEHAT_TAGS\"]" >> $GITHUB_OUTPUT;
@@ -141,7 +105,7 @@ jobs:
     services:
 
       postgres:
-        image: postgres:13
+        image: postgres:14
         env:
           POSTGRES_USER: 'postgres'
           POSTGRES_HOST_AUTH_METHOD: 'trust'
@@ -161,7 +125,7 @@ jobs:
 
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: 8.1
+          php-version: 8.2
           ini-values: max_input_vars=5000
           coverage: none
 
@@ -189,16 +153,17 @@ jobs:
 
       - name: Initialise moodle-plugin-ci
         run: |
-          git clone https://github.com/NoelDeMartin/moodle-plugin-ci --branch selenium-env ci
-          composer install -d ./ci
+          composer create-project -n --no-dev --prefer-dist moodlehq/moodle-plugin-ci ci ^4.5
           echo $(cd ci/bin; pwd) >> $GITHUB_PATH
           echo $(cd ci/vendor/bin; pwd) >> $GITHUB_PATH
           sudo locale-gen en_AU.UTF-8
-          echo "NVM_DIR=$HOME/.nvm" >> $GITHUB_ENV
-          sed -i "58i\$CFG->behat_profiles['chrome']['capabilities'] = ['extra_capabilities' => ['chromeOptions' => ['args' => ['--ignore-certificate-errors', '--allow-running-insecure-content']]]];" ci/res/template/config.php.txt
+
+          # Install nvm v0.39.7 as a temporary workaround for issue:
+          # https://github.com/moodlehq/moodle-plugin-ci/issues/309
+          curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 
       - name: Install Behat Snapshots plugin
-        run: moodle-plugin-ci add-plugin NoelDeMartin/moodle-local_behatsnapshots
+        run: moodle-plugin-ci add-plugin moodlemobile/moodle-local_behatsnapshots
 
       - name: Install moodle-plugin-ci
         run: moodle-plugin-ci install --plugin ./plugin --db-host=127.0.0.1
@@ -208,6 +173,7 @@ jobs:
           MOODLE_REPO: ${{ github.event.inputs.moodle_repository || 'https://github.com/moodle/moodle.git' }}
           MOODLE_BEHAT_IONIC_WWWROOT: https://localhost:8001
           MOODLE_BEHAT_DEFAULT_BROWSER: chrome
+          MOODLE_BEHAT_CHROME_CAPABILITIES: "['extra_capabilities' => ['chromeOptions' => ['args' => ['--ignore-certificate-errors', '--allow-running-insecure-content']]]]"
 
       - name: Update config
         run: moodle-plugin-ci add-config 'define("TEST_MOD_BIGBLUEBUTTONBN_MOCK_SERVER", "http://localhost:8002/hash" . sha1($CFG->wwwroot));'

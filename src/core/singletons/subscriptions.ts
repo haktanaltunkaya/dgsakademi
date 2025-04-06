@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { EventEmitter } from '@angular/core';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreWait } from './wait';
 import { Observable, Subscription } from 'rxjs';
 
 /**
@@ -25,6 +25,11 @@ type Subscribable<T> = EventEmitter<T> | Observable<T>;
  * Singleton with helpers to work with subscriptions.
  */
 export class CoreSubscriptions {
+
+    // Avoid creating singleton instances.
+    private constructor() {
+        // Nothing to do.
+    }
 
     /**
      * Listen once to a subscribable object.
@@ -52,7 +57,7 @@ export class CoreSubscriptions {
         };
         const unsubscribe = async () => {
             // Subscription variable might not be set because we can receive a value immediately. Wait for next tick.
-            await CoreUtils.nextTick();
+            await CoreWait.nextTick();
 
             subscription?.unsubscribe();
         };

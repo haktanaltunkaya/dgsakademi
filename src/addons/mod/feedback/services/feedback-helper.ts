@@ -17,10 +17,9 @@ import { CoreCourse } from '@features/course/services/course';
 import { CoreUser } from '@features/user/services/user';
 import { CoreNavigator } from '@services/navigator';
 import { CoreSites, CoreSitesReadingStrategy } from '@services/sites';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreTimeUtils } from '@services/utils/time';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreFileHelper } from '@services/file-helper';
+import { CoreTime } from '@singletons/time';
+import { CoreUtils } from '@singletons/utils';
 import { makeSingleton, Translate } from '@singletons';
 import {
     AddonModFeedback,
@@ -28,12 +27,25 @@ import {
     AddonModFeedbackGetResponsesAnalysisWSResponse,
     AddonModFeedbackGroupPaginatedOptions,
     AddonModFeedbackItem,
-    AddonModFeedbackProvider,
     AddonModFeedbackResponseValue,
     AddonModFeedbackWSAttempt,
     AddonModFeedbackWSNonRespondent,
 } from './feedback';
-import { AddonModFeedbackModuleHandlerService } from './handlers/module';
+import {
+    ADDON_MOD_FEEDBACK_LINE_SEP,
+    ADDON_MOD_FEEDBACK_MULTICHOICE_TYPE_SEP,
+    ADDON_MOD_FEEDBACK_MULTICHOICE_ADJUST_SEP,
+    ADDON_MOD_FEEDBACK_MULTICHOICERATED_VALUE_SEP,
+    ADDON_MOD_FEEDBACK_MULTICHOICE_HIDENOSELECT,
+    ADDON_MOD_FEEDBACK_PAGE_NAME,
+    AddonModFeedbackMultichoiceSubtype,
+    AddonModFeedbackQuestionType,
+    AddonModFeedbackQuestionTemplateNames,
+    AddonModFeedbackQuestionTemplateMultichoicePrefix,
+} from '../constants';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreText } from '@singletons/text';
+import { CoreAlerts } from '@services/overlays/alerts';
 
 const MODE_RESPONSETIME = 1;
 const MODE_COURSE = 2;
@@ -76,9 +88,9 @@ export class AddonModFeedbackHelperProvider {
             let answered = false;
             itemData.hasError = false;
 
-            if (itemData.typ == 'captcha') {
+            if (itemData.typ === AddonModFeedbackQuestionType.CAPTCHA) {
                 const value = itemData.value || '';
-                const name = itemData.typ + '_' + itemData.id;
+                const name = `${itemData.typ}_${itemData.id}`;
 
                 answered = !!value;
                 responses[name] = 1;
@@ -94,13 +106,13 @@ export class AddonModFeedbackHelperProvider {
             } else if (itemData.hasvalue) {
                 let name: string;
                 let value: AddonModFeedbackResponseValue;
-                const nameTemp = itemData.typ + '_' + itemData.id;
+                const nameTemp = `${itemData.typ}_${itemData.id}`;
 
-                if (this.isMultiChoiceItem(itemData) && itemData.subtype == 'c') {
-                    name = nameTemp + '[0]';
+                if (this.isMultiChoiceItem(itemData) && itemData.subtype === AddonModFeedbackMultichoiceSubtype.CHECKBOX) {
+                    name = `${nameTemp}[0]`;
                     responses[name] = 0;
                     itemData.choices.forEach((choice, index) => {
-                        name = nameTemp + '[' + (index + 1) + ']';
+                        name = `${nameTemp}[${index + 1  }]`;
                         value = choice.checked ? choice.value : 0;
                         if (!answered && value) {
                             answered = true;
@@ -108,13 +120,14 @@ export class AddonModFeedbackHelperProvider {
                         responses[name] = value;
                     });
                 } else {
-                    if (this.isMultiChoiceItem(itemData) && itemData.subtype != 'r') {
-                        name = nameTemp + '[0]';
+                    if (this.isMultiChoiceItem(itemData) && itemData.subtype !== AddonModFeedbackMultichoiceSubtype.RADIO) {
+                        name = `${nameTemp}[0]`;
                     } else {
                         name = nameTemp;
                     }
 
-                    if (itemData.typ == 'multichoice' || itemData.typ == 'multichoicerated') {
+                    if (itemData.typ === AddonModFeedbackQuestionType.MULTICHOICE ||
+                        itemData.typ === AddonModFeedbackQuestionType.MULTICHOICERATED) {
                         value = itemData.value || 0;
                     } else if (this.isNumericItem(itemData)) {
                         value = itemData.value || itemData.value == 0 ? itemData.value : '';
@@ -173,7 +186,7 @@ export class AddonModFeedbackHelperProvider {
     async handleShowEntriesLink(params: Record<string, string>, siteId?: string): Promise<void> {
         siteId = siteId || CoreSites.getCurrentSiteId();
 
-        const modal = await CoreDomUtils.showModalLoading();
+        const modal = await CoreLoadings.show();
 
         try {
             const module = await CoreCourse.getModuleBasicInfo(
@@ -184,7 +197,7 @@ export class AddonModFeedbackHelperProvider {
             if (params.showcompleted === undefined) {
                 // Param showcompleted not defined. Show entry list.
                 await CoreNavigator.navigateToSitePath(
-                    AddonModFeedbackModuleHandlerService.PAGE_NAME + `/${module.course}/${module.id}/attempts`,
+                    `${ADDON_MOD_FEEDBACK_PAGE_NAME}/${module.course}/${module.id}/attempts`,
                     { siteId },
                 );
 
@@ -198,7 +211,7 @@ export class AddonModFeedbackHelperProvider {
             });
 
             await CoreNavigator.navigateToSitePath(
-                AddonModFeedbackModuleHandlerService.PAGE_NAME + `/${module.course}/${module.id}/attempts/${attempt.id}`,
+                `${ADDON_MOD_FEEDBACK_PAGE_NAME}/${module.course}/${module.id}/attempts/${attempt.id}`,
                 {
                     params: {
                         feedbackId: module.instance,
@@ -208,7 +221,7 @@ export class AddonModFeedbackHelperProvider {
                 },
             );
         } catch (error) {
-            CoreDomUtils.showErrorModalDefault(error, 'Error opening link.');
+            CoreAlerts.showError(error, { default: 'Error opening link.' });
         } finally {
             modal.dismiss();
         }
@@ -246,10 +259,10 @@ export class AddonModFeedbackHelperProvider {
      */
     protected getItemFormLabel(item: AddonModFeedbackItem): AddonModFeedbackFormBasicItem {
         item.name = '';
-        item.presentation = CoreTextUtils.replacePluginfileUrls(item.presentation, item.itemfiles);
+        item.presentation = CoreFileHelper.replacePluginfileUrls(item.presentation, item.itemfiles);
 
         return Object.assign(item, {
-            templateName: 'label',
+            templateName: AddonModFeedbackQuestionTemplateNames.LABEL,
             value: '',
             slottedLabel: false,
         });
@@ -263,7 +276,7 @@ export class AddonModFeedbackHelperProvider {
      */
     protected getItemFormInfo(item: AddonModFeedbackItem): AddonModFeedbackFormBasicItem | undefined {
         const formItem: AddonModFeedbackFormBasicItem = Object.assign(item, {
-            templateName: 'label',
+            templateName: AddonModFeedbackQuestionTemplateNames.LABEL,
             value: '',
             slottedLabel: false,
         });
@@ -278,7 +291,7 @@ export class AddonModFeedbackHelperProvider {
 
             const rawValue = Number(formItem.rawValue);
             const tempValue = isNaN(rawValue) ? Date.now() : rawValue * 1000;
-            formItem.presentation = CoreTimeUtils.userDate(tempValue);
+            formItem.presentation = CoreTime.userDate(tempValue);
         } else {
             // Errors on item, return false.
             return undefined;
@@ -295,12 +308,12 @@ export class AddonModFeedbackHelperProvider {
      */
     protected getItemFormNumeric(item: AddonModFeedbackItem): AddonModFeedbackNumericItem {
 
-        const range = item.presentation.split(AddonModFeedbackProvider.LINE_SEP) || [];
+        const range = item.presentation.split(ADDON_MOD_FEEDBACK_LINE_SEP) || [];
         const rangeFrom = range.length > 0 ? parseInt(range[0], 10) : undefined;
         const rangeTo = range.length > 1 ? parseInt(range[1], 10) : undefined;
 
         const formItem: AddonModFeedbackNumericItem = Object.assign(item, {
-            templateName: 'numeric',
+            templateName: AddonModFeedbackQuestionTemplateNames.NUMERIC,
             value: item.rawValue !== undefined ? Number(item.rawValue) : '',
             rangefrom: typeof rangeFrom == 'number' && !isNaN(rangeFrom) ? range[0] : '',
             rangeto: typeof rangeTo == 'number' && !isNaN(rangeTo) ? rangeTo : '',
@@ -319,8 +332,8 @@ export class AddonModFeedbackHelperProvider {
      */
     protected getItemFormTextfield(item: AddonModFeedbackItem): AddonModFeedbackTextItem {
         return Object.assign(item, {
-            templateName: 'textfield',
-            length: Number(item.presentation.split(AddonModFeedbackProvider.LINE_SEP)[1]) || 255,
+            templateName:  AddonModFeedbackQuestionTemplateNames.TEXTFIELD,
+            length: Number(item.presentation.split(ADDON_MOD_FEEDBACK_LINE_SEP)[1]) || 255,
             value: item.rawValue !== undefined ? item.rawValue : '',
             slottedLabel: true,
         });
@@ -334,7 +347,7 @@ export class AddonModFeedbackHelperProvider {
      */
     protected getItemFormTextarea(item: AddonModFeedbackItem): AddonModFeedbackFormBasicItem {
         return Object.assign(item, {
-            templateName: 'textarea',
+            templateName: AddonModFeedbackQuestionTemplateNames.TEXTAREA,
             value: item.rawValue !== undefined ? item.rawValue : '',
             slottedLabel: true,
         });
@@ -348,42 +361,45 @@ export class AddonModFeedbackHelperProvider {
      */
     protected getItemFormMultichoice(item: AddonModFeedbackItem): AddonModFeedbackMultichoiceItem {
 
-        let parts = item.presentation.split(AddonModFeedbackProvider.MULTICHOICE_TYPE_SEP) || [];
-        const subType = parts.length > 0 && parts[0] ? parts[0] : 'r';
+        let parts = item.presentation.split(ADDON_MOD_FEEDBACK_MULTICHOICE_TYPE_SEP) || [];
+        const subtype = parts.length > 0 && parts[0]
+            ? parts[0] as AddonModFeedbackMultichoiceSubtype
+            : AddonModFeedbackMultichoiceSubtype.RADIO;
 
         const formItem: AddonModFeedbackMultichoiceItem = Object.assign(item, {
-            templateName: 'multichoice-' + subType,
-            subtype: subType,
+            templateName: AddonModFeedbackQuestionTemplateMultichoicePrefix + subtype as AddonModFeedbackQuestionTemplateNames,
+            subtype,
             value: '',
             choices: [],
-            slottedLabel: subType === 'd',
+            slottedLabel: subtype === AddonModFeedbackMultichoiceSubtype.DROPDOWN,
         });
 
         formItem.presentation = parts.length > 1 ? parts[1] : '';
-        if (formItem.subtype != 'd') {
-            parts = formItem.presentation.split(AddonModFeedbackProvider.MULTICHOICE_ADJUST_SEP) || [];
+        if (formItem.subtype !== AddonModFeedbackMultichoiceSubtype.DROPDOWN) {
+            parts = formItem.presentation.split(ADDON_MOD_FEEDBACK_MULTICHOICE_ADJUST_SEP) || [];
             formItem.presentation = parts.length > 0 ? parts[0] : '';
             // Horizontal are not supported right now. item.horizontal = parts.length > 1 && !!parts[1];
         }
 
-        const choices = formItem.presentation.split(AddonModFeedbackProvider.LINE_SEP) || [];
+        const choices = formItem.presentation.split(ADDON_MOD_FEEDBACK_LINE_SEP) || [];
         formItem.choices = choices.map((choice, index) => {
-            const weightValue = choice.split(AddonModFeedbackProvider.MULTICHOICERATED_VALUE_SEP) || [''];
-            choice = weightValue.length == 1 ? weightValue[0] : '(' + weightValue[0] + ') ' + weightValue[1];
+            const weightValue = choice.split(ADDON_MOD_FEEDBACK_MULTICHOICERATED_VALUE_SEP) || [''];
+            choice = weightValue.length == 1 ? weightValue[0] : `(${weightValue[0]}) ${weightValue[1]}`;
 
             return { value: index + 1, label: choice };
         });
 
-        if (formItem.subtype === 'r' && formItem.options.search(AddonModFeedbackProvider.MULTICHOICE_HIDENOSELECT) == -1) {
+        if (formItem.subtype === AddonModFeedbackMultichoiceSubtype.RADIO &&
+            formItem.options.search(ADDON_MOD_FEEDBACK_MULTICHOICE_HIDENOSELECT) == -1) {
             formItem.choices.unshift({ value: 0, label: Translate.instant('addon.mod_feedback.not_selected') });
             formItem.value = formItem.rawValue !== undefined ? Number(formItem.rawValue) : 0;
-        } else if (formItem.subtype === 'd') {
+        } else if (formItem.subtype === AddonModFeedbackMultichoiceSubtype.DROPDOWN) {
             formItem.choices.unshift({ value: 0, label: '' });
             formItem.value = formItem.rawValue !== undefined ? Number(formItem.rawValue) : 0;
-        } else if (formItem.subtype === 'c') {
+        } else if (formItem.subtype === AddonModFeedbackMultichoiceSubtype.CHECKBOX) {
             if (formItem.rawValue !== undefined) {
                 formItem.rawValue = String(formItem.rawValue);
-                const values = formItem.rawValue.split(AddonModFeedbackProvider.LINE_SEP);
+                const values = formItem.rawValue.split(ADDON_MOD_FEEDBACK_LINE_SEP);
                 formItem.choices.forEach((choice) => {
                     for (const x in values) {
                         if (choice.value == Number(values[x])) {
@@ -409,12 +425,12 @@ export class AddonModFeedbackHelperProvider {
      */
     protected getItemFormCaptcha(item: AddonModFeedbackItem): AddonModFeedbackCaptchaItem {
         const formItem: AddonModFeedbackCaptchaItem = Object.assign(item, {
-            templateName: 'captcha',
+            templateName: AddonModFeedbackQuestionTemplateNames.CAPTCHA,
             value: '',
             slottedLabel: false,
         });
 
-        const data = <string[]> CoreTextUtils.parseJSON(item.otherdata);
+        const data = <string[]> CoreText.parseJSON(item.otherdata);
         if (data && data.length > 3) {
             formItem.captcha = {
                 recaptchapublickey: data[3],
@@ -433,27 +449,27 @@ export class AddonModFeedbackHelperProvider {
      */
     getItemForm(item: AddonModFeedbackItem, preview: boolean): AddonModFeedbackFormItem | undefined {
         switch (item.typ) {
-            case 'label':
+            case AddonModFeedbackQuestionType.LABEL:
                 return this.getItemFormLabel(item);
-            case 'info':
+            case AddonModFeedbackQuestionType.INFO:
                 return this.getItemFormInfo(item);
-            case 'numeric':
+            case AddonModFeedbackQuestionType.NUMERIC:
                 return this.getItemFormNumeric(item);
-            case 'textfield':
+            case AddonModFeedbackQuestionType.TEXTFIELD:
                 return this.getItemFormTextfield(item);
-            case 'textarea':
+            case AddonModFeedbackQuestionType.TEXTAREA:
                 return this.getItemFormTextarea(item);
-            case 'multichoice':
+            case AddonModFeedbackQuestionType.MULTICHOICE:
                 return this.getItemFormMultichoice(item);
-            case 'multichoicerated':
+            case AddonModFeedbackQuestionType.MULTICHOICERATED:
                 return this.getItemFormMultichoice(item);
-            case 'pagebreak':
+            case AddonModFeedbackQuestionType.PAGEBREAK:
                 if (!preview) {
                     // Pagebreaks are only used on preview.
                     return undefined;
                 }
                 break;
-            case 'captcha':
+            case AddonModFeedbackQuestionType.CAPTCHA:
                 // Captcha is not supported right now. However label will be shown.
                 return this.getItemFormCaptcha(item);
             default:
@@ -470,8 +486,8 @@ export class AddonModFeedbackHelperProvider {
      * @returns Human-readable boundaries.
      */
     protected getNumericBoundariesForDisplay(rangeFrom: number | string, rangeTo: number | string): string {
-        const rangeFromSet = typeof rangeFrom == 'number';
-        const rangeToSet = typeof rangeTo == 'number';
+        const rangeFromSet = typeof rangeFrom === 'number';
+        const rangeToSet = typeof rangeTo === 'number';
 
         if (!rangeFromSet && rangeToSet) {
             return ' (' + Translate.instant('addon.mod_feedback.maximal') + ': ' + CoreUtils.formatFloat(rangeTo) + ')';
@@ -491,7 +507,7 @@ export class AddonModFeedbackHelperProvider {
      * @returns Whether item is multichoice.
      */
     protected isMultiChoiceItem(item: AddonModFeedbackFormItem): item is AddonModFeedbackMultichoiceItem {
-        return item.typ == 'multichoice';
+        return item.typ === AddonModFeedbackQuestionType.MULTICHOICE;
     }
 
     /**
@@ -501,7 +517,7 @@ export class AddonModFeedbackHelperProvider {
      * @returns Whether item is numeric.
      */
     protected isNumericItem(item: AddonModFeedbackFormItem): item is AddonModFeedbackNumericItem {
-        return item.typ == 'numeric';
+        return item.typ === AddonModFeedbackQuestionType.NUMERIC;
     }
 
 }
@@ -547,7 +563,7 @@ export type AddonModFeedbackFormItem =
  * Common calculated data for all form items.
  */
 export type AddonModFeedbackFormBasicItem = AddonModFeedbackItem & {
-    templateName: string;
+    templateName: AddonModFeedbackQuestionTemplateNames;
     value: AddonModFeedbackResponseValue;
     slottedLabel: boolean;
     isEmpty?: boolean;
@@ -574,7 +590,7 @@ export type AddonModFeedbackTextItem = AddonModFeedbackFormBasicItem & {
  * Multichoice item.
  */
 export type AddonModFeedbackMultichoiceItem = AddonModFeedbackFormBasicItem & {
-    subtype: string;
+    subtype: AddonModFeedbackMultichoiceSubtype;
     choices: { value: number; label: string; checked?: boolean }[];
 };
 

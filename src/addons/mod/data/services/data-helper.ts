@@ -13,37 +13,44 @@
 // limitations under the License.
 
 import { ContextLevel } from '@/core/constants';
-import { Injectable } from '@angular/core';
+import { Injectable, Type } from '@angular/core';
 import { CoreCourse } from '@features/course/services/course';
 import { CoreFileUploader, CoreFileUploaderStoreFilesResult } from '@features/fileuploader/services/fileuploader';
 import { CoreRatingOffline } from '@features/rating/services/rating-offline';
 import { FileEntry } from '@awesome-cordova-plugins/file/ngx';
 import { CoreSites, CoreSitesReadingStrategy } from '@services/sites';
-import { CoreDomUtils, ToastDuration } from '@services/utils/dom';
+import { CoreDom } from '@singletons/dom';
 import { CoreFormFields } from '@singletons/form';
-import { CoreTextUtils } from '@services/utils/text';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreText } from '@singletons/text';
+import { CorePromiseUtils } from '@singletons/promise-utils';
 import { makeSingleton, Translate } from '@singletons';
 import { CoreEvents } from '@singletons/events';
 import {
     AddonModDataEntry,
     AddonModData,
-    AddonModDataProvider,
     AddonModDataSearchEntriesOptions,
     AddonModDataEntries,
     AddonModDataEntryFields,
-    AddonModDataAction,
     AddonModDataGetEntryFormatted,
     AddonModDataData,
-    AddonModDataTemplateType,
     AddonModDataGetDataAccessInformationWSResponse,
-    AddonModDataTemplateMode,
     AddonModDataField,
     AddonModDataEntryWSField,
 } from './data';
 import { AddonModDataFieldsDelegate } from './data-fields-delegate';
 import { AddonModDataOffline, AddonModDataOfflineAction } from './data-offline';
 import { CoreFileEntry } from '@services/file-helper';
+import {
+    ADDON_MOD_DATA_COMPONENT_LEGACY,
+    ADDON_MOD_DATA_ENTRY_CHANGED,
+    AddonModDataAction,
+    AddonModDataTemplateType,
+    AddonModDataTemplateMode,
+    ADDON_MOD_DATA_MODNAME,
+} from '../constants';
+import { CoreToasts, ToastDuration } from '@services/overlays/toasts';
+import { CoreLoadings } from '@services/overlays/loadings';
+import { CoreAlerts } from '@services/overlays/alerts';
 
 /**
  * Service that provides helper functions for datas.
@@ -67,7 +74,7 @@ export class AddonModDataHelperProvider {
         const promises: Promise<void>[] = [];
 
         offlineActions.forEach((action) => {
-            record.timemodified = action.timemodified;
+            record.timemodified = Math.max(record.timemodified, action.timemodified);
             record.hasOffline = true;
             const offlineContents: Record<number, CoreFormFields> = {};
 
@@ -92,9 +99,9 @@ export class AddonModDataHelperProvider {
 
                         if (offlineContent.subfield) {
                             offlineContents[offlineContent.fieldid][offlineContent.subfield] =
-                                CoreTextUtils.parseJSON(offlineContent.value, '');
+                                CoreText.parseJSON(offlineContent.value, '');
                         } else {
-                            offlineContents[offlineContent.fieldid][''] = CoreTextUtils.parseJSON(offlineContent.value, '');
+                            offlineContents[offlineContent.fieldid][''] = CoreText.parseJSON(offlineContent.value, '');
                         }
                     });
 
@@ -150,7 +157,7 @@ export class AddonModDataHelperProvider {
     ): Promise<void> {
         siteId = siteId || CoreSites.getCurrentSiteId();
 
-        const modal = await CoreDomUtils.showModalLoading('core.sending', true);
+        const modal = await CoreLoadings.show('core.sending', true);
 
         try {
             courseId = await this.getActivityCourseIdIfNotSet(dataId, courseId, siteId);
@@ -159,7 +166,7 @@ export class AddonModDataHelperProvider {
                 // Approve/disapprove entry.
                 await AddonModData.approveEntry(dataId, entryId, approve, courseId, siteId);
             } catch (error) {
-                CoreDomUtils.showErrorModalDefault(error, 'addon.mod_data.errorapproving', true);
+                CoreAlerts.showError(error, { default: Translate.instant('addon.mod_data.errorapproving') });
 
                 throw error;
             }
@@ -169,15 +176,15 @@ export class AddonModDataHelperProvider {
             promises.push(AddonModData.invalidateEntryData(dataId, entryId, siteId));
             promises.push(AddonModData.invalidateEntriesData(dataId, siteId));
 
-            await CoreUtils.ignoreErrors(Promise.all(promises));
+            await CorePromiseUtils.ignoreErrors(Promise.all(promises));
 
-            CoreEvents.trigger(AddonModDataProvider.ENTRY_CHANGED, { dataId: dataId, entryId: entryId }, siteId);
+            CoreEvents.trigger(ADDON_MOD_DATA_ENTRY_CHANGED, { dataId: dataId, entryId: entryId }, siteId);
 
-            CoreDomUtils.showToast(
-                approve ? 'addon.mod_data.recordapproved' : 'addon.mod_data.recorddisapproved',
-                true,
-                ToastDuration.LONG,
-            );
+            CoreToasts.show({
+                message: approve ? 'addon.mod_data.recordapproved' : 'addon.mod_data.recorddisapproved',
+                translateMessage: true,
+                duration: ToastDuration.LONG,
+            });
         } catch {
             // Ignore error, it was already displayed.
         } finally {
@@ -212,26 +219,34 @@ export class AddonModDataHelperProvider {
 
         // Replace the fields found on template.
         fields.forEach((field) => {
-            let replace = '[[' + field.name + ']]';
+            let replace = `[[${field.name}]]`;
             replace = replace.replace(/[-[\]/{}()*+?.\\^$|]/g, '\\$&');
             let replaceRegex = new RegExp(replace, 'gi');
 
-            // Replace field by a generic directive.
-            const render = '<addon-mod-data-field-plugin [field]="fields[' + field.id + ']" [value]="entries[' + entry.id +
-                    '].contents[' + field.id + ']" mode="' + mode + '" [database]="database" (gotoEntry)="gotoEntry($event)">' +
-                    '</addon-mod-data-field-plugin>';
+            const valuesInsideTags = new RegExp('>\\[\\[' + field.name + '\\]\\]<','gi');
 
-            template = template.replace(replaceRegex, render);
+            if (template.match(valuesInsideTags)?.length) {
+                // Replace field by a generic directive.
+                const hasOffline = entry.hasOffline ? 'true' : 'false';
+
+                const render = `><addon-mod-data-field-plugin [field]="fields[${field.id}]" mode="${mode}" [database]="database" \
+                    [value]="entries[${entry.id}].contents[${field.id}]" [recordHasOffline]="${hasOffline}" \
+                    (gotoEntry)="gotoEntry($event)"></addon-mod-data-field-plugin><`;
+
+                template = template
+                    .replace(valuesInsideTags, render)
+                    .replace(replaceRegex, entry.contents[field.id].content);
+            }
 
             // Replace the field name tag.
-            replace = '[[' + field.name + '#name]]';
+            replace = `[[${field.name}#name]]`;
             replace = replace.replace(/[-[\]/{}()*+?.\\^$|]/g, '\\$&');
             replaceRegex = new RegExp(replace, 'gi');
 
             template = template.replace(replaceRegex, field.name);
 
             // Replace the field description tag.
-            replace = '[[' + field.name + '#description]]';
+            replace = `[[${field.name}#description]]`;
             replace = replace.replace(/[-[\]/{}()*+?.\\^$|]/g, '\\$&');
             replaceRegex = new RegExp(replace, 'gi');
 
@@ -239,7 +254,7 @@ export class AddonModDataHelperProvider {
         });
 
         for (const action in actions) {
-            const replaceRegex = new RegExp('##' + action + '##', 'gi');
+            const replaceRegex = new RegExp(`##${action}##`, 'gi');
             // Is enabled?
             if (!actions[action]) {
                 template = template.replace(replaceRegex, '');
@@ -247,18 +262,34 @@ export class AddonModDataHelperProvider {
                 continue;
             }
 
-            if (action == AddonModDataAction.MOREURL) {
+            if (action === AddonModDataAction.MOREURL) {
                 // Render more url directly because it can be part of an HTML attribute.
                 template = template.replace(
                     replaceRegex,
-                    CoreSites.getRequiredCurrentSite().getURL() + '/mod/data/view.php?d={{database.id}}&rid=' + entry.id,
+                    CoreSites.getRequiredCurrentSite().getURL() + `/mod/data/view.php?d={{database.id}}&rid=${entry.id}`,
                 );
 
                 continue;
-            } else if (action == 'approvalstatus') {
+            } else if (action === AddonModDataAction.APPROVALSTATUS) {
                 template = template.replace(
                     replaceRegex,
-                    Translate.instant('addon.mod_data.' + (entry.approved ? 'approved' : 'notapproved')),
+                    entry.approved
+                        ? ''
+                        : `<ion-badge color="warning">${Translate.instant('addon.mod_data.notapproved')}</ion-badge>`,
+                );
+
+                continue;
+            } else if (action === AddonModDataAction.APPROVALSTATUSCLASS) {
+                template = template.replace(
+                    replaceRegex,
+                    entry.approved ? 'approved' : 'notapproved',
+                );
+
+                continue;
+            } else if (action === AddonModDataAction.ID) {
+                template = template.replace(
+                    replaceRegex,
+                    entry.id.toString(),
                 );
 
                 continue;
@@ -312,8 +343,8 @@ export class AddonModDataHelperProvider {
         const result: AddonModDataEntries = {
             entries: [],
             totalcount: 0,
-            offlineEntries: [],
         };
+        const offlineEntries: AddonModDataEntry[] = [];
         options.siteId = site.id;
 
         const offlinePromise = AddonModDataOffline.getDatabaseEntries(database.id, site.id).then((actions) => {
@@ -326,16 +357,16 @@ export class AddonModDataHelperProvider {
                 offlineActions[action.entryid].push(action);
 
                 // We only display new entries in the first page when not searching.
-                if (action.action == AddonModDataAction.ADD && options.page == 0 && !options.search && !options.advSearch &&
-                    (!action.groupid || !options.groupId || action.groupid == options.groupId)) {
-                    result.offlineEntries!.push({
+                if (action.action === AddonModDataAction.ADD && options.page === 0 && !options.search && !options.advSearch &&
+                    (!action.groupid || !options.groupId || action.groupid === options.groupId)) {
+                    offlineEntries.push({
                         id: action.entryid,
                         canmanageentry: true,
                         approved: !database.approval || database.manageapproved,
                         dataid: database.id,
                         groupid: action.groupid,
-                        timecreated: -action.entryid,
-                        timemodified: -action.entryid,
+                        timecreated: action.timemodified,
+                        timemodified: action.timemodified,
                         userid: site.getUserId(),
                         fullname: site.getInfo()?.fullname,
                         contents: {},
@@ -345,7 +376,7 @@ export class AddonModDataHelperProvider {
             });
 
             // Sort offline entries by creation time.
-            result.offlineEntries!.sort((a, b) => b.timecreated - a.timecreated);
+            offlineEntries.sort((a, b) => b.timecreated - a.timecreated);
 
             return;
         });
@@ -382,9 +413,11 @@ export class AddonModDataHelperProvider {
             promises.push(this.applyOfflineActions(entry, offlineActions[entry.id] || [], fields));
         });
 
-        result.offlineEntries!.forEach((entry) => {
+        offlineEntries.forEach((entry) => {
             promises.push(this.applyOfflineActions(entry, offlineActions[entry.id] || [], fields));
         });
+
+        result.offlineEntries = offlineEntries;
 
         await Promise.all(promises);
 
@@ -460,6 +493,7 @@ export class AddonModDataHelperProvider {
             timeadded: true,
             timemodified: true,
             tags: true,
+            id: true,
 
             edit: entry.canmanageentry && !entry.deleted, // This already checks capabilities and readonly period.
             delete: entry.canmanageentry,
@@ -467,6 +501,7 @@ export class AddonModDataHelperProvider {
             disapprove: database.approval && accessInfo.canapprove && entry.approved && !entry.deleted,
 
             approvalstatus: database.approval,
+            approvalstatusclass: database.approval,
             comments: database.comments,
 
             actionsmenu: entry.canmanageentry
@@ -494,7 +529,7 @@ export class AddonModDataHelperProvider {
 
         const module = await CoreCourse.getModuleBasicInfoByInstance(
             dataId,
-            'data',
+            ADDON_MOD_DATA_MODNAME,
             { siteId, readingStrategy: CoreSitesReadingStrategy.PREFER_CACHE },
         );
 
@@ -504,82 +539,163 @@ export class AddonModDataHelperProvider {
     /**
      * Returns the default template of a certain type.
      *
-     * Based on Moodle function data_generate_default_template.
-     *
      * @param type Type of template.
      * @param fields List of database fields.
      * @returns Template HTML.
      */
-    getDefaultTemplate(type: AddonModDataTemplateType, fields: AddonModDataField[]): string {
-        if (type == AddonModDataTemplateType.LIST_HEADER || type == AddonModDataTemplateType.LIST_FOOTER) {
-            return '';
+    protected getDefaultTemplate(type: AddonModDataTemplateType, fields: AddonModDataField[]): string {
+        switch (type) {
+            case AddonModDataTemplateType.LIST:
+                return this.getDefaultListTemplate(fields);
+            case AddonModDataTemplateType.SINGLE:
+                return this.getDefaultSingleTemplate(fields);
+            case AddonModDataTemplateType.SEARCH:
+                return this.getDefaultSearchTemplate(fields);
+            case AddonModDataTemplateType.ADD:
+                return this.getDefaultAddTemplate(fields);
         }
 
+        return '';
+    }
+
+    /**
+     * Returns the default template for the list view.
+     *
+     * @param fields List of database fields.
+     * @returns Template HTML.
+     */
+    protected getDefaultListTemplate(fields: AddonModDataField[]): string {
         const html: string[] = [];
 
-        if (type == AddonModDataTemplateType.LIST) {
-            html.push('##delcheck##<br />');
-        }
+        html.push(`<ion-card class="defaulttemplate-listentry">
+            <ion-item class="ion-text-wrap" lines="full">
+                ##userpicture##
+                <ion-label>
+                    <p class="item-heading">##user##</p>
+                    <p class="data-timeinfo">##timeadded##</p>
+                    <p class="data-timeinfo">
+                        <strong>${Translate.instant('addon.mod_data.datemodified')}</strong>&nbsp;##timemodified##
+                    </p>
+                </ion-label>
+                <div slot="end" class="ion-text-end">
+                    ##actionsmenu##
+                    <p class="ion-text-end ##approvalstatusclass##">##approvalstatus##</p>
+                </div>
+            </ion-item>
 
-        html.push(
-            '<div class="defaulttemplate">',
-            '<table class="mod-data-default-template ##approvalstatus##">',
-            '<tbody>',
-        );
+            <ion-item class="ion-text-wrap defaulttemplate-list-body"><ion-label>`);
 
         fields.forEach((field) => {
-            html.push(
-                '<tr class="">',
-                '<td class="template-field cell c0" style="">',
-                field.name,
-                ': </td>',
-                '<td class="template-token cell c1 lastcol" style="">[[',
-                field.name,
-                ']]</td>',
-                '</tr>',
-            );
+            html.push(`
+            <ion-row class="ion-margin-vertical ion-align-items-start ion-justify-content-start">
+                <ion-col size="4" size-lg="3"><strong>${field.name}</strong></ion-col>
+                <ion-col size="8" size-lg="9">[[${field.name}]]</ion-col>
+            </ion-row>`);
         });
 
-        if (type == AddonModDataTemplateType.LIST) {
-            html.push(
-                '<tr class="lastrow">',
-                '<td class="controls template-field cell c0 lastcol" style="" colspan="2">',
-                '##actionsmenu##  ##edit##  ##more##  ##delete##  ##approve##  ##disapprove##  ##export##',
-                '</td>',
-                '</tr>',
-            );
-        } else if (type == AddonModDataTemplateType.SINGLE) {
-            html.push(
-                '<tr class="lastrow">',
-                '<td class="controls template-field cell c0 lastcol" style="" colspan="2">',
-                '##actionsmenu##  ##edit##  ##delete##  ##approve##  ##disapprove##  ##export##',
-                '</td>',
-                '</tr>',
-            );
-        } else if (type == AddonModDataTemplateType.SEARCH) {
-            html.push(
-                '<tr class="searchcontrols">',
-                '<td class="template-field cell c0" style="">Author first name: </td>',
-                '<td class="template-token cell c1 lastcol" style="">##firstname##</td>',
-                '</tr>',
-                '<tr class="searchcontrols lastrow">',
-                '<td class="template-field cell c0" style="">Author surname: </td>',
-                '<td class="template-token cell c1 lastcol" style="">##lastname##</td>',
-                '</tr>',
-            );
-        }
-
-        html.push(
-            '</tbody>',
-            '</table>',
-            '</div>',
-        );
-
-        if (type == AddonModDataTemplateType.LIST) {
-            html.push('<hr />');
-        }
+        html.push('##tags##</ion-label></ion-item></ion-card>');
 
         return html.join('');
+    }
+
+    /**
+     * Returns the default template for the add view.
+     *
+     * @param fields List of database fields.
+     * @returns Template HTML.
+     */
+    protected getDefaultAddTemplate(fields: AddonModDataField[]): string {
+        const html: string[] = [];
+
+        html.push('<div class="defaulttemplate-addentry">');
+
+        fields.forEach((field) => {
+            html.push(`
+            <div class="ion-text-wrap edit-field">
+                <p><strong>${field.name}</strong></p>
+                [[${field.name}]]
+            </div>`);
+        });
+
+        html.push('##otherfields## ##tags##</div>');
+
+        return html.join('');
+    }
+
+    /**
+     * Returns the default template for the single view.
+     *
+     * @param fields List of database fields.
+     * @returns Template HTML.
+     */
+    protected  getDefaultSingleTemplate(fields: AddonModDataField[]): string {
+        const html: string[] = [];
+
+        html.push(`<div class="defaulttemplate-single">
+            <div class="defaulttemplate-single-body">
+            <ion-item class="ion-text-wrap" lines="full">
+                ##userpicture##
+                <ion-label>
+                    <p class="item-heading">##user##</p>
+                    <p class="data-timeinfo">##timeadded##</p>
+                    <p class="data-timeinfo">
+                        <strong>${Translate.instant('addon.mod_data.datemodified')}</strong>&nbsp;##timemodified##
+                    </p>
+                </ion-label>
+                <div slot="end" class="ion-text-end">
+                    ##actionsmenu##
+                    <p class="ion-text-end ##approvalstatusclass##">##approvalstatus##</p>
+                </div>
+            </ion-item>`);
+
+        fields.forEach((field) => {
+            html.push(`
+            <ion-item class="ion-text-wrap" lines="none"><ion-label>
+                <p class="item-heading"><strong>${field.name}</strong></p>
+                <p>[[${field.name}]]</p>
+            </ion-label></ion-item>`);
+        });
+
+        html.push('##otherfields## ##tags##</ion-label></ion-item></div></div>');
+
+        return html.join('');
+    }
+
+    /**
+     * Returns the default template for the search view.
+     *
+     * @param fields List of database fields.
+     * @returns Template HTML.
+     */
+    protected getDefaultSearchTemplate(fields: AddonModDataField[]): string {
+        const html: string[] = [];
+
+        html.push('<div class="defaulttemplate-asearch">');
+
+        html.push(`
+            <div class="ion-text-wrap search-field">
+                <p><strong>${Translate.instant('addon.mod_data.authorfirstname')}</strong></p>
+                ##firstname##
+            </div>`);
+
+        html.push(`
+            <div class="ion-text-wrap search-field">
+                <p><strong>${Translate.instant('addon.mod_data.authorlastname')}</strong></p>
+                ##lastname##
+            </div>`);
+
+        fields.forEach((field) => {
+            html.push(`
+            <div class="ion-text-wrap search-field">
+                <p><strong>${field.name}</strong></p>
+                [[${field.name}]]
+            </div>`);
+        });
+
+        html.push('##tags##</div>');
+
+        return html.join('');
+
     }
 
     /**
@@ -711,14 +827,18 @@ export class AddonModDataHelperProvider {
 
         if (type != AddonModDataTemplateType.LIST_HEADER && type != AddonModDataTemplateType.LIST_FOOTER) {
             // Try to fix syntax errors so the template can be parsed by Angular.
-            template = CoreDomUtils.fixHtml(template);
+            template = CoreDom.fixHtml(template);
         }
 
         // Add core-link directive to links.
         template = template.replace(
             /<a ([^>]*href="[^>]*)>/ig,
-            (match, attributes) => '<a core-link capture="true" ' + attributes + '>',
+            (match, attributes) => `<a core-link capture="true" ${attributes}>`,
         );
+
+        // Escape { and } so Angular doesn't treat them as expressions.
+        // They're converted to {{ '{' }} or similar, as suggested by the Angular error message.
+        template = template.replace(/([{}]+)/g, '{{ \'$1\' }}');
 
         return template;
     }
@@ -752,9 +872,9 @@ export class AddonModDataHelperProvider {
         siteId = siteId || CoreSites.getCurrentSiteId();
 
         try {
-            await CoreDomUtils.showDeleteConfirm('addon.mod_data.confirmdeleterecord');
+            await CoreAlerts.confirmDelete(Translate.instant('addon.mod_data.confirmdeleterecord'));
 
-            const modal = await CoreDomUtils.showModalLoading();
+            const modal = await CoreLoadings.show();
 
             try {
                 if (entryId > 0) {
@@ -765,7 +885,7 @@ export class AddonModDataHelperProvider {
                     await AddonModData.deleteEntry(dataId, entryId, courseId, siteId);
                 }
             } catch (message) {
-                CoreDomUtils.showErrorModalDefault(message, 'addon.mod_data.errordeleting', true);
+                CoreAlerts.showError(message, { default: Translate.instant('addon.mod_data.errordeleting') });
 
                 modal.dismiss();
 
@@ -779,9 +899,13 @@ export class AddonModDataHelperProvider {
                 // Ignore errors.
             }
 
-            CoreEvents.trigger(AddonModDataProvider.ENTRY_CHANGED, { dataId, entryId, deleted: true }, siteId);
+            CoreEvents.trigger(ADDON_MOD_DATA_ENTRY_CHANGED, { dataId, entryId, deleted: true }, siteId);
 
-            CoreDomUtils.showToast('addon.mod_data.recorddeleted', true, ToastDuration.LONG);
+            CoreToasts.show({
+                message: 'addon.mod_data.recorddeleted',
+                translateMessage: true,
+                duration: ToastDuration.LONG,
+            });
 
             modal.dismiss();
         } catch {
@@ -870,7 +994,22 @@ export class AddonModDataHelperProvider {
             return 0;
         }
 
-        return CoreFileUploader.uploadOrReuploadFiles(files, AddonModDataProvider.COMPONENT, itemId, siteId);
+        return CoreFileUploader.uploadOrReuploadFiles(files, ADDON_MOD_DATA_COMPONENT_LEGACY, itemId, siteId);
+    }
+
+    /**
+     * Get data components to compile.
+     *
+     * @returns Database components to compile.
+     */
+    async getComponentsToCompile(): Promise<Type<unknown>[]> {
+        const { AddonModDataFieldPluginComponent } = await import('@addons/mod/data/components/field-plugin/field-plugin');
+        const { AddonModDataActionComponent } = await import('@addons/mod/data/components/action/action');
+
+        return [
+            AddonModDataFieldPluginComponent,
+            AddonModDataActionComponent,
+        ];
     }
 
 }

@@ -13,12 +13,13 @@
 // limitations under the License.
 
 import { Component, OnInit } from '@angular/core';
-import { CoreDomUtils } from '@services/utils/dom';
+import { CorePopovers } from '@services/overlays/popovers';
 import {
     CoreReminders,
     CoreRemindersService,
 } from '@features/reminders/services/reminders';
-import { CoreRemindersSetReminderMenuComponent } from '@features/reminders/components/set-reminder-menu/set-reminder-menu';
+import { REMINDERS_DISABLED } from '@features/reminders/constants';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * Page that displays the calendar settings.
@@ -26,8 +27,12 @@ import { CoreRemindersSetReminderMenuComponent } from '@features/reminders/compo
 @Component({
     selector: 'page-addon-calendar-settings',
     templateUrl: 'settings.html',
+    standalone: true,
+    imports: [
+        CoreSharedModule,
+    ],
 })
-export class AddonCalendarSettingsPage implements OnInit {
+export default class AddonCalendarSettingsPage implements OnInit {
 
     defaultTimeLabel = '';
 
@@ -51,7 +56,10 @@ export class AddonCalendarSettingsPage implements OnInit {
         e.stopImmediatePropagation();
         e.preventDefault();
 
-        const reminderTime = await CoreDomUtils.openPopover<{timeBefore: number}>({
+        const { CoreRemindersSetReminderMenuComponent } =
+            await import('@features/reminders/components/set-reminder-menu/set-reminder-menu');
+
+        const reminderTime = await CorePopovers.open<{timeBefore: number}>({
             component: CoreRemindersSetReminderMenuComponent,
             componentProps: {
                 initialValue: this.defaultTime,
@@ -65,7 +73,7 @@ export class AddonCalendarSettingsPage implements OnInit {
             return;
         }
 
-        await CoreReminders.setDefaultNotificationTime(reminderTime.timeBefore ?? CoreRemindersService.DISABLED);
+        await CoreReminders.setDefaultNotificationTime(reminderTime.timeBefore ?? REMINDERS_DISABLED);
         this.updateDefaultTimeLabel();
     }
 

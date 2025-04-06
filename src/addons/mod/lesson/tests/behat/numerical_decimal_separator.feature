@@ -1,4 +1,4 @@
-@addon_mod_lesson @app @javascript
+@addon_mod_lesson @app @mod @mod_lesson @javascript
 Feature: Test decimal separators in lesson
 
   Background:
@@ -78,7 +78,6 @@ Feature: Test decimal separators in lesson
     Then I should find "Congratulations - end of lesson reached" in the app
     And I should find "Your score is 1 (out of 1)." in the app
 
-  @lms_from4.0
   Scenario: Attempt an online lesson successfully as a student (custom separator) and review as teacher
     Given the following "language customisations" exist:
       | component       | stringid | value |
@@ -103,7 +102,7 @@ Feature: Test decimal separators in lesson
     When I press "Review lesson" in the app
     Then the field "Your answer" matches value "2,87" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Start" in the app
     And I set the field "Your answer" to "2.87" in the app
     And I press "Submit" in the app
@@ -117,6 +116,14 @@ Feature: Test decimal separators in lesson
 
     When I press "Review lesson" in the app
     Then the field "Your answer" matches value "2,87" in the app
+    And the following events should have been logged for "student1" in the app:
+      | name                                   | activity | activityname | object       | objectname            | course   |
+      | \mod_lesson\event\course_module_viewed | lesson   | Basic lesson |              |                       | Course 1 |
+      | \mod_lesson\event\lesson_started       | lesson   | Basic lesson |              |                       | Course 1 |
+      | \mod_lesson\event\lesson_ended         | lesson   | Basic lesson |              |                       | Course 1 |
+      | \mod_lesson\event\question_viewed      | lesson   | Basic lesson | lesson_pages | Hardest question ever | Course 1 |
+      | \mod_lesson\event\question_answered    | lesson   | Basic lesson | lesson_pages | Hardest question ever | Course 1 |
+      | \core\event\user_graded                |          |              |              |                       | Course 1 |
 
   Scenario: Attempt an offline lesson successfully as a student (standard separator)
     Given I entered the course "Course 1" as "student1" in the app
@@ -124,7 +131,7 @@ Feature: Test decimal separators in lesson
     And I press "Download" within "Offline lesson" "ion-item" in the app
     Then I should find "Downloaded" within "Offline lesson" "ion-item" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Offline lesson" in the app
     And I switch network connection to offline
     And I press "Start" in the app
@@ -146,7 +153,7 @@ Feature: Test decimal separators in lesson
     And I should find "Your score is 1 (out of 1)." in the app
 
     When I switch network connection to wifi
-    And I press the back button in the app
+    And I go back in the app
     Then I should find "An offline attempt was synchronised" in the app
 
   Scenario: Attempt an offline lesson successfully as a student (custom separator)
@@ -160,7 +167,7 @@ Feature: Test decimal separators in lesson
     And I press "Download" within "Offline lesson" "ion-item" in the app
     Then I should find "Downloaded" within "Offline lesson" "ion-item" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Offline lesson" in the app
     And I switch network connection to offline
     And I press "Start" in the app
@@ -177,7 +184,7 @@ Feature: Test decimal separators in lesson
     And I should find "Your score is 1 (out of 1)." in the app
 
     When I switch network connection to wifi
-    And I press the back button in the app
+    And I go back in the app
     Then I should find "An offline attempt was synchronised" in the app
 
     When I switch network connection to offline

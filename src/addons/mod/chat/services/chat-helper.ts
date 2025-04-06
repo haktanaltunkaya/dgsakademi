@@ -14,7 +14,7 @@
 
 import { Injectable } from '@angular/core';
 import { makeSingleton, Translate } from '@singletons';
-import moment from 'moment-timezone';
+import dayjs from 'dayjs';
 import { AddonModChatMessage, AddonModChatSessionMessage } from './chat';
 
 const patternTo = new RegExp(/^To\s([^:]+):(.*)/);
@@ -54,6 +54,9 @@ export class AddonModChatHelperProvider {
 
         formattedMessage.showDate = this.showDate(message, prevMessage);
         formattedMessage.beep = (message.message.substring(0, 5) == 'beep ' && message.message.substring(5).trim()) || undefined;
+        if (formattedMessage.beep && !isNaN(Number(formattedMessage.beep))) {
+            formattedMessage.beep = Number(formattedMessage.beep);
+        }
 
         formattedMessage.special = !!formattedMessage.beep || (<AddonModChatSessionMessage> message).issystem ||
             (<AddonModChatMessage> message).system;
@@ -121,7 +124,7 @@ export class AddonModChatHelperProvider {
         }
 
         // Check if day has changed.
-        return !moment(message.timestamp * 1000).isSame(prevMessage.timestamp * 1000, 'day');
+        return !dayjs.tz(message.timestamp * 1000).isSame(prevMessage.timestamp * 1000, 'day');
     }
 
 }
@@ -133,7 +136,7 @@ export const AddonModChatHelper = makeSingleton(AddonModChatHelperProvider);
  */
 type AddonModChatInfoForView = {
     showDate?: boolean; // If date should be displayed before the message.
-    beep?: string; // User id of the beeped user or 'all'.
+    beep?: string | number; // User id of the beeped user or 'all'.
     special?: boolean; // True if is an special message (system, beep or command).
     showUserData?: boolean; // If user data should be displayed.
     showTail?: boolean; // If tail should be displayed (decoration).

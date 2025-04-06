@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { toBoolean } from '@/core/transforms/boolean';
+import { effectWithInjectionContext } from '@/core/utils/signals';
 import {
     Component,
     Input,
@@ -32,12 +34,20 @@ import {
     AfterViewInit,
     Type,
     KeyValueDiffer,
+    Injector,
+    EffectRef,
+    EffectCleanupRegisterFn,
+    CreateEffectOptions,
 } from '@angular/core';
 import { CorePromisedValue } from '@classes/promised-value';
 
 import { CoreCompile } from '@features/compile/services/compile';
-import { CoreDomUtils } from '@services/utils/dom';
-import { CoreUtils } from '@services/utils/utils';
+import { CoreAngular } from '@singletons/angular';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreWS } from '@services/ws';
+import { CoreDom } from '@singletons/dom';
+import { CoreAlerts } from '@services/overlays/alerts';
+import { CoreSharedModule } from '@/core/shared.module';
 
 /**
  * This component has a behaviour similar to $compile for AngularJS. Given an HTML code, it will compile it so all its
@@ -47,7 +57,7 @@ import { CoreUtils } from '@services/utils/utils';
  * component is used, so it can slow down the app.
  *
  * This component has its own module to prevent circular dependencies. If you want to use it,
- * you need to import CoreCompileHtmlComponentModule.
+ * you need to import CoreCompileHtmlComponent.
  *
  * You can provide some Javascript code (as text) to be executed inside the component. The context of the javascript code (this)
  * will be the component instance created to compile the template. This means your javascript code can interact with the template.
@@ -58,15 +68,19 @@ import { CoreUtils } from '@services/utils/utils';
     selector: 'core-compile-html',
     template: '<core-loading [hideUntil]="loaded"><ng-container #dynamicComponent /></core-loading>',
     styles: [':host { display: contents; }'],
+    standalone: true,
+    imports: [CoreSharedModule],
 })
 export class CoreCompileHtmlComponent implements OnChanges, OnDestroy, DoCheck {
 
-    @Input() text!: string; // The HTML text to display.
+    @Input({ required: true }) text!: string; // The HTML text to display.
     @Input() javascript?: string; // The Javascript to execute in the component.
     @Input() jsData?: Record<string, unknown>; // Data to pass to the fake component.
+    @Input() cssCode?: string; // The styles to apply.
+    @Input() stylesPath?: string; // The styles URL to apply (only if cssCode is not set).
     @Input() extraImports: unknown[] = []; // Extra import modules.
     @Input() extraProviders: Type<unknown>[] = []; // Extra providers.
-    @Input() forceCompile = false; // Set it to true to force compile even if the text/javascript hasn't changed.
+    @Input({ transform: toBoolean }) forceCompile = false; // True to force compile even if the text/javascript hasn't changed.
     @Output() created = new EventEmitter<unknown>(); // Will emit an event when the component is instantiated.
     @Output() compiling = new EventEmitter<boolean>(); // Event that indicates whether the template is being compiled.
 
@@ -81,9 +95,11 @@ export class CoreCompileHtmlComponent implements OnChanges, OnDestroy, DoCheck {
     protected differ: KeyValueDiffer<unknown, unknown>; // To detect changes in the jsData input.
     protected creatingComponent = false;
     protected pendingCalls = {};
+    protected componentStyles = '';
 
     constructor(
         protected changeDetector: ChangeDetectorRef,
+        protected injector: Injector,
         element: ElementRef,
         differs: KeyValueDiffers,
     ) {
@@ -101,12 +117,13 @@ export class CoreCompileHtmlComponent implements OnChanges, OnDestroy, DoCheck {
 
         // Check if there's any change in the jsData object.
         const changes = this.differ.diff(this.jsData || {});
-        if (changes) {
-            this.setInputData();
+        if (!changes) {
+            return;
+        }
+        this.setInputData();
 
-            if (this.componentInstance.ngOnChanges) {
-                this.componentInstance.ngOnChanges(CoreDomUtils.createChangesFromKeyValueDiff(changes));
-            }
+        if (this.componentInstance.ngOnChanges) {
+            this.componentInstance.ngOnChanges(CoreAngular.createChangesFromKeyValueDiff(changes));
         }
     }
 
@@ -116,7 +133,8 @@ export class CoreCompileHtmlComponent implements OnChanges, OnDestroy, DoCheck {
     async ngOnChanges(changes: Record<string, SimpleChange>): Promise<void> {
         // Only compile if text/javascript has changed or the forceCompile flag has been set to true.
         if (this.text === undefined ||
-            !(changes.text || changes.javascript || (changes.forceCompile && CoreUtils.isTrueOrOne(this.forceCompile)))) {
+            !(changes.text || changes.javascript || changes.cssCode || changes.stylesPath ||
+                (changes.forceCompile && this.forceCompile))) {
             return;
         }
 
@@ -132,11 +150,14 @@ export class CoreCompileHtmlComponent implements OnChanges, OnDestroy, DoCheck {
 
             // Create the component.
             if (this.container) {
+                await this.loadCSSCode();
+
                 this.componentRef = await CoreCompile.createAndCompileComponent(
                     this.text,
                     componentClass,
                     this.container,
                     this.extraImports,
+                    this.componentStyles,
                 );
 
                 this.element.addEventListener('submit', (event) => {
@@ -147,7 +168,7 @@ export class CoreCompileHtmlComponent implements OnChanges, OnDestroy, DoCheck {
 
             this.loaded = true;
         } catch (error) {
-            CoreDomUtils.showErrorModal(error);
+            CoreAlerts.showError(error);
 
             this.loaded = true;
         } finally {
@@ -164,6 +185,39 @@ export class CoreCompileHtmlComponent implements OnChanges, OnDestroy, DoCheck {
     }
 
     /**
+     * Retrieve the CSS code from the stylesPath if not loaded yet.
+     */
+    protected async loadCSSCode(): Promise<void> {
+        // Do not allow (yet) to load CSS code to a component that doesn't have text.
+        if (!this.text) {
+            this.componentStyles = '';
+
+            return;
+        }
+
+        if (this.stylesPath && !this.cssCode) {
+            this.cssCode = await CorePromiseUtils.ignoreErrors(CoreWS.getText(this.stylesPath));
+        }
+
+        // Prepend all CSS rules with :host to avoid conflicts.
+        if (!this.cssCode || this.cssCode.includes(':host')) {
+            this.componentStyles = this.cssCode ?? '';
+
+            return;
+        }
+
+        // Prefix all CSS rules with the host attribute and [compiled-component-id].
+        // We need [compiled-component-id] to increase the specificity of the prefix to 0,2,0.
+        // This way rules added by the parent component using a class has the same base
+        // specificity and do not override the added rules.
+        this.componentStyles = CoreDom.prefixCSS(
+            this.cssCode,
+            ':host([compiled-component-id]) ::ng-deep',
+            ':host([compiled-component-id])',
+        );
+    }
+
+    /**
      * Get a class that defines the dynamic component.
      *
      * @returns The component class.
@@ -171,12 +225,13 @@ export class CoreCompileHtmlComponent implements OnChanges, OnDestroy, DoCheck {
     protected async getComponentClass(): Promise<Type<unknown>> {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         const compileInstance = this;
-        const lazyLibraries = await CoreCompile.getLazyLibraries();
+        await CoreCompile.loadLibraries();
 
         // Create the component, using the text as the template.
         return class CoreCompileHtmlFakeComponent implements OnInit, AfterContentInit, AfterViewInit, OnDestroy {
 
             private ongoingLifecycleHooks: Set<keyof AfterViewInit | keyof AfterContentInit | keyof OnDestroy> = new Set();
+            protected effectRefs: EffectRef[] = [];
 
             constructor() {
                 // Store this instance so it can be accessed by the outer component.
@@ -186,11 +241,25 @@ export class CoreCompileHtmlComponent implements OnChanges, OnDestroy, DoCheck {
                 this['dataObject'] = {};
                 this['dataArray'] = [];
 
+                const effectWithContext = effectWithInjectionContext(compileInstance.injector);
+
                 // Inject the libraries.
-                CoreCompile.injectLibraries(this, [
-                    ...lazyLibraries,
-                    ...compileInstance.extraProviders,
-                ]);
+                CoreCompile.injectLibraries(this, {
+                    extraLibraries: compileInstance.extraProviders,
+                    injector: compileInstance.injector,
+                    // Capture calls to effect to retrieve the effectRefs and destroy them when this component is destroyed.
+                    // Otherwise effects are only destroyed when the parent component is destroyed.
+                    effectWrapper: (
+                        effectFn: (onCleanup: EffectCleanupRegisterFn) => void,
+                        options?: Omit<CreateEffectOptions, 'injector'>,
+                    ): EffectRef => {
+                        const effectRef = effectWithContext(effectFn, options);
+
+                        this.effectRefs.push(effectRef);
+
+                        return effectRef;
+                    },
+                });
 
                 // Always add these elements, they could be needed on component init (componentObservable).
                 this['ChangeDetectorRef'] = compileInstance.changeDetector;
@@ -244,6 +313,9 @@ export class CoreCompileHtmlComponent implements OnChanges, OnDestroy, DoCheck {
              * @inheritdoc
              */
             ngOnDestroy(): void {
+                this.effectRefs.forEach(effectRef => effectRef.destroy());
+                this.effectRefs = [];
+
                 this.callLifecycleHookOverride('ngOnDestroy');
             }
 

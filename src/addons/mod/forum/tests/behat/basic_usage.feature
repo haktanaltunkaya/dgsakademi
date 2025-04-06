@@ -1,4 +1,4 @@
-@addon_mod_forum @app @javascript
+@addon_mod_forum @app @mod @mod_forum @javascript
 Feature: Test basic usage of forum activity in app
   In order to participate in the forum while using the mobile app
   As a student
@@ -66,6 +66,12 @@ Feature: Test basic usage of forum activity in app
     And I press "Post to forum" in the app
     Then I should find "Initial discussion message" in the app
     And I should find "ReplyMessage" in the app
+    And the following events should have been logged for "student1" in the app:
+      | name                                             | activity | activityname    | course   |
+      | \mod_forum\event\course_module_viewed            | forum    | Test forum name | Course 1 |
+      | \mod_forum\event\assessable_uploaded             | forum    | Test forum name | Course 1 |
+      | \mod_forum\event\post_created                    | forum    | Test forum name | Course 1 |
+      | \mod_forum\event\discussion_subscription_created | forum    | Test forum name | Course 1 |
 
   Scenario: Star and pin discussions (student)
     Given I entered the forum activity "Test forum name" on course "Course 1" as "student1" in the app
@@ -103,7 +109,7 @@ Feature: Test basic usage of forum activity in app
     When I press "Initial discussion" in the app
     Then I should find "Reply" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I switch network connection to offline
     And I press "Initial discussion" in the app
     And I press "Reply" in the app
@@ -119,7 +125,7 @@ Feature: Test basic usage of forum activity in app
     And I should find "This Discussion has offline data to be synchronised" in the app
 
     When I switch network connection to wifi
-    And I press the back button in the app
+    And I go back in the app
     And I press "Initial discussion" in the app
     Then I should not find "Not sent" in the app
     And I should not find "This Discussion has offline data to be synchronised" in the app
@@ -231,7 +237,7 @@ Feature: Test basic usage of forum activity in app
     And I should find "Average of ratings: 1" in the app
 
     When I switch network connection to wifi
-    And I press the back button in the app
+    And I go back in the app
     Then I should find "This Forum has offline data to be synchronised." in the app
 
     When I press "Information" in the app
@@ -262,7 +268,7 @@ Feature: Test basic usage of forum activity in app
     And I should find "ReplyMessage" in the app
     And I should find "Not sent" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I switch network connection to wifi
     And I press "Initial discussion" in the app
     Then I should find "Initial discussion message" in the app
@@ -270,7 +276,8 @@ Feature: Test basic usage of forum activity in app
     But I should not find "Not sent" in the app
 
   Scenario: New discussion offline & Sync Forum
-    Given I entered the forum activity "Test forum name" on course "Course 1" as "student1" in the app
+    Given I entered the course "Course 1" as "student1" in the app
+    And I press "Test forum name" in the app
     When I switch network connection to offline
     And I press "Add discussion topic" in the app
     And I set the following fields to these values in the app:
@@ -282,7 +289,7 @@ Feature: Test basic usage of forum activity in app
     And I should find "This Forum has offline data to be synchronised." in the app
 
     When I switch network connection to wifi
-    And I press the back button in the app
+    And I go back in the app
     And I press "Test forum name" in the app
     And I press "Information" in the app
     And I press "Refresh" in the app
@@ -321,7 +328,7 @@ Feature: Test basic usage of forum activity in app
     And I press "Download" within "Test forum name" "ion-item" in the app
     Then I should find "Downloaded" within "Test forum name" "ion-item" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I switch network connection to offline
     And I press "Test forum name" in the app
     Then I should find "Initial discussion" in the app
@@ -330,16 +337,16 @@ Feature: Test basic usage of forum activity in app
     Then I should find "Initial discussion" in the app
     And I should find "Initial discussion message" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Add discussion topic" in the app
     Then I should not find "There was a problem connecting to the site. Please check your connection and try again." in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Sort by last post creation date in descending order" in the app
     And I press "Sort by last post creation date in ascending order" in the app
     Then I should find "Forum not available in this sorting order" in the app
 
-    When I press the back button in the app
+    When I go back in the app
     And I press "Test forum name" in the app
     Then I should find "Forum not available in this sorting order" in the app
     And I should find "Sort by last post creation date in ascending order" in the app

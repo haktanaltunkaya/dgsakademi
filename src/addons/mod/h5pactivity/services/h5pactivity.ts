@@ -16,22 +16,27 @@ import { Injectable } from '@angular/core';
 
 import { CoreSites, CoreSitesCommonWSOptions, CoreSitesReadingStrategy } from '@services/sites';
 import { CoreWSExternalWarning, CoreWSExternalFile, CoreWSFile } from '@services/ws';
-import { CoreUtils } from '@services/utils/utils';
 import { CoreSite } from '@classes/sites/site';
 import { CoreCourseLogHelper } from '@features/course/services/log-helper';
 import { CoreH5P } from '@features/h5p/services/h5p';
 import { CoreH5PDisplayOptions } from '@features/h5p/classes/core';
 import { CoreCourseCommonModWSOptions } from '@features/course/services/course';
-import { makeSingleton, Translate } from '@singletons/index';
+import { makeSingleton } from '@singletons/index';
 import { CoreWSError } from '@classes/errors/wserror';
 import { CoreError } from '@classes/errors/error';
-import { AddonModH5PActivityAutoSyncData, AddonModH5PActivitySyncProvider } from './h5pactivity-sync';
 import { CoreTime } from '@singletons/time';
 import { CoreSiteWSPreSets } from '@classes/sites/authenticated-site';
-
-export const MOD_H5PACTIVITY_STATE_ID = 'state';
-
-const ROOT_CACHE_KEY = 'mmaModH5PActivity:';
+import {
+    ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY,
+    ADDON_MOD_H5PACTIVITY_USERS_PER_PAGE,
+    AddonModH5PActivityGradeMethod,
+} from '../constants';
+import { CoreCacheUpdateFrequency } from '@/core/constants';
+import { CoreFileHelper } from '@services/file-helper';
+import { CorePromiseUtils } from '@singletons/promise-utils';
+import { CoreH5PMissingDependencyDBRecord } from '@features/h5p/services/database/h5p';
+import { CoreTextFormat } from '@singletons/text';
+import { CoreCourseModuleHelper } from '@features/course/services/course-module-helper';
 
 /**
  * Service that provides some features for H5P activity.
@@ -39,16 +44,7 @@ const ROOT_CACHE_KEY = 'mmaModH5PActivity:';
 @Injectable({ providedIn: 'root' })
 export class AddonModH5PActivityProvider {
 
-    static readonly COMPONENT = 'mmaModH5PActivity';
-    static readonly TRACK_COMPONENT = 'mod_h5pactivity'; // Component for tracking.
-    static readonly USERS_PER_PAGE = 20;
-
-    // Grade type constants.
-    static readonly GRADEMANUAL = 0; // No automathic grading using attempt results.
-    static readonly GRADEHIGHESTATTEMPT = 1; // Use highest attempt results for grading.
-    static readonly GRADEAVERAGEATTEMPT = 2; // Use average attempt results for grading.
-    static readonly GRADELASTATTEMPT = 3; // Use last attempt results for grading.
-    static readonly GRADEFIRSTATTEMPT = 4; // Use first attempt results for grading.
+    protected static readonly ROOT_CACHE_KEY = 'mmaModH5PActivity:';
 
     /**
      * Check if a certain site allows viewing list of users and their attempts.
@@ -151,7 +147,7 @@ export class AddonModH5PActivityProvider {
      * @returns Cache key.
      */
     protected getAccessInformationCacheKey(id: number): string {
-        return ROOT_CACHE_KEY + 'accessInfo:' + id;
+        return `${AddonModH5PActivityProvider.ROOT_CACHE_KEY}accessInfo:${id}`;
     }
 
     /**
@@ -169,8 +165,8 @@ export class AddonModH5PActivityProvider {
         };
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getAccessInformationCacheKey(id),
-            updateFrequency: CoreSite.FREQUENCY_OFTEN,
-            component: AddonModH5PActivityProvider.COMPONENT,
+            updateFrequency: CoreCacheUpdateFrequency.OFTEN,
+            component: ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY,
             componentId: options.cmId,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
@@ -250,16 +246,16 @@ export class AddonModH5PActivityProvider {
      *
      * @param id H5P Activity ID.
      * @param options Options.
-     * @returns Promise resolved with list of users and whether can load more attempts.
+     * @returns Promise resolved with list of users, whether can load more attempts, and total number of attempts.
      * @since 3.11
      */
     async getUsersAttempts(
         id: number,
         options?: AddonModH5PActivityGetUsersAttemptsOptions,
-    ): Promise<{users: AddonModH5PActivityUserAttempts[]; canLoadMore: boolean}> {
+    ): Promise<{users: AddonModH5PActivityUserAttempts[]; canLoadMore: boolean; totalAttempts?: number}> {
         options = options || {};
         options.page = options.page || 0;
-        options.perPage = options.perPage ?? AddonModH5PActivityProvider.USERS_PER_PAGE;
+        options.perPage = options.perPage ?? ADDON_MOD_H5PACTIVITY_USERS_PER_PAGE;
 
         const site = await CoreSites.getSite(options.siteId);
 
@@ -273,8 +269,8 @@ export class AddonModH5PActivityProvider {
         };
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getUsersAttemptsCacheKey(id, options),
-            updateFrequency: CoreSite.FREQUENCY_SOMETIMES,
-            component: AddonModH5PActivityProvider.COMPONENT,
+            updateFrequency: CoreCacheUpdateFrequency.SOMETIMES,
+            component: ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY,
             componentId: options.cmId,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
@@ -298,6 +294,7 @@ export class AddonModH5PActivityProvider {
         return {
             canLoadMore: canLoadMore,
             users: response.usersattempts.map(userAttempts => this.formatUserAttempts(userAttempts)),
+            totalAttempts: response.totalattempts,
         };
     }
 
@@ -320,7 +317,7 @@ export class AddonModH5PActivityProvider {
      * @returns Cache key.
      */
     protected getUsersAttemptsCommonCacheKey(id: number): string {
-        return ROOT_CACHE_KEY + 'userAttempts:' + id;
+        return `${AddonModH5PActivityProvider.ROOT_CACHE_KEY}userAttempts:${id}`;
     }
 
     /**
@@ -341,7 +338,7 @@ export class AddonModH5PActivityProvider {
      * @returns Cache key.
      */
     protected getAttemptResultsCommonCacheKey(id: number): string {
-        return ROOT_CACHE_KEY + 'results:' + id;
+        return `${AddonModH5PActivityProvider.ROOT_CACHE_KEY}results:${id}`;
     }
 
     /**
@@ -369,8 +366,8 @@ export class AddonModH5PActivityProvider {
 
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getAttemptResultsCacheKey(id, params.attemptids),
-            updateFrequency: CoreSite.FREQUENCY_SOMETIMES,
-            component: AddonModH5PActivityProvider.COMPONENT,
+            updateFrequency: CoreCacheUpdateFrequency.SOMETIMES,
+            component: ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY,
             componentId: options.cmId,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
@@ -388,7 +385,7 @@ export class AddonModH5PActivityProvider {
 
             return this.formatAttemptResults(response.attempts[0]);
         } catch (error) {
-            if (CoreUtils.isWebServiceError(error)) {
+            if (CoreWSError.isWebServiceError(error)) {
                 throw error;
             }
 
@@ -434,8 +431,8 @@ export class AddonModH5PActivityProvider {
         };
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getAttemptResultsCommonCacheKey(id),
-            updateFrequency: CoreSite.FREQUENCY_SOMETIMES,
-            component: AddonModH5PActivityProvider.COMPONENT,
+            updateFrequency: CoreCacheUpdateFrequency.SOMETIMES,
+            component: ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY,
             componentId: options.cmId,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
@@ -491,7 +488,7 @@ export class AddonModH5PActivityProvider {
      * @returns Cache key.
      */
     protected getH5PActivityDataCacheKey(courseId: number): string {
-        return ROOT_CACHE_KEY + 'h5pactivity:' + courseId;
+        return `${AddonModH5PActivityProvider.ROOT_CACHE_KEY}h5pactivity:${courseId}`;
     }
 
     /**
@@ -505,8 +502,8 @@ export class AddonModH5PActivityProvider {
      */
     protected async getH5PActivityByField(
         courseId: number,
-        key: string,
-        value: unknown,
+        key: 'coursemodule' | 'context' | 'id',
+        value: number,
         options: CoreSitesCommonWSOptions = {},
     ): Promise<AddonModH5PActivityData> {
 
@@ -517,8 +514,8 @@ export class AddonModH5PActivityProvider {
         };
         const preSets: CoreSiteWSPreSets = {
             cacheKey: this.getH5PActivityDataCacheKey(courseId),
-            updateFrequency: CoreSite.FREQUENCY_RARELY,
-            component: AddonModH5PActivityProvider.COMPONENT,
+            updateFrequency: CoreCacheUpdateFrequency.RARELY,
+            component: ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY,
             ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
         };
 
@@ -528,16 +525,12 @@ export class AddonModH5PActivityProvider {
             preSets,
         );
 
-        const currentActivity = response.h5pactivities.find((h5pActivity) => h5pActivity[key] == value);
+        const currentActivity = CoreCourseModuleHelper.getActivityByField(response.h5pactivities, key, value);
 
-        if (currentActivity) {
-            return {
-                ...currentActivity,
-                ...response.h5pglobalsettings,
-            };
-        }
-
-        throw new CoreError(Translate.instant('core.course.modulenotfound'));
+        return {
+            ...currentActivity,
+            ...response.h5pglobalsettings,
+        };
     }
 
     /**
@@ -581,6 +574,49 @@ export class AddonModH5PActivityProvider {
     }
 
     /**
+     * Get missing dependencies for a certain H5P activity.
+     *
+     * @param componentId Component ID.
+     * @param deployedFile File to check.
+     * @param siteId Site ID. If not defined, current site.
+     * @returns Missing dependencies, empty if no missing dependencies.
+     */
+    async getMissingDependencies(
+        componentId: number,
+        deployedFile: CoreWSFile,
+        siteId?: string,
+    ): Promise<CoreH5PMissingDependencyDBRecord[]> {
+        const fileUrl = CoreFileHelper.getFileUrl(deployedFile);
+
+        const missingDependencies =
+            await CoreH5P.h5pFramework.getMissingDependenciesForComponent(
+                ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY,
+                componentId,
+                siteId,
+            );
+        if (!missingDependencies.length) {
+            return [];
+        }
+
+        // The activity had missing dependencies, but the package could have changed (e.g. the teacher fixed it).
+        // Check which of the dependencies apply to the current package.
+        const fileId = await CoreH5P.h5pFramework.getFileIdForMissingDependencies(fileUrl, siteId);
+
+        const filteredMissingDependencies = missingDependencies.filter(dependency =>
+            dependency.fileid === fileId && dependency.filetimemodified === deployedFile.timemodified);
+        if (filteredMissingDependencies.length > 0) {
+            return filteredMissingDependencies;
+        }
+
+        // Package has changed, delete previous missing dependencies.
+        await CorePromiseUtils.ignoreErrors(
+            CoreH5P.h5pFramework.deleteMissingDependenciesForComponent(ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY, componentId, siteId),
+        );
+
+        return [];
+    }
+
+    /**
      * Get cache key for attemps WS calls.
      *
      * @param id Instance ID.
@@ -598,7 +634,7 @@ export class AddonModH5PActivityProvider {
      * @returns Cache key.
      */
     protected getUserAttemptsCommonCacheKey(id: number): string {
-        return ROOT_CACHE_KEY + 'attempts:' + id;
+        return `${AddonModH5PActivityProvider.ROOT_CACHE_KEY}attempts:${id}`;
     }
 
     /**
@@ -624,8 +660,8 @@ export class AddonModH5PActivityProvider {
 
             const preSets: CoreSiteWSPreSets = {
                 cacheKey: this.getUserAttemptsCacheKey(id, params.userids),
-                updateFrequency: CoreSite.FREQUENCY_SOMETIMES,
-                component: AddonModH5PActivityProvider.COMPONENT,
+                updateFrequency: CoreCacheUpdateFrequency.SOMETIMES,
+                component: ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY,
                 componentId: options.cmId,
                 ...CoreSites.getReadingStrategyPreSets(options.readingStrategy), // Include reading strategy preSets.
             };
@@ -642,7 +678,7 @@ export class AddonModH5PActivityProvider {
 
             return this.formatUserAttempts(response.usersattempts[0]);
         } catch (error) {
-            if (CoreUtils.isWebServiceError(error)) {
+            if (CoreWSError.isWebServiceError(error)) {
                 throw error;
             }
 
@@ -668,11 +704,24 @@ export class AddonModH5PActivityProvider {
     }
 
     /**
+     * Check if a package has missing dependencies.
+     *
+     * @param componentId Component ID.
+     * @param deployedFile File to check.
+     * @param siteId Site ID. If not defined, current site.
+     * @returns Whether the package has missing dependencies.
+     */
+    async hasMissingDependencies(componentId: number, deployedFile: CoreWSFile, siteId?: string): Promise<boolean> {
+        const missingDependencies = await this.getMissingDependencies(componentId, deployedFile, siteId);
+
+        return missingDependencies.length > 0;
+    }
+
+    /**
      * Invalidates access information.
      *
      * @param id H5P activity ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateAccessInformation(id: number, siteId?: string): Promise<void> {
 
@@ -686,7 +735,6 @@ export class AddonModH5PActivityProvider {
      *
      * @param courseId Course ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateActivityData(courseId: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -699,7 +747,6 @@ export class AddonModH5PActivityProvider {
      *
      * @param id Activity ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateAllResults(id: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -713,7 +760,6 @@ export class AddonModH5PActivityProvider {
      * @param id Activity ID.
      * @param attemptId Attempt ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateAttemptResults(id: number, attemptId: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -726,7 +772,6 @@ export class AddonModH5PActivityProvider {
      *
      * @param id Activity ID.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateAllUsersAttempts(id: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -740,7 +785,6 @@ export class AddonModH5PActivityProvider {
      * @param id Activity ID.
      * @param userId User ID. If not defined, current user in the site.
      * @param siteId Site ID. If not defined, current site.
-     * @returns Promise resolved when the data is invalidated.
      */
     async invalidateUserAttempts(id: number, userId?: number, siteId?: string): Promise<void> {
         const site = await CoreSites.getSite(siteId);
@@ -788,7 +832,7 @@ export class AddonModH5PActivityProvider {
         return CoreCourseLogHelper.log(
             'mod_h5pactivity_view_h5pactivity',
             params,
-            AddonModH5PActivityProvider.COMPONENT,
+            ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY,
             id,
             siteId,
         );
@@ -818,7 +862,7 @@ export class AddonModH5PActivityProvider {
         return CoreCourseLogHelper.log(
             'mod_h5pactivity_log_report_viewed',
             params,
-            AddonModH5PActivityProvider.COMPONENT,
+            ADDON_MOD_H5PACTIVITY_COMPONENT_LEGACY,
             id,
             site.getId(),
         );
@@ -838,11 +882,11 @@ export type AddonModH5PActivityWSData = {
     timecreated?: number; // Timestamp of when the instance was added to the course.
     timemodified?: number; // Timestamp of when the instance was last modified.
     intro: string; // H5P activity description.
-    introformat: number; // Intro format (1 = HTML, 0 = MOODLE, 2 = PLAIN or 4 = MARKDOWN).
+    introformat: CoreTextFormat; // Intro format (1 = HTML, 0 = MOODLE, 2 = PLAIN or 4 = MARKDOWN).
     grade?: number; // The maximum grade for submission.
     displayoptions: number; // H5P Button display options.
     enabletracking: number; // Enable xAPI tracking.
-    grademethod: number; // Which H5P attempt is used for grading.
+    grademethod: AddonModH5PActivityGradeMethod; // Which H5P attempt is used for grading.
     contenthash?: string; // Sha1 hash of file content.
     coursemodule: number; // Coursemodule.
     context: number; // Context ID.
@@ -1122,6 +1166,7 @@ export type AddonModH5pactivityGetUserAttemptsWSParams = {
 export type AddonModH5pactivityGetUserAttemptsWSResponse = {
     activityid: number; // Activity course module ID.
     usersattempts: AddonModH5PActivityWSUserAttempts[]; // The complete users attempts list.
+    totalattempts?: number; // @since 4.5. Total number of attempts.
     warnings?: CoreWSExternalWarning[];
 };
 
@@ -1142,19 +1187,6 @@ export type AddonModH5PActivityGetUsersAttemptsOptions = CoreCourseCommonModWSOp
 export type AddonModH5PActivityGetAllUsersAttemptsOptions = AddonModH5PActivityGetUsersAttemptsOptions & {
     dontFailOnError?: boolean; // If true the function will return the users it's able to retrieve, until a call fails.
 };
-
-declare module '@singletons/events' {
-
-    /**
-     * Augment CoreEventsData interface with events specific to this service.
-     *
-     * @see https://www.typescriptlang.org/docs/handbook/declaration-merging.html#module-augmentation
-     */
-    export interface CoreEventsData {
-        [AddonModH5PActivitySyncProvider.AUTO_SYNCED]: AddonModH5PActivityAutoSyncData;
-    }
-
-}
 
 /**
  * Data to be sent using xAPI.

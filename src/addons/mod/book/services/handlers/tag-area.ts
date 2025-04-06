@@ -14,13 +14,13 @@
 
 import { Injectable, Type } from '@angular/core';
 import { CoreCourse } from '@features/course/services/course';
-import { CoreTagFeedComponent } from '@features/tag/components/feed/feed';
 import { CoreTagAreaHandler } from '@features/tag/services/tag-area-delegate';
 import { CoreTagFeedElement, CoreTagHelper } from '@features/tag/services/tag-helper';
 import { CoreSitesReadingStrategy } from '@services/sites';
-import { CoreUrlUtils } from '@services/utils/url';
+import { CoreUrl } from '@singletons/url';
 import { makeSingleton } from '@singletons';
 import { AddonModBook } from '../book';
+import { ADDON_MOD_BOOK_MODNAME } from '../../constants';
 
 /**
  * Handler to support tags.
@@ -51,16 +51,16 @@ export class AddonModBookTagAreaHandlerService implements CoreTagAreaHandler {
 
         // Find module ids of the returned books, they are needed by the link delegate.
         await Promise.all(items.map(async (item) => {
-            const params = item.url ? CoreUrlUtils.extractUrlParams(item.url) : {};
+            const params = item.url ? CoreUrl.extractUrlParams(item.url) : {};
             if (params.b && !params.id) {
                 const bookId = parseInt(params.b, 10);
 
                 const module = await CoreCourse.getModuleBasicInfoByInstance(
                     bookId,
-                    'book',
+                    ADDON_MOD_BOOK_MODNAME,
                     { readingStrategy: CoreSitesReadingStrategy.PREFER_CACHE },
                 );
-                item.url += '&id=' + module.id;
+                item.url += `&id=${module.id}`;
             }
         }));
 
@@ -68,11 +68,11 @@ export class AddonModBookTagAreaHandlerService implements CoreTagAreaHandler {
     }
 
     /**
-     * Get the component to use to display items.
-     *
-     * @returns The component (or promise resolved with component) to use, undefined if not found.
+     * @inheritdoc
      */
-    getComponent(): Type<unknown> | Promise<Type<unknown>> {
+    async getComponent(): Promise<Type<unknown>> {
+        const { CoreTagFeedComponent } = await import('@features/tag/components/feed/feed');
+
         return CoreTagFeedComponent;
     }
 
