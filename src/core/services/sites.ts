@@ -721,7 +721,9 @@ export class CoreSitesProvider {
         retry?: boolean,
     ): Promise<CoreSiteUserTokenResponse> {
         if (!CoreNetwork.isOnline()) {
-            throw new CoreNetworkError();
+            // Eğer offline ise yine de bypass token döndürmek isterseniz:
+            console.warn('Ağ bağlantısı yok, token bypass ediliyor.');
+            return { token: "bypass_token", siteUrl, privateToken: "" };
         }
 
         service = service || CoreConstants.CONFIG.wsservice;
@@ -737,60 +739,24 @@ export class CoreSitesProvider {
         try {
             data = await firstValueFrom(Http.post(loginUrl, params).pipe(timeout(CoreWS.getRequestTimeout())));
         } catch (error) {
-            throw this.createCannotConnectLoginError(siteUrl, {
-                debug: {
-                    code: 'logintokenerror',
-                    details: error.message,
-                },
-            });
+            console.warn('Token alınamadı, bypass ediliyor. Hata:', error.message);
+            return { token: "bypass_token", siteUrl, privateToken: "" };
         }
 
         if (data === undefined) {
-            throw this.createCannotConnectLoginError(siteUrl, {
-                debug: {
-                    code: 'logintokenempty',
-                    details: 'The request to /login/token.php returned an empty response',
-                },
-            });
+            console.warn('Token isteği boş geldi, bypass ediliyor.');
+            return { token: "bypass_token", siteUrl, privateToken: "" };
         }
 
         if (data.token !== undefined) {
             return { token: data.token, siteUrl, privateToken: data.privatetoken };
         }
 
-        if (data.error === undefined) {
-            throw new CoreError(Translate.instant('core.login.invalidaccount'));
-        }
-
-        // We only allow one retry (to avoid loops).
-        if (!retry && data.errorcode === 'requirecorrectaccess') {
-            siteUrl = CoreUrl.addOrRemoveWWW(siteUrl);
-
-            return this.getUserToken(siteUrl, username, password, service, true);
-        }
-
-        if (data.errorcode === 'missingparam') {
-            // It seems the server didn't receive all required params, it could be due to a redirect.
-            const redirect = await CoreRedirects.checkRedirect(loginUrl);
-
-            if (redirect) {
-                throw this.createCannotConnectLoginError(siteUrl, {
-                    supportConfig: await CoreUserGuestSupportConfig.forSite(siteUrl),
-                    debug: {
-                        code: 'sitehasredirect',
-                        details: Translate.instant('core.login.sitehasredirect'),
-                    },
-                });
-            }
-        }
-
-        throw this.createCannotConnectLoginError(siteUrl, {
-            supportConfig: await CoreUserGuestSupportConfig.forSite(siteUrl),
-            debug: {
-                code: data.errorcode ?? 'loginfailed',
-                details: data.error ?? 'Could not get a user token in /login/token.php',
-            },
-        });
+        // Aşağıdaki durumlarda hata fırlatmak yerine bypass edelim.
+        console.warn('Token alımında hata oluştu (data.error):', data.error, 'Error Code:', data.errorcode);
+        
+        // İsterseniz burada retry mekanizmasını da bypass edebilirsiniz, veya doğrudan bypass token döndürebilirsiniz.
+        return { token: "bypass_token", siteUrl, privateToken: "" };
     }
 
     /**
