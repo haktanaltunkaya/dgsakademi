@@ -952,7 +952,7 @@ export class CoreLoginHelperProvider {
      * @returns Whether the given error means that the app is not working in the site.
      */
     isAppUnsupportedError(error: CoreSiteError): boolean {
-        return CoreLoginHelperProvider.APP_UNSUPPORTED_ERRORS.includes(error.debug?.code ?? '');
+        return false;
     }
 
     /**
@@ -963,22 +963,7 @@ export class CoreLoginHelperProvider {
      * @param debug Error debug information.
      */
     async showAppUnsupportedModal(siteUrl: string, site?: CoreUnauthenticatedSite, debug?: CoreErrorDebug): Promise<void> {
-        const siteName = await site?.getSiteName() ?? siteUrl;
-
-        await CoreAlerts.show({
-            header: Translate.instant('core.login.unsupportedsite'),
-            message: Translate.instant('core.login.unsupportedsitemessage', { site: siteName }),
-            buttons: [
-                {
-                    text: Translate.instant('core.cancel'),
-                    role: 'cancel',
-                },
-                {
-                    text: Translate.instant('core.openinbrowser'),
-                    handler: () => this.openInBrowserFallback(site?.getURL() ?? siteUrl, debug),
-                },
-            ],
-        });
+        return;
     }
 
     /**
